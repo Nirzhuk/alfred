@@ -120,6 +120,11 @@ bun run check    # frontend tests/build + Rust tests
 
 Frontend Vite is started automatically by Tauri (`dev:frontend` / `build:frontend`). Do not use Vite alone as a website.
 
+To inspect startup timing, run `ALFRED_STARTUP_TRACE=1 bun run dev`. The terminal
+reports native setup, window reveal, and background runtime verification times.
+Bundled runtime checks run in the background; schedules and event triggers start
+after those checks finish.
+
 The complete platform prerequisites and expected artifact paths are in
 [docs/building-from-source.md](docs/building-from-source.md).
 

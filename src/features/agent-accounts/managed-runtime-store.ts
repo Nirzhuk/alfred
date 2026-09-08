@@ -19,6 +19,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Managed subscription state is not ready yet. Retry after the app finishes starting.",
   managed_runtime_storage_unavailable:
     "Managed subscription storage is not available in this session.",
+  managed_runtime_preparing:
+    "Alfred is preparing sign-in. This will finish automatically.",
   managed_runtime_operation_failed:
     "The managed runtime operation could not be completed. Try again.",
   managed_runtime_package_missing:
@@ -189,6 +191,7 @@ export type ManagedRuntimeStore = UseBoundStore<
 export function createManagedRuntimeStore(
   api: ManagedRuntimeApi = managedRuntimeApi,
 ): ManagedRuntimeStore {
+  let loadVersion = 0;
   return create<ManagedRuntimeState>((set) => ({
     products: [],
     statuses: {},
@@ -198,6 +201,7 @@ export function createManagedRuntimeStore(
     error: null,
 
     load: async () => {
+      const version = ++loadVersion;
       set({ loading: true, error: null });
       try {
         const products = (await api.listProducts()).map(
@@ -222,6 +226,7 @@ export function createManagedRuntimeStore(
             }
           }),
         );
+        if (version !== loadVersion) return true;
         set({
           products,
           statuses: Object.fromEntries(
@@ -234,6 +239,7 @@ export function createManagedRuntimeStore(
         });
         return true;
       } catch (error) {
+        if (version !== loadVersion) return false;
         set({ loading: false, error: mapManagedRuntimeError(error) });
         return false;
       }

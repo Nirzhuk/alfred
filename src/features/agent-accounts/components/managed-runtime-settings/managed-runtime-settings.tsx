@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
 import { ConfirmDialog } from "../../../../components/confirm-dialog";
 import { AgentMark } from "../../../../components/agent-mark";
 import { Modal, ModalHeader } from "../../../../components/modal";
@@ -133,7 +134,25 @@ export function ManagedRuntimeSettings({
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!snapshot) void load();
+    if (snapshot) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("managed-runtime://products-changed", () => {
+      if (!disposed) void load();
+    }).then((stop) => {
+      if (disposed) {
+        stop();
+        return;
+      }
+      unlisten = stop;
+      void load();
+    }).catch(() => {
+      if (!disposed) void load();
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [load, snapshot]);
 
   const products = snapshot?.products ?? storeProducts;
@@ -536,7 +555,7 @@ function ManagedRuntimeProductRow({
       <div className="integration-actions managed-runtime-actions">
         {product.installState === "preparing" ? (
           <span className="managed-runtime-preparing" role="status">
-            Signing in…
+            Preparing sign-in…
           </span>
         ) : blocked === false && connected === false ? (
           <button

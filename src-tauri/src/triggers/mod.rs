@@ -16,6 +16,7 @@ pub mod http;
 use crate::db::{Db, Trigger};
 use crate::runner::{start_run, RunTrigger};
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -23,11 +24,16 @@ use tauri::{AppHandle, Emitter, Manager};
 /// watchers can be rebuilt when triggers change.
 #[derive(Default)]
 pub struct TriggerRuntime {
+    ready: AtomicBool,
     watchers: Mutex<Vec<notify::RecommendedWatcher>>,
     http_port: Mutex<Option<u16>>,
 }
 
 impl TriggerRuntime {
+    pub(crate) fn mark_ready(&self) {
+        self.ready.store(true, Ordering::Release);
+    }
+
     pub fn http_port(&self) -> Option<u16> {
         *self.http_port.lock().ok()?
     }
@@ -76,6 +82,14 @@ pub fn fire(app: &AppHandle, db: &Db, trigger: &Trigger, payload: Value) -> Resu
 /// (Re)bind file watchers to the current enabled triggers. The HTTP listener
 /// needs no reload — it resolves triggers from the DB per request.
 pub fn reload(app: &AppHandle) -> Result<usize, String> {
+    // Trigger edits during startup are persisted, then picked up by the
+    // initial reload after managed runtimes finish verification.
+    if app
+        .try_state::<TriggerRuntime>()
+        .is_some_and(|runtime| !runtime.ready.load(Ordering::Acquire))
+    {
+        return Ok(0);
+    }
     let watchers = file::reload_watchers(app)?;
     if let Some(runtime) = app.try_state::<app::AppEventRuntime>() {
         runtime.reload();

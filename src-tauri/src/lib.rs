@@ -28,7 +28,7 @@ use integrations::IntegrationsState;
 use licensing::LicensingState;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, State, WindowEvent};
 use triggers::app::AppEventRuntime;
 use triggers::TriggerRuntime;
@@ -37,6 +37,26 @@ use triggers::TriggerRuntime;
 const QUICK_ACCESS_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 
 struct GlobalShortcutPreference(Mutex<String>);
+
+struct StartupTrace(Option<Instant>);
+
+impl StartupTrace {
+    fn mark(&self, stage: &str) {
+        if let Some(started) = self.0 {
+            eprintln!(
+                "[alfred-startup] stage={stage} elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+        }
+    }
+}
+
+#[tauri::command]
+fn main_window_ready(window: tauri::Window, trace: State<'_, StartupTrace>) {
+    if window.label() == "main" {
+        trace.mark("main_window_ready");
+    }
+}
 
 impl Default for GlobalShortcutPreference {
     fn default() -> Self {
@@ -103,7 +123,86 @@ fn sync_macos_traffic_lights(window: tauri::Window) {
     let _ = window;
 }
 
+async fn start_background_services(handle: tauri::AppHandle) {
+    let plane = Arc::clone(handle.state::<Arc<ManagedRuntimeControlPlane>>().inner());
+    handle
+        .state::<StartupTrace>()
+        .mark("managed_verification_start");
+    let event_handle = handle.clone();
+    if let Err(error) = plane
+        .verify_bundled_packages(move || {
+            let _ = event_handle.emit("managed-runtime://products-changed", ());
+        })
+        .await
+    {
+        eprintln!("managed runtime verification failed: {error}");
+    }
+    handle
+        .state::<StartupTrace>()
+        .mark("managed_verification_complete");
+
+    // Preserve startup ordering for due schedules and event-triggered runs,
+    // while allowing the window to open during package verification.
+    handle.state::<TriggerRuntime>().mark_ready();
+    let app_event_handle = handle.clone();
+    // Webhook listener + file watchers. Neither is fatal: manual and
+    // scheduled runs still work if a trigger source fails to start.
+    match triggers::http::start(handle.clone()) {
+        Ok(port) => handle.state::<TriggerRuntime>().set_http_port(port),
+        Err(e) => eprintln!("webhook listener not started: {e}"),
+    }
+    if let Err(e) = triggers::reload(&handle) {
+        eprintln!("file triggers not started: {e}");
+    }
+    handle.state::<StartupTrace>().mark("automation_ready");
+
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(20));
+        loop {
+            ticker.tick().await;
+            let Some(db) = handle.try_state::<Db>() else {
+                continue;
+            };
+            match scheduler::tick(&handle, db.inner()) {
+                Ok(n) if n > 0 => {
+                    let _ = handle.emit("scheduler://fired", n);
+                }
+                Err(e) => {
+                    eprintln!("scheduler tick error: {e}");
+                }
+                _ => {}
+            }
+            if let Some(integrations) = handle.try_state::<IntegrationsState>() {
+                integrations
+                    .refresh
+                    .scheduled_health_check(db.inner())
+                    .await;
+            }
+            tray::refresh(&handle);
+        }
+    });
+
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            ticker.tick().await;
+            if app_event_handle
+                .try_state::<AppEventRuntime>()
+                .is_some_and(|runtime| runtime.is_stopped())
+            {
+                break;
+            }
+            if let Err(error) = triggers::app::tick(&app_event_handle).await {
+                eprintln!("app event runtime tick error: {error}");
+            }
+        }
+    });
+}
+
 pub fn run() {
+    let startup_trace =
+        StartupTrace(std::env::var_os("ALFRED_STARTUP_TRACE").map(|_| Instant::now()));
+    startup_trace.mark("run_enter");
     let database = Db::open().expect("failed to open sqlite database");
 
     // Native-agent accounts and runtimes. The registry stays empty until a
@@ -136,6 +235,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(database)
+        .manage(startup_trace)
         .manage(agent_accounts)
         .manage(Arc::clone(&managed_runtime))
         .manage(Arc::clone(&native_registry))
@@ -187,6 +287,7 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            app.state::<StartupTrace>().mark("setup_enter");
             if let Some(root) = app.path().app_data_dir().ok() {
                 let resource_root = app.path().resource_dir().ok();
                 let plane = app.state::<Arc<ManagedRuntimeControlPlane>>();
@@ -252,16 +353,6 @@ pub fn run() {
                 });
             }
 
-            // Webhook listener + file watchers. Neither is fatal: manual and
-            // scheduled runs still work if a trigger source fails to start.
-            match triggers::http::start(handle.clone()) {
-                Ok(port) => handle.state::<TriggerRuntime>().set_http_port(port),
-                Err(e) => eprintln!("webhook listener not started: {e}"),
-            }
-            if let Err(e) = triggers::reload(&handle) {
-                eprintln!("file triggers not started: {e}");
-            }
-
             if let Err(e) = tray::install(app.handle()) {
                 eprintln!("tray icon not started: {e}");
             }
@@ -273,6 +364,9 @@ pub fn run() {
                 tokio::time::sleep(Duration::from_millis(1500)).await;
                 if let Some(window) = reveal_handle.get_webview_window("main") {
                     let _ = window.show();
+                    reveal_handle
+                        .state::<StartupTrace>()
+                        .mark("main_window_fallback_reveal");
                 }
             });
             // Quick Access is NOT built here. Its webview is a second
@@ -312,48 +406,9 @@ pub fn run() {
                 }
             }
 
-            tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(Duration::from_secs(20));
-                loop {
-                    ticker.tick().await;
-                    let Some(db) = handle.try_state::<Db>() else {
-                        continue;
-                    };
-                    match scheduler::tick(&handle, db.inner()) {
-                        Ok(n) if n > 0 => {
-                            let _ = handle.emit("scheduler://fired", n);
-                        }
-                        Err(e) => {
-                            eprintln!("scheduler tick error: {e}");
-                        }
-                        _ => {}
-                    }
-                    if let Some(integrations) = handle.try_state::<IntegrationsState>() {
-                        integrations
-                            .refresh
-                            .scheduled_health_check(db.inner())
-                            .await;
-                    }
-                    tray::refresh(&handle);
-                }
-            });
-
-            let app_event_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let mut ticker = tokio::time::interval(Duration::from_secs(1));
-                loop {
-                    ticker.tick().await;
-                    if app_event_handle
-                        .try_state::<AppEventRuntime>()
-                        .is_some_and(|runtime| runtime.is_stopped())
-                    {
-                        break;
-                    }
-                    if let Err(error) = triggers::app::tick(&app_event_handle).await {
-                        eprintln!("app event runtime tick error: {error}");
-                    }
-                }
-            });
+            let background_handle = app.handle().clone();
+            tauri::async_runtime::spawn(start_background_services(background_handle));
+            app.state::<StartupTrace>().mark("setup_complete");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -374,6 +429,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            main_window_ready,
             commands::activate_license,
             commands::refresh_license,
             commands::deactivate_license,

@@ -221,6 +221,7 @@ pub struct ManagedRuntimeControlPlane {
     supervisor: ManagedRuntimeSupervisor,
     trust_verifier: ManagedRuntimeTrustVerifier,
     backend: Mutex<Option<ManagedRuntimeBackend>>,
+    pending_packages: Mutex<Vec<AgentProductId>>,
     connections: Mutex<HashMap<String, ManagedConnection>>,
     terminal_sessions: Mutex<HashMap<String, Arc<ClaudeTerminalSession>>>,
     opencode_selection: Mutex<Option<RuntimePackageSelection>>,
@@ -240,6 +241,7 @@ impl ManagedRuntimeControlPlane {
             supervisor: ManagedRuntimeSupervisor::new(),
             trust_verifier: ManagedRuntimeTrustVerifier::new(production_platform_verifier()),
             backend: Mutex::new(None),
+            pending_packages: Mutex::new(Vec::new()),
             connections: Mutex::new(HashMap::new()),
             terminal_sessions: Mutex::new(HashMap::new()),
             opencode_selection: Mutex::new(None),
@@ -254,14 +256,17 @@ impl ManagedRuntimeControlPlane {
         }
     }
 
-    /// Initialize once from Tauri-owned paths.  It never creates a provider
-    /// package or profile and therefore cannot make an unavailable product
-    /// appear connected.
+    /// Open storage and discover bundled packages without hashing or staging
+    /// them. Verification must run separately on a blocking worker.
     pub fn initialize(
         &self,
         app_data_root: &Path,
         resource_root: Option<&Path>,
     ) -> Result<(), ManagedRuntimeCommandError> {
+        let mut backend = self.backend.lock().map_err(|_| state_error())?;
+        if backend.is_some() {
+            return Ok(());
+        }
         let packages = RuntimePackageStore::open(app_data_root)
             .map_err(|error| package_command_error(error, true))?;
         let profiles = RuntimeProfileStore::new(app_data_root)
@@ -278,52 +283,69 @@ impl ManagedRuntimeControlPlane {
             )
         })?;
         let resource_root = resource_root.map(Path::to_path_buf);
-        if let Some(package_root) =
-            first_opencode_package_root(resource_root.as_deref())
-        {
-            self.trust_verifier
-                .bind_opencode_package(packages.clone(), package_root)?;
-            match self.trust_verifier.verify_opencode_selection() {
-                Ok(selection) => self.activate_opencode_selection(selection, &profiles)?,
-                Err(error) => eprintln!("OpenCode managed package present but unverified: {error}"),
+        let mut pending = self.pending_packages.lock().map_err(|_| state_error())?;
+        for (product, package_root) in [
+            (
+                OPENCODE_PRODUCT,
+                first_opencode_package_root(resource_root.as_deref()),
+            ),
+            (
+                CLAUDE_PRODUCT,
+                first_claude_package_root(resource_root.as_deref()),
+            ),
+            (
+                CODEX_PRODUCT,
+                first_codex_package_root(resource_root.as_deref()),
+            ),
+        ] {
+            if package_root.is_some() {
+                pending.push(product);
             }
         }
-        if let Some(package_root) = first_claude_package_root(resource_root.as_deref()) {
-            self.trust_verifier
-                .bind_claude_package(packages.clone(), package_root)?;
-            match self.trust_verifier.verify_claude_selection() {
-                Ok(selection) => {
-                    *self
-                        .claude_selection
-                        .lock()
-                        .map_err(|_| state_error())? = Some(selection);
-                }
-                Err(error) => eprintln!("Claude managed package present but unverified: {error}"),
-            }
-        }
-        if let Some(package_root) = first_codex_package_root(resource_root.as_deref()) {
-            self.trust_verifier
-                .bind_codex_package(packages.clone(), package_root)?;
-            match self.trust_verifier.verify_codex_selection() {
-                Ok(selection) => {
-                    *self
-                        .codex_selection
-                        .lock()
-                        .map_err(|_| state_error())? = Some(selection);
-                }
-                Err(error) => eprintln!("ChatGPT managed package present but unverified: {error}"),
-            }
-        }
-        let mut backend = self.backend.lock().map_err(|_| state_error())?;
-        if backend.is_none() {
-            *backend = Some(ManagedRuntimeBackend {
-                packages,
-                profiles,
-                resource_root,
-                catalog_root,
-            });
-        }
+        *backend = Some(ManagedRuntimeBackend {
+            packages,
+            profiles,
+            resource_root,
+            catalog_root,
+        });
         Ok(())
+    }
+
+    pub async fn verify_bundled_packages(
+        self: Arc<Self>,
+        on_change: impl Fn() + Send + 'static,
+    ) -> Result<(), ManagedRuntimeCommandError> {
+        run_managed_blocking(move || {
+            let pending = self
+                .pending_packages
+                .lock()
+                .map_err(|_| state_error())?
+                .clone();
+            for product in pending {
+                if let Err(error) = self.refresh_product_package(product) {
+                    eprintln!("managed runtime package unavailable: {error}");
+                }
+                self.pending_packages
+                    .lock()
+                    .map_err(|_| state_error())?
+                    .retain(|pending| *pending != product);
+                on_change();
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    fn refresh_product_package(
+        &self,
+        product: AgentProductId,
+    ) -> Result<(), ManagedRuntimeCommandError> {
+        match product {
+            OPENCODE_PRODUCT => self.refresh_opencode_package(),
+            CLAUDE_PRODUCT => self.refresh_claude_package(),
+            CODEX_PRODUCT => self.refresh_codex_package(),
+            _ => Ok(()),
+        }
     }
 
     pub fn bind_native_collaborators(
@@ -407,12 +429,15 @@ impl ManagedRuntimeControlPlane {
         product_id: &str,
     ) -> Result<ManagedRuntimeProductDto, ManagedRuntimeCommandError> {
         let spec = product_spec(provider_id, product_id)?;
-        match spec.product {
-            OPENCODE_PRODUCT => self.refresh_opencode_package()?,
-            CLAUDE_PRODUCT => self.refresh_claude_package()?,
-            CODEX_PRODUCT => self.refresh_codex_package()?,
-            _ => {}
+        let preparing = self
+            .pending_packages
+            .lock()
+            .map_err(|_| state_error())?
+            .contains(&spec.product);
+        if preparing {
+            return self.product_status(&spec);
         }
+        self.refresh_product_package(spec.product)?;
         let status = self.product_status(&spec)?;
         if status.install_state == "missing" || status.install_state == "failed" {
             return Err(ManagedRuntimeCommandError::new(
@@ -596,6 +621,14 @@ impl ManagedRuntimeControlPlane {
         let mut gate_filter: Vec<String> = Vec::new();
         let install_state = if !backend_ready {
             "blocked"
+        } else if self
+            .pending_packages
+            .lock()
+            .map_err(|_| state_error())?
+            .contains(&spec.product)
+        {
+            extra_gates.push("managed_runtime_preparing".into());
+            "preparing"
         } else if spec.product == OPENCODE_PRODUCT {
             if self.opencode_process_gates_waived() {
                 gate_filter.extend([
@@ -796,8 +829,12 @@ impl ManagedRuntimeControlPlane {
         };
         self.trust_verifier
             .bind_opencode_package(packages, package_root)?;
-        let Ok(selection) = self.trust_verifier.verify_opencode_selection() else {
-            return Ok(());
+        let selection = match self.trust_verifier.verify_opencode_selection() {
+            Ok(selection) => selection,
+            Err(error) => {
+                eprintln!("OpenCode managed package present but unverified: {error}");
+                return Ok(());
+            }
         };
         self.activate_opencode_selection(selection, &profiles)?;
         let _ = self.register_verified_opencode_runtime();
@@ -1564,8 +1601,11 @@ impl ManagedRuntimeControlPlane {
         };
         self.trust_verifier
             .bind_claude_package(packages, package_root)?;
-        if let Ok(selection) = self.trust_verifier.verify_claude_selection() {
-            *self.claude_selection.lock().map_err(|_| state_error())? = Some(selection);
+        match self.trust_verifier.verify_claude_selection() {
+            Ok(selection) => {
+                *self.claude_selection.lock().map_err(|_| state_error())? = Some(selection);
+            }
+            Err(error) => eprintln!("Claude managed package present but unverified: {error}"),
         }
         Ok(())
     }
@@ -1585,8 +1625,11 @@ impl ManagedRuntimeControlPlane {
         };
         self.trust_verifier
             .bind_codex_package(packages, package_root)?;
-        if let Ok(selection) = self.trust_verifier.verify_codex_selection() {
-            *self.codex_selection.lock().map_err(|_| state_error())? = Some(selection);
+        match self.trust_verifier.verify_codex_selection() {
+            Ok(selection) => {
+                *self.codex_selection.lock().map_err(|_| state_error())? = Some(selection);
+            }
+            Err(error) => eprintln!("ChatGPT managed package present but unverified: {error}"),
         }
         Ok(())
     }
@@ -2521,6 +2564,154 @@ pub async fn close_managed_runtime_terminal(
 mod tests {
     use super::*;
 
+    struct RejectPackageVerifier(std::sync::atomic::AtomicUsize);
+
+    impl RuntimePlatformPublisherVerifier for RejectPackageVerifier {
+        fn verify(
+            &self,
+            _request: crate::agents::runtime_package::RuntimePlatformPublisherRequest<'_>,
+        ) -> Result<
+            crate::agents::runtime_package::RuntimePlatformPublisherEvidence,
+            crate::agents::runtime_package::RuntimePackageErrorCode,
+        > {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(crate::agents::runtime_package::RuntimePackageErrorCode::PublisherUnverified)
+        }
+    }
+
+    fn bundled_opencode_fixture(root: &Path) {
+        let package_parent = root
+            .join("managed-runtimes/opencode_server")
+            .join(opencode::current_runtime_target().expect("supported host"))
+            .join(opencode::OPENCODE_RUNTIME_VERSION);
+        fs::create_dir_all(package_parent.join("package")).expect("package root");
+        let evidence = package_parent.join("publisher-evidence");
+        fs::create_dir_all(&evidence).expect("evidence root");
+        fs::write(evidence.join("publisher-verification.json"), b"{}").expect("proof");
+        fs::write(evidence.join("publisher.sig"), [0u8; 64]).expect("signature");
+    }
+
+    #[test]
+    fn startup_initializes_storage_without_verifying_bundled_packages() {
+        let root = std::env::temp_dir().join(format!("alfred-startup-{}", Uuid::new_v4()));
+        let resources = root.join("resources");
+        bundled_opencode_fixture(&resources);
+        let verifier = Arc::new(RejectPackageVerifier(std::sync::atomic::AtomicUsize::new(
+            0,
+        )));
+        let mut plane = ManagedRuntimeControlPlane::new();
+        plane.trust_verifier = ManagedRuntimeTrustVerifier::new(verifier.clone());
+
+        plane
+            .initialize(&root.join("data"), Some(&resources))
+            .expect("storage");
+
+        assert_eq!(
+            verifier.0.load(Ordering::SeqCst),
+            0,
+            "setup must not enter package verification"
+        );
+        let product = plane
+            .list_products()
+            .expect("products")
+            .into_iter()
+            .find(|product| product.product_id == "opencode_go")
+            .expect("opencode");
+        assert_eq!(product.install_state, "preparing");
+        assert!(!product.connect_available);
+        assert!(!product
+            .gate_codes
+            .iter()
+            .any(|gate| gate == "managed_runtime_storage_unavailable"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn pending_verification_keeps_commands_responsive_and_rejects_untrusted_packages() {
+        struct WaitingVerifier {
+            entered: Mutex<Option<tokio::sync::oneshot::Sender<std::thread::ThreadId>>>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl RuntimePlatformPublisherVerifier for WaitingVerifier {
+            fn verify(
+                &self,
+                _request: crate::agents::runtime_package::RuntimePlatformPublisherRequest<'_>,
+            ) -> Result<
+                crate::agents::runtime_package::RuntimePlatformPublisherEvidence,
+                crate::agents::runtime_package::RuntimePackageErrorCode,
+            > {
+                self.entered
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap()
+                    .send(std::thread::current().id())
+                    .unwrap();
+                self.release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+                Err(crate::agents::runtime_package::RuntimePackageErrorCode::PublisherUnverified)
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!("alfred-background-{}", Uuid::new_v4()));
+        let resources = root.join("resources");
+        bundled_opencode_fixture(&resources);
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let mut plane = ManagedRuntimeControlPlane::new();
+        plane.trust_verifier = ManagedRuntimeTrustVerifier::new(Arc::new(WaitingVerifier {
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(release_rx),
+        }));
+        plane
+            .initialize(&root.join("data"), Some(&resources))
+            .expect("storage");
+        let plane = Arc::new(plane);
+        let changes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let event_changes = changes.clone();
+        let caller = std::thread::current().id();
+        let verification = tokio::spawn(plane.clone().verify_bundled_packages(move || {
+            event_changes.fetch_add(1, Ordering::SeqCst);
+        }));
+        let worker = tokio::time::timeout(Duration::from_secs(2), entered_rx)
+            .await
+            .expect("verification starts off-thread")
+            .expect("worker entered");
+        assert_ne!(worker, caller, "hashing must leave the calling thread");
+
+        let product = plane
+            .prepare_product("opencode", "opencode_go")
+            .expect("pending prepare");
+        assert_eq!(product.install_state, "preparing");
+        assert!(!product.connect_available);
+        assert_eq!(changes.load(Ordering::SeqCst), 0);
+        let db = Db::open_in_memory().expect("db");
+        assert!(plane
+            .start_connection(&db, "opencode", "opencode_go")
+            .is_err());
+        assert!(plane.opencode_selection.lock().unwrap().is_none());
+
+        release_tx.send(()).expect("release verification");
+        verification
+            .await
+            .expect("task")
+            .expect("verification pass completed");
+        assert_eq!(changes.load(Ordering::SeqCst), 1);
+        let product = plane
+            .list_products()
+            .expect("products")
+            .into_iter()
+            .find(|product| product.product_id == "opencode_go")
+            .expect("opencode");
+        assert_eq!(product.install_state, "missing");
+        assert!(!product.connect_available);
+        assert!(plane.opencode_selection.lock().unwrap().is_none());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
     #[test]
     fn product_projection_is_exact_and_fail_closed_before_setup() {
         let control_plane = ManagedRuntimeControlPlane::new();
@@ -2843,8 +3034,8 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn prepared_host_sidecars_verify_and_offer_sign_in() {
+    #[tokio::test]
+    async fn prepared_host_sidecars_verify_and_offer_sign_in() {
         let resource_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let claude_pkg = first_claude_package_root(Some(&resource_root));
         let codex_pkg = first_codex_package_root(Some(&resource_root));
@@ -2857,10 +3048,15 @@ mod tests {
             Uuid::new_v4()
         ));
         fs::create_dir_all(&root).expect("temp root");
-        let control_plane = ManagedRuntimeControlPlane::new();
+        let control_plane = Arc::new(ManagedRuntimeControlPlane::new());
         control_plane
             .initialize(&root, Some(&resource_root))
             .expect("initialize");
+        control_plane
+            .clone()
+            .verify_bundled_packages(|| {})
+            .await
+            .expect("verify");
         let products = control_plane.list_products().expect("products");
 
         if claude_pkg.is_some() {

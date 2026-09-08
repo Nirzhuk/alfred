@@ -63,6 +63,24 @@ function fakeApi(overrides: Partial<ManagedRuntimeApi> = {}): ManagedRuntimeApi 
   };
 }
 
+test("a late startup response cannot overwrite completed package verification", async () => {
+  let resolveStartup!: (products: ManagedRuntimeProduct[]) => void;
+  let requests = 0;
+  const store = createManagedRuntimeStore(fakeApi({
+    listProducts: () => ++requests === 1
+      ? new Promise((resolve) => { resolveStartup = resolve; })
+      : Promise.resolve([product]),
+  }));
+
+  const startup = store.getState().load();
+  await store.getState().load();
+  expect(store.getState().products[0].installState).toBe("ready");
+  resolveStartup([{ ...product, installState: "preparing", connectAvailable: false }]);
+  await startup;
+  expect(store.getState().products[0].installState).toBe("ready");
+  expect(store.getState().loading).toBe(false);
+});
+
 test("keeps managed product state safe and never stores submitted key or raw backend detail", async () => {
   const secret = "opencode-go-secret-key";
   const store = createManagedRuntimeStore(

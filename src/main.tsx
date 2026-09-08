@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   bootstrapTheme,
@@ -43,7 +43,11 @@ const WindowRoot = isQuickAccessWindow
       return {
         default: function ReadyMainWindow() {
           React.useLayoutEffect(() => {
-            void revealMainWindow();
+            void revealMainWindow().then(() => {
+              if (isTauri()) {
+                void invoke("main_window_ready").catch(() => {});
+              }
+            });
           }, []);
           return <App />;
         },

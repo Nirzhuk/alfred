@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
@@ -264,12 +264,19 @@ pub struct UpdateMemoryInput {
     pub salience: Option<i64>,
     #[serde(default)]
     pub status: Option<MemoryStatus>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub supersedes_id: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub last_confirmed_at: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub expires_at: Option<Option<String>>,
+}
+
+fn deserialize_nullable_patch<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 /// Memory as shown in a workflow's library — owned or linked from elsewhere.
@@ -336,9 +343,21 @@ fn artifacts_dir(workflow_id: &str) -> Result<PathBuf, DbError> {
     Ok(dir)
 }
 
-fn write_artifact(workflow_id: &str, memory_id: &str, body: &str) -> Result<String, DbError> {
-    let path = artifacts_dir(workflow_id)?.join(format!("{memory_id}.txt"));
-    fs::write(&path, body)?;
+fn write_artifact(workflow_id: &str, body: &str) -> Result<String, DbError> {
+    write_artifact_file(&artifacts_dir(workflow_id)?, body)
+}
+
+fn write_artifact_file(directory: &Path, body: &str) -> Result<String, DbError> {
+    let path = directory.join(format!("{}.txt", Uuid::new_v4()));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    if let Err(error) = file.write_all(body.as_bytes()) {
+        drop(file);
+        let _ = fs::remove_file(&path);
+        return Err(error.into());
+    }
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -790,6 +809,14 @@ impl Db {
     }
 
     pub fn create_memory(&self, input: CreateMemoryInput) -> Result<Memory, DbError> {
+        self.create_memory_with_artifact_writer(input, write_artifact)
+    }
+
+    fn create_memory_with_artifact_writer(
+        &self,
+        input: CreateMemoryInput,
+        write_artifact: impl FnOnce(&str, &str) -> Result<String, DbError>,
+    ) -> Result<Memory, DbError> {
         let plan = self.plan_canonical_insert(input)?;
         if let Some(existing) = self.find_exact_duplicate(
             plan.scope_type,
@@ -805,7 +832,7 @@ impl Db {
                 .workflow_id
                 .clone()
                 .ok_or_else(|| DbError::Other("memory requires a workflow".into()))?;
-            Some(write_artifact(&workflow_id, &plan.id, &plan.body)?)
+            Some(write_artifact(&workflow_id, &plan.body)?)
         } else {
             None
         };
@@ -894,6 +921,14 @@ impl Db {
     }
 
     pub fn update_memory(&self, input: UpdateMemoryInput) -> Result<Memory, DbError> {
+        self.update_memory_with_artifact_writer(input, write_artifact)
+    }
+
+    fn update_memory_with_artifact_writer(
+        &self,
+        input: UpdateMemoryInput,
+        write_artifact: impl FnOnce(&str, &str) -> Result<String, DbError>,
+    ) -> Result<Memory, DbError> {
         let existing = self
             .get_memory(&input.id)?
             .ok_or_else(|| DbError::Other(format!("memory not found: {}", input.id)))?;
@@ -947,6 +982,8 @@ impl Db {
             .clone()
             .or_else(|| existing.workflow_id.clone())
             .ok_or_else(|| DbError::Other("scope change requires an active workflow".into()))?;
+        self.get_workflow(&context_id)?
+            .ok_or_else(|| DbError::Other("memory context workflow not found".into()))?;
         let (scope_key, workflow_id) = if input.scope_type.is_some() {
             self.resolve_scope(&context_id, scope_type)?
         } else {
@@ -970,7 +1007,7 @@ impl Db {
         let artifact_path = if input.body.is_some() {
             if body.len() >= ARTIFACT_BODY_THRESHOLD || kind == "artifact" {
                 kind = "artifact".into();
-                Some(write_artifact(&context_id, &existing.id, &body)?)
+                Some(write_artifact(&context_id, &body)?)
             } else {
                 None
             }
@@ -983,9 +1020,9 @@ impl Db {
             body
         };
         let updated_at = now();
-        self.with_conn(|conn| {
+        let write = self.with_conn(|conn| {
             let transaction = conn.unchecked_transaction()?;
-            transaction.execute(
+            let changed = transaction.execute(
                 "UPDATE memories SET workflow_id = ?1, scope_type = ?2, scope_key = ?3,
                    kind = ?4, memory_type = ?5, title = ?6, body = ?7, artifact_path = ?8,
                    pinned = ?9, confidence = ?10, salience = ?11, status = ?12,
@@ -1011,10 +1048,19 @@ impl Db {
                     input.id,
                 ],
             )?;
+            if changed == 0 {
+                return Err(DbError::Other(format!("memory not found: {}", input.id)));
+            }
             index_memory(&transaction, &input.id)?;
             transaction.commit()?;
             Ok(())
-        })?;
+        });
+        if let Err(error) = write {
+            if artifact_path != existing.artifact_path {
+                remove_artifact(artifact_path.as_deref());
+            }
+            return Err(error);
+        }
         if input.body.is_some() && existing.artifact_path != artifact_path {
             remove_artifact(existing.artifact_path.as_deref());
         }
@@ -1406,6 +1452,326 @@ mod tests {
             last_confirmed_at: None,
             expires_at: None,
         }
+    }
+
+    struct ArtifactTestDirectory(PathBuf);
+
+    impl ArtifactTestDirectory {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("alfred-artifact-{}", Uuid::new_v4()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn write(&self, _workflow_id: &str, body: &str) -> Result<String, DbError> {
+            write_artifact_file(&self.0, body)
+        }
+
+        fn file_count(&self) -> usize {
+            fs::read_dir(&self.0).unwrap().count()
+        }
+    }
+
+    impl Drop for ArtifactTestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn memory_index(db: &Db, id: &str) -> (String, String) {
+        db.with_conn(|conn| {
+            Ok(conn.query_row(
+                "SELECT title, body FROM memory_fts WHERE memory_id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn json_memory_patches_distinguish_missing_null_and_values() {
+        let db = Db::open_in_memory().unwrap();
+        let owner = workflow(&db, "Owner", "/projects/alfred");
+        let target = db
+            .create_memory(create_input(
+                &owner,
+                "previous-memory",
+                MemoryScopeType::Workflow,
+                MemoryType::Fact,
+                "Previous fact",
+            ))
+            .unwrap();
+        let memory = db
+            .create_memory(create_input(
+                &owner,
+                "current-memory",
+                MemoryScopeType::Workflow,
+                MemoryType::Fact,
+                "Current fact",
+            ))
+            .unwrap();
+        let populated = db
+            .update_memory(
+                serde_json::from_value(json!({
+                    "id": memory.id,
+                    "supersedesId": target.id,
+                    "lastConfirmedAt": "2026-09-08T12:00:00Z",
+                    "expiresAt": "2027-09-08T12:00:00Z"
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(populated.supersedes_id.as_deref(), Some(target.id.as_str()));
+        assert_eq!(
+            populated.last_confirmed_at.as_deref(),
+            Some("2026-09-08T12:00:00Z")
+        );
+        assert_eq!(
+            populated.expires_at.as_deref(),
+            Some("2027-09-08T12:00:00Z")
+        );
+
+        let missing = db
+            .update_memory(serde_json::from_value(json!({ "id": memory.id })).unwrap())
+            .unwrap();
+        assert_eq!(missing.supersedes_id, populated.supersedes_id);
+        assert_eq!(missing.last_confirmed_at, populated.last_confirmed_at);
+        assert_eq!(missing.expires_at, populated.expires_at);
+
+        let cleared = db
+            .update_memory(
+                serde_json::from_value(json!({
+                    "id": memory.id,
+                    "supersedesId": null,
+                    "lastConfirmedAt": null,
+                    "expiresAt": null
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(cleared.supersedes_id, None);
+        assert_eq!(cleared.last_confirmed_at, None);
+        assert_eq!(cleared.expires_at, None);
+    }
+
+    #[test]
+    fn artifact_filenames_are_independent_of_supplied_memory_ids() {
+        let db = Db::open_in_memory().unwrap();
+        let owner = workflow(&db, "Owner", "/projects/alfred");
+        let directory = ArtifactTestDirectory::new();
+        let supplied_id = directory
+            .0
+            .join("outside-memory")
+            .to_string_lossy()
+            .into_owned();
+        let mut input = create_input(
+            &owner,
+            &supplied_id,
+            MemoryScopeType::Workflow,
+            MemoryType::Artifact,
+            "Artifact contents",
+        );
+        input.title = "Imported artifact".into();
+        input.kind = Some("artifact".into());
+        let memory = db
+            .create_memory_with_artifact_writer(input, |workflow_id, body| {
+                directory.write(workflow_id, body)
+            })
+            .unwrap();
+        let path = Path::new(memory.artifact_path.as_deref().unwrap());
+        assert_eq!(memory.id, supplied_id);
+        assert_eq!(path.parent(), Some(directory.0.as_path()));
+        assert!(Uuid::parse_str(path.file_stem().unwrap().to_str().unwrap()).is_ok());
+        assert_eq!(fs::read_to_string(path).unwrap(), "Artifact contents");
+        assert_eq!(directory.file_count(), 1);
+    }
+
+    #[test]
+    fn artifact_update_rejects_a_missing_context_before_writing_files() {
+        let db = Db::open_in_memory().unwrap();
+        let owner = workflow(&db, "Owner", "/projects/alfred");
+        let directory = ArtifactTestDirectory::new();
+        let mut input = create_input(
+            &owner,
+            "artifact-context",
+            MemoryScopeType::Workflow,
+            MemoryType::Artifact,
+            "Original artifact contents",
+        );
+        input.kind = Some("artifact".into());
+        let original = db
+            .create_memory_with_artifact_writer(input, |workflow_id, body| {
+                directory.write(workflow_id, body)
+            })
+            .unwrap();
+        let mut patch = update_input(&original.id);
+        patch.context_workflow_id = Some("../missing-workflow".into());
+        patch.body = Some("Replacement contents".into());
+        assert!(db
+            .update_memory_with_artifact_writer(patch, |_, _| {
+                panic!("invalid context must be rejected before any artifact write")
+            })
+            .is_err());
+        let stored = db.get_memory(&original.id).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap(),
+            serde_json::to_value(&original).unwrap()
+        );
+        assert_eq!(
+            fs::read_to_string(original.artifact_path.unwrap()).unwrap(),
+            "Original artifact contents"
+        );
+        assert_eq!(directory.file_count(), 1);
+    }
+
+    #[test]
+    fn duplicate_artifact_creation_preserves_original_file_row_and_index() {
+        let db = Db::open_in_memory().unwrap();
+        let owner = workflow(&db, "Owner", "/projects/alfred");
+        let directory = ArtifactTestDirectory::new();
+        let body = "Original artifact contents\n".repeat(2_000);
+        let input = || {
+            create_input(
+                &owner,
+                "original-artifact",
+                MemoryScopeType::Workflow,
+                MemoryType::Artifact,
+                &body,
+            )
+        };
+        let original = db
+            .create_memory_with_artifact_writer(input(), |workflow_id, body| {
+                directory.write(workflow_id, body)
+            })
+            .unwrap();
+        let original_index = memory_index(&db, &original.id);
+
+        assert!(db
+            .create_memory_with_artifact_writer(input(), |workflow_id, body| directory
+                .write(workflow_id, body))
+            .is_err());
+
+        let stored = db.get_memory(&original.id).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap(),
+            serde_json::to_value(&original).unwrap()
+        );
+        assert_eq!(memory_index(&db, &original.id), original_index);
+        assert_eq!(
+            fs::read_to_string(original.artifact_path.unwrap()).unwrap(),
+            body
+        );
+        assert_eq!(directory.file_count(), 1);
+    }
+
+    #[test]
+    fn failed_artifact_update_preserves_original_file_row_and_index() {
+        let db = Db::open_in_memory().unwrap();
+        let owner = workflow(&db, "Owner", "/projects/alfred");
+        let directory = ArtifactTestDirectory::new();
+        let body = "Original artifact contents\n".repeat(2_000);
+        let original = db
+            .create_memory_with_artifact_writer(
+                create_input(
+                    &owner,
+                    "original-artifact",
+                    MemoryScopeType::Workflow,
+                    MemoryType::Artifact,
+                    &body,
+                ),
+                |workflow_id, body| directory.write(workflow_id, body),
+            )
+            .unwrap();
+        let original_index = memory_index(&db, &original.id);
+        db.with_conn(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER reject_memory_update BEFORE UPDATE ON memories
+                 BEGIN SELECT RAISE(ABORT, 'forced update failure'); END;",
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let mut patch = update_input(&original.id);
+        patch.title = Some("Updated title".into());
+        patch.body = Some("Replacement artifact contents".into());
+        assert!(db
+            .update_memory_with_artifact_writer(patch, |workflow_id, body| directory
+                .write(workflow_id, body))
+            .is_err());
+
+        let stored = db.get_memory(&original.id).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap(),
+            serde_json::to_value(&original).unwrap()
+        );
+        assert_eq!(memory_index(&db, &original.id), original_index);
+        assert_eq!(
+            fs::read_to_string(original.artifact_path.unwrap()).unwrap(),
+            body
+        );
+        assert_eq!(directory.file_count(), 1);
+    }
+
+    #[test]
+    fn artifact_updates_preserve_metadata_only_bodies_and_replace_legacy_paths() {
+        let db = Db::open_in_memory().unwrap();
+        let owner = workflow(&db, "Owner", "/projects/alfred");
+        let directory = ArtifactTestDirectory::new();
+        let body = "Original artifact contents\n".repeat(2_000);
+        let original = db
+            .create_memory_with_artifact_writer(
+                create_input(
+                    &owner,
+                    "original-artifact",
+                    MemoryScopeType::Workflow,
+                    MemoryType::Artifact,
+                    &body,
+                ),
+                |workflow_id, body| directory.write(workflow_id, body),
+            )
+            .unwrap();
+        let legacy_path = directory.0.join("original-artifact.txt");
+        fs::rename(original.artifact_path.as_deref().unwrap(), &legacy_path).unwrap();
+        db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE memories SET artifact_path = ?1 WHERE id = ?2",
+                params![legacy_path.to_string_lossy(), original.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let mut metadata_patch = update_input(&original.id);
+        metadata_patch.title = Some("Updated title".into());
+        let renamed = db
+            .update_memory_with_artifact_writer(metadata_patch, |_, _| {
+                panic!("metadata update must not write an artifact")
+            })
+            .unwrap();
+        assert_eq!(renamed.title, "Updated title");
+        assert_eq!(renamed.body, original.body);
+        assert_eq!(fs::read_to_string(&legacy_path).unwrap(), body);
+
+        let mut body_patch = update_input(&original.id);
+        body_patch.body = Some("Replacement artifact contents".into());
+        let updated = db
+            .update_memory_with_artifact_writer(body_patch, |workflow_id, body| {
+                let path = directory.write(workflow_id, body)?;
+                assert!(
+                    legacy_path.exists(),
+                    "old artifact must survive until commit"
+                );
+                Ok(path)
+            })
+            .unwrap();
+        assert!(!legacy_path.exists());
+        assert_eq!(
+            fs::read_to_string(updated.artifact_path.unwrap()).unwrap(),
+            "Replacement artifact contents"
+        );
+        assert_eq!(directory.file_count(), 1);
     }
 
     fn rendered_item_lengths(markdown: &str, omitted_count: usize) -> Vec<usize> {

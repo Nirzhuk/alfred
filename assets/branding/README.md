@@ -13,12 +13,30 @@ Source art: `Frame 30.jpg` → renamed and prepared as **icon**.
 | `../../src-tauri/Assets.car` | Experimental Liquid Glass catalog; not bundled while its layered foreground renders incorrectly in Finder |
 | `../../public/icon.png` | Web / favicon |
 
-**Do not** bake rounded corners into the master. macOS/iOS apply the real squircle mask; pre-rounded transparent icons skip that mask and look larger/squarer in the Dock.
+Keep the masters opaque, full-bleed, and square for Icon Composer and other
+platforms. The flat macOS ICNS export applies its own rounded shape and a
+100px transparent margin on each side of the 1024px canvas. That margin keeps
+the icon from appearing oversized in the Dock.
 
 ## Regenerate flat icons
 
 ```bash
 bunx tauri icon ./src-tauri/app-icon.png
+```
+
+After regenerating flat icons, rebuild the padded macOS ICNS:
+
+```bash
+icon_work_dir=$(mktemp -d)
+mkdir "$icon_work_dir/Alfred.iconset"
+swift scripts/make-macos-squircle-icon.swift src-tauri/app-icon.png "$icon_work_dir/icon.png"
+for size in 16 32 128 256 512; do
+  sips -z "$size" "$size" "$icon_work_dir/icon.png" --out "$icon_work_dir/Alfred.iconset/icon_${size}x${size}.png" >/dev/null
+  sips -z "$((size * 2))" "$((size * 2))" "$icon_work_dir/icon.png" --out "$icon_work_dir/Alfred.iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+swift scripts/package-macos-icns.swift "$icon_work_dir/Alfred.iconset" src-tauri/icons/icon.icns
+cp "$icon_work_dir/Alfred.iconset/icon_256x256.png" assets/branding/icon-squircle-preview.png
+rm -rf "$icon_work_dir"
 ```
 
 The checked-in `src-tauri/icons/icon.icns` is the production macOS bundle icon,

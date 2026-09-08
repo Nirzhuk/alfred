@@ -27,6 +27,21 @@ const blockedStatus: ManagedRuntimeConnectionStatus = {
   lastErrorCode: null,
 };
 
+test("shows package preparation without offering sign-in or claiming it already started", () => {
+  const markup = renderToStaticMarkup(
+    <ManagedRuntimeSettings
+      accounts={[]}
+      snapshot={{
+        products: [{ ...blockedProduct, installState: "preparing" }],
+        statuses: [{ ...blockedStatus, installState: "preparing" }],
+      }}
+    />,
+  );
+  expect(markup).toContain("Preparing sign-in");
+  expect(markup).not.toContain(">Signing in");
+  expect(markup).not.toContain(">Sign in<");
+});
+
 test("renders product-first blocked state without advertising a runtime action", () => {
   const markup = renderToStaticMarkup(
     <ManagedRuntimeSettings

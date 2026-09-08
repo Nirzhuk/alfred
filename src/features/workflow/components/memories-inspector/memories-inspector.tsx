@@ -685,7 +685,7 @@ export function MemoriesInspector({
         await updateMemoryFields({
           id: selected.id,
           title: title.trim() || selected.title,
-          body,
+          ...(body !== selected.body ? { body } : {}),
           kind,
           scopeType,
           memoryType,

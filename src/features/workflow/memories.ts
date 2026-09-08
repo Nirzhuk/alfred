@@ -32,6 +32,27 @@ export function clearLegacyMemories(workflowId: string) {
   }
 }
 
+export function removeMigratedLegacyMemories(
+  workflowId: string,
+  migratedIds: ReadonlySet<string>,
+) {
+  if (migratedIds.size === 0) return;
+  const raw = localStorage.getItem(KEY(workflowId));
+  if (!raw) return;
+  const memories = JSON.parse(raw) as LegacyMemory[];
+  if (!Array.isArray(memories)) {
+    throw new Error("Saved memories could not be read.");
+  }
+  const remaining = memories.filter(
+    (memory) => !migratedIds.has(memory.id),
+  );
+  if (remaining.length === 0) {
+    localStorage.removeItem(KEY(workflowId));
+  } else {
+    localStorage.setItem(KEY(workflowId), JSON.stringify(remaining));
+  }
+}
+
 export function sortMemories(memories: OutputMemory[]): OutputMemory[] {
   return [...memories].sort((a, b) => {
     const aActive = a.status === "active";

@@ -43,6 +43,7 @@ import {
 import {
   clearLegacyMemories,
   loadLegacyMemories,
+  removeMigratedLegacyMemories,
   asOwnedMemory,
   canPinMemory,
   sortMemories,
@@ -323,7 +324,7 @@ type WorkflowStore = {
   setMemoryRetrievalEnabled: (id: string, enabled: boolean) => Promise<void>;
   reorderWorkflows: (orderedIds: string[]) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
-  saveActiveWorkflow: () => Promise<void>;
+  saveActiveWorkflow: () => Promise<boolean>;
   runActiveWorkflow: (workflowId?: string) => Promise<void>;
   cancelActiveRun: (workflowId?: string) => Promise<void>;
   openRunPanel: (nodeId?: string | null) => void;
@@ -369,32 +370,56 @@ type WorkflowStore = {
   disconnectNode: (nodeId: string) => void;
 };
 
+const LEGACY_MEMORY_MIGRATION_ERROR =
+  "Some saved memories could not finish importing. Your original data has been kept; reopen this workflow to retry.";
+const legacyMemoryMigrations = new Map<string, Promise<boolean>>();
+
 async function migrateLegacyMemories(workflowId: string): Promise<boolean> {
+  const pending = legacyMemoryMigrations.get(workflowId);
+  if (pending) return pending;
   const legacy = loadLegacyMemories(workflowId);
-  if (legacy.length === 0) return false;
-  for (const item of legacy) {
+  if (legacy.length === 0) return true;
+  const migration = (async () => {
+    const migratedIds = new Set<string>();
+    let complete = true;
+    for (const item of legacy) {
+      try {
+        await api.createMemory({
+          id: item.id,
+          workflowId,
+          title: item.title || "Output",
+          body: item.body,
+          runId: item.runId,
+          nodeId: item.nodeId,
+          source: "import",
+          kind: "text",
+        });
+        migratedIds.add(item.id);
+      } catch {
+        complete = false;
+      }
+    }
     try {
-      await api.createMemory({
-        id: item.id,
-        workflowId,
-        title: item.title || "Output",
-        body: item.body,
-        runId: item.runId,
-        nodeId: item.nodeId,
-        source: "import",
-        kind: "text",
-      });
+      removeMigratedLegacyMemories(workflowId, migratedIds);
     } catch {
-      /* skip duplicates / failures */
+      complete = false;
+    }
+    return complete;
+  })();
+  legacyMemoryMigrations.set(workflowId, migration);
+  try {
+    return await migration;
+  } finally {
+    if (legacyMemoryMigrations.get(workflowId) === migration) {
+      legacyMemoryMigrations.delete(workflowId);
     }
   }
-  clearLegacyMemories(workflowId);
-  return true;
 }
 
 let runUnlisten: UnlistenFn | null = null;
 let usageRequestSequence = 0;
 let workflowSelectionSequence = 0;
+const workflowSaves = new Map<string, Promise<boolean>>();
 
 async function ensureRunListener(handle: (event: RunEvent) => void) {
   if (runUnlisten) return;
@@ -1059,23 +1084,45 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   saveActiveWorkflow: async () => {
     const { activeWorkflowId, nodes, edges } = get();
-    if (!activeWorkflowId) return;
+    if (!activeWorkflowId) return false;
 
+    const previousSave = workflowSaves.get(activeWorkflowId);
     set({ loading: true, error: null });
+    const save = (async () => {
+      if (previousSave) {
+        await previousSave;
+        set({ error: null });
+      }
+      try {
+        const workflow = await api.updateWorkflow({
+          id: activeWorkflowId,
+          graph: { nodes: normalizeNodes(nodes), edges },
+        });
+        set((state) => ({
+          workflows: state.workflows.map((w) =>
+            w.id === workflow.id ? workflow : w,
+          ),
+          dirty:
+            state.activeWorkflowId === activeWorkflowId &&
+            state.nodes === nodes &&
+            state.edges === edges
+              ? false
+              : state.dirty,
+        }));
+        return true;
+      } catch (e) {
+        set({ error: String(e) });
+        return false;
+      }
+    })();
+    workflowSaves.set(activeWorkflowId, save);
     try {
-      const workflow = await api.updateWorkflow({
-        id: activeWorkflowId,
-        graph: { nodes: normalizeNodes(nodes), edges },
-      });
-      set((state) => ({
-        workflows: state.workflows.map((w) =>
-          w.id === workflow.id ? workflow : w,
-        ),
-        dirty: false,
-        loading: false,
-      }));
-    } catch (e) {
-      set({ loading: false, error: String(e) });
+      return await save;
+    } finally {
+      if (workflowSaves.get(activeWorkflowId) === save) {
+        workflowSaves.delete(activeWorkflowId);
+      }
+      if (workflowSaves.size === 0) set({ loading: false });
     }
   },
 
@@ -1097,7 +1144,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       if (targetIsVisible) get().openRunPanel();
       return;
     }
-    if (targetIsVisible && dirty) await saveActiveWorkflow();
+    if (targetIsVisible && dirty && !(await saveActiveWorkflow())) return;
 
     await installRunEventBridge();
 
@@ -1250,15 +1297,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   loadMemories: async (workflowId) => {
     try {
-      let memories = await api.listMemories(workflowId, true);
-      if (memories.length === 0) {
-        const migrated = await migrateLegacyMemories(workflowId);
-        if (migrated) {
-          memories = await api.listMemories(workflowId, true);
-        }
-      }
+      const migrationComplete = await migrateLegacyMemories(workflowId);
+      const memories = await api.listMemories(workflowId, true);
       if (get().activeWorkflowId === workflowId) {
-        set({ memories: sortMemories(memories) });
+        set((state) => ({
+          memories: sortMemories(memories),
+          error: !migrationComplete
+            ? LEGACY_MEMORY_MIGRATION_ERROR
+            : state.error === LEGACY_MEMORY_MIGRATION_ERROR
+              ? null
+              : state.error,
+        }));
       }
     } catch (e) {
       set({ error: String(e) });

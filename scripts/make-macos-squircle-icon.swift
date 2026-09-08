@@ -42,10 +42,12 @@ else {
 
 context.clear(CGRect(x: 0, y: 0, width: size, height: size))
 
-// This is the platform export only. The source master stays full-bleed so
-// Apple can apply the native mask in contexts that provide one.
-let cornerRadius = CGFloat(size) * 0.168
-let iconRect = CGRect(x: 0, y: 0, width: size, height: size)
+// Flat macOS icons carry their own transparent margin. Keep the full-bleed
+// source for platforms and Icon Composer workflows that apply their own mask.
+let canvasRect = CGRect(x: 0, y: 0, width: size, height: size)
+let inset = CGFloat(size) * (100.0 / 1024.0)
+let iconRect = canvasRect.insetBy(dx: inset, dy: inset)
+let cornerRadius = iconRect.width * 0.168
 let mask = CGPath(
   roundedRect: iconRect,
   cornerWidth: cornerRadius,
@@ -54,6 +56,7 @@ let mask = CGPath(
 )
 context.addPath(mask)
 context.clip()
+context.interpolationQuality = .high
 context.draw(sourceImage, in: iconRect)
 
 guard let outputImage = context.makeImage() else {

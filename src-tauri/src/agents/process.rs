@@ -271,7 +271,7 @@ fn run_cmd_inner(
         .spawn()
         .map_err(|e| format!("failed to spawn {}: {e}", bin.display()))?;
 
-    let mut stdin = child.stdin.take();
+    let stdin = child.stdin.take();
     let stdout = child
         .stdout
         .take()
@@ -326,20 +326,16 @@ fn run_cmd_inner(
     });
 
     let start = Instant::now();
-    // Start draining stdout/stderr before writing a potentially large prompt.
-    // Otherwise a child that emits output while reading stdin can fill its
-    // stdout pipe while this thread is blocked filling the stdin pipe.
-    let stdin_error = stdin_payload.and_then(|payload| match stdin.as_mut() {
-        Some(handle) => handle
-            .write_all(payload.as_bytes())
-            .err()
-            .map(|error| format!("failed to write prompt to stdin: {error}")),
-        None => Some(format!("missing stdin for {}", bin.display())),
-    });
-    drop(stdin);
-    if stdin_error.is_some() {
-        kill_child(control, &local_slot);
-    }
+    // Keep this thread consuming the bounded output channel and checking the
+    // deadline even when the child stops reading its stdin pipe.
+    let (mut t_stdin, mut stdin_error) = match (stdin_payload, stdin) {
+        (Some(payload), Some(mut stdin)) => {
+            let payload = payload.as_bytes().to_vec();
+            (Some(thread::spawn(move || stdin.write_all(&payload))), None)
+        }
+        (Some(_), None) => (None, Some(format!("missing stdin for {}", bin.display()))),
+        (None, _) => (None, None),
+    };
 
     let mut cancelled = false;
     let mut timed_out = false;
@@ -366,8 +362,16 @@ fn run_cmd_inner(
             break;
         }
 
+        if let Some(writer) = t_stdin.take_if(|writer| writer.is_finished()) {
+            stdin_error = finish_stdin_write(writer);
+        }
+        if stdin_error.is_some() {
+            kill_child(control, &local_slot);
+            break;
+        }
+
         let child_done = child_exited(control, &local_slot);
-        if child_done && t_out.is_finished() && t_err.is_finished() {
+        if child_done && t_stdin.is_none() && t_out.is_finished() && t_err.is_finished() {
             break;
         }
 
@@ -391,12 +395,12 @@ fn run_cmd_inner(
 
     let _ = t_out.join();
     let _ = t_err.join();
+    if let Some(writer) = t_stdin {
+        stdin_error = finish_stdin_write(writer);
+    }
 
     let (status_ok, exit_code) = wait_child(control, &local_slot);
 
-    if let Some(error) = stdin_error {
-        return Err(error);
-    }
     if cancelled {
         return Err("cancelled".into());
     }
@@ -406,6 +410,9 @@ fn run_cmd_inner(
             bin.display(),
             timeout.as_secs()
         ));
+    }
+    if let Some(error) = stdin_error {
+        return Err(error);
     }
 
     let stdout = take_capture(stdout_buf);
@@ -418,6 +425,14 @@ fn run_cmd_inner(
         code: exit_code,
         duration_ms: start.elapsed().as_millis(),
     })
+}
+
+fn finish_stdin_write(writer: thread::JoinHandle<std::io::Result<()>>) -> Option<String> {
+    match writer.join() {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(format!("failed to write prompt to stdin: {error}")),
+        Err(_) => Some("stdin writer thread panicked".into()),
+    }
 }
 
 fn take_capture(capture: Arc<Mutex<BoundedCapture>>) -> String {
@@ -513,7 +528,159 @@ pub fn prefer_stdout(output: &CmdOutput) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use std::io::Read;
     use std::sync::mpsc;
+
+    const STDIN_FIXTURE_ENV: &str = "ALFRED_PROCESS_STDIN_TEST_MODE";
+    const STDIN_FIXTURE_BYTES: usize = 2 * 1024 * 1024;
+
+    fn run_stdin_fixture(
+        mode: &str,
+        timeout: Duration,
+        control: Option<&RunControl>,
+        on_line: Option<&dyn Fn(&str)>,
+    ) -> Result<CmdOutput, String> {
+        run_cmd_with_stdin_env(
+            &std::env::current_exe().expect("test executable"),
+            &[
+                "--exact".into(),
+                "agents::process::tests::stdin_process_fixture_child".into(),
+                "--nocapture".into(),
+            ],
+            None,
+            timeout,
+            control,
+            on_line,
+            &"x".repeat(STDIN_FIXTURE_BYTES),
+            &[(STDIN_FIXTURE_ENV, mode.into())],
+        )
+    }
+
+    #[test]
+    fn stdin_process_fixture_child() {
+        let Ok(mode) = std::env::var(STDIN_FIXTURE_ENV) else {
+            return;
+        };
+
+        // This process has no descendants. Even a regression that blocks all
+        // pipe I/O must end; dropping the sender cancels and joins the watchdog.
+        thread::scope(|scope| {
+            let (_finished, finish_rx) = mpsc::channel::<()>();
+            scope.spawn(move || {
+                if matches!(
+                    finish_rx.recv_timeout(Duration::from_secs(8)),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    std::process::exit(91);
+                }
+            });
+
+            let mut stdout = std::io::stdout().lock();
+            writeln!(stdout).expect("fixture output boundary");
+            match mode.as_str() {
+                "output-before-input" => {
+                    let line = format!("fixture-output-{}", "y".repeat(4096));
+                    for _ in 0..1024 {
+                        writeln!(stdout, "{line}").expect("fixture output");
+                    }
+                    stdout.flush().expect("flush fixture output");
+
+                    let mut input = Vec::new();
+                    std::io::stdin()
+                        .read_to_end(&mut input)
+                        .expect("fixture input");
+                    assert_eq!(input.len(), STDIN_FIXTURE_BYTES);
+                    assert!(input.iter().all(|byte| *byte == b'x'));
+                    writeln!(stdout, "fixture-input-complete").expect("fixture result");
+                }
+                "wait-before-input" => {
+                    writeln!(stdout, "fixture-ready").expect("fixture readiness");
+                    stdout.flush().expect("flush fixture readiness");
+                    thread::sleep(Duration::from_secs(10));
+                }
+                "exit-before-input" => {}
+                _ => panic!("unknown stdin fixture mode"),
+            }
+        });
+    }
+
+    #[test]
+    fn drains_output_while_writing_large_stdin() {
+        let output_lines = Cell::new(0);
+        let supervisor = thread::current().id();
+        let on_line = |line: &str| {
+            assert_eq!(thread::current().id(), supervisor);
+            if line.starts_with("fixture-output-") {
+                output_lines.set(output_lines.get() + 1);
+            }
+        };
+
+        let output = run_stdin_fixture(
+            "output-before-input",
+            Duration::from_secs(4),
+            None,
+            Some(&on_line),
+        )
+        .expect("large input and output should both drain");
+
+        assert!(output.success);
+        assert_eq!(output_lines.get(), 1024);
+        assert!(output.stdout.contains("fixture-input-complete"));
+    }
+
+    #[test]
+    fn timeout_interrupts_a_blocked_stdin_write() {
+        let start = Instant::now();
+        let result = run_stdin_fixture("wait-before-input", Duration::from_millis(200), None, None);
+
+        assert!(matches!(result, Err(ref error) if error.contains("timed out")));
+        assert!(start.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn cancellation_interrupts_a_blocked_stdin_write() {
+        let control = RunControl::new();
+        let on_line = |line: &str| {
+            if line == "fixture-ready" {
+                control.request_cancel();
+            }
+        };
+        let start = Instant::now();
+        let result = run_stdin_fixture(
+            "wait-before-input",
+            Duration::from_secs(4),
+            Some(&control),
+            Some(&on_line),
+        );
+
+        assert!(matches!(result, Err(ref error) if error == "cancelled"));
+        assert!(start.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn reports_a_stdin_write_failure_without_cancellation() {
+        let result = run_stdin_fixture(
+            "exit-before-input",
+            Duration::from_secs(4),
+            Some(&RunControl::new()),
+            None,
+        );
+
+        assert!(
+            matches!(result, Err(ref error) if error.starts_with("failed to write prompt to stdin:"))
+        );
+    }
+
+    #[test]
+    fn reports_a_stdin_writer_panic() {
+        let writer = thread::spawn(|| panic!("fixture stdin writer panic"));
+
+        assert_eq!(
+            finish_stdin_write(writer).as_deref(),
+            Some("stdin writer thread panicked")
+        );
+    }
 
     #[test]
     fn serializes_claude_invocations() {
