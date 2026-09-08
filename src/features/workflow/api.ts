@@ -418,3 +418,22 @@ export async function clearDecidedMemoryCandidates(
 ): Promise<number> {
   return invoke("clear_decided_memory_candidates", { workflowId });
 }
+
+/** `gh`-backed pickers for the git-host node. Read-only; no token leaves gh. */
+export type GithubCliRepos = {
+  current: string | null;
+  repos: string[];
+  error: string | null;
+};
+
+export async function githubCliRepos(cwd?: string): Promise<GithubCliRepos> {
+  return invoke("github_cli_repos", { cwd: cwd?.trim() || null });
+}
+
+export async function githubCliBranches(
+  repo: string,
+): Promise<string[]> {
+  return invoke("github_cli_branches", {
+    repo: repo.trim(),
+  });
+}

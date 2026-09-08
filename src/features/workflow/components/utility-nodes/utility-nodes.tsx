@@ -177,7 +177,7 @@ export function GitHostNode({
       icon={<Icon name="git-pull-request" size={16} />}
       title={data.label || (data.action === "issue" ? "Open issue" : "Create PR")}
       body={previewLine(data.title, data.action === "issue" ? "New issue" : "New pull request")}
-      meta={data.action === "issue" ? "via gh issue" : "via gh pr"}
+      meta={data.repo?.trim() || "working directory repo"}
     />
   );
 }

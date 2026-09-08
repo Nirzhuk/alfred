@@ -391,10 +391,14 @@ export type GitHostNodeData = {
   kind: "gitHost";
   label: string;
   action: "pr" | "issue";
+  /** `owner/name` (empty = repository of the working directory). */
+  repo?: string;
   title: string;
   body: string;
   /** PR only — base branch (empty = repo default). */
   base: string;
+  /** PR only — head branch (empty = current branch of the working directory). */
+  head?: string;
   /** PR only — create as draft. */
   draft: boolean;
 };
@@ -407,9 +411,11 @@ export function defaultGitHostNodeData(
     kind: "gitHost",
     label,
     action,
+    repo: "",
     title: "",
     body: "{{output}}",
     base: "",
+    head: "",
     draft: false,
   };
 }

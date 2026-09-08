@@ -1848,12 +1848,16 @@ pub fn execute_run(
                     cwd,
                 );
                 let base = data.get("base").and_then(|v| v.as_str()).unwrap_or("");
+                let repo = data.get("repo").and_then(|v| v.as_str()).unwrap_or("");
+                let head = data.get("head").and_then(|v| v.as_str()).unwrap_or("");
                 let draft = data.get("draft").and_then(|v| v.as_bool()).unwrap_or(false);
                 match run_git_host(
                     action,
+                    repo,
                     &title,
                     &body,
                     base,
+                    head,
                     draft,
                     working_directory.as_deref(),
                 ) {
@@ -4119,53 +4123,147 @@ fn run_http_request(method: &str, url: &str, headers: &str, body: &str) -> Resul
     Ok(stdout)
 }
 
-fn run_git_host(
+/// Build the `gh` argv for a git-host node. Split out from the spawn so the
+/// flag mapping is testable without a GitHub account.
+fn git_host_args(
     action: &str,
+    repo: &str,
     title: &str,
     body: &str,
     base: &str,
+    head: &str,
+    draft: bool,
+) -> Result<Vec<String>, String> {
+    if title.trim().is_empty() {
+        return Err("Title is required for a GitHub PR or issue".into());
+    }
+    let repo = repo.trim();
+    if !repo.is_empty() && !crate::commands::github_cli::valid_repo(repo) {
+        return Err(format!(
+            "Repository must look like `owner/name` (got `{repo}`)"
+        ));
+    }
+    let branch = |value: &str, field: &str| -> Result<Option<String>, String> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        if value.starts_with('-') {
+            return Err(format!("{field} branch cannot start with `-`"));
+        }
+        Ok(Some(value.to_string()))
+    };
+
+    let mut args: Vec<String> = match action {
+        "issue" => vec!["issue".into(), "create".into()],
+        _ => vec!["pr".into(), "create".into()],
+    };
+    args.extend(["--title".to_string(), title.to_string()]);
+    args.extend(["--body".to_string(), body.to_string()]);
+    if !repo.is_empty() {
+        args.extend(["--repo".to_string(), repo.to_string()]);
+    }
+    if action != "issue" {
+        if let Some(base) = branch(base, "Base")? {
+            args.extend(["--base".to_string(), base]);
+        }
+        if let Some(head) = branch(head, "Head")? {
+            args.extend(["--head".to_string(), head]);
+        }
+        if draft {
+            args.push("--draft".to_string());
+        }
+    }
+    Ok(args)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_git_host(
+    action: &str,
+    repo: &str,
+    title: &str,
+    body: &str,
+    base: &str,
+    head: &str,
     draft: bool,
     cwd: Option<&str>,
 ) -> Result<String, String> {
-    if title.trim().is_empty() {
-        return Err("Title is required for GitHub PR/issue".into());
+    let args = git_host_args(action, repo, title, body, base, head, draft)?;
+    let cwd = cwd.map(str::trim).filter(|dir| !dir.is_empty());
+    if cwd.is_none() && repo.trim().is_empty() {
+        return Err("Set the workflow working directory or pick a repository for this node".into());
+    }
+    if action != "issue" && cwd.is_none() && head.trim().is_empty() {
+        return Err(
+            "Set the workflow working directory or specify a head branch for this PR".into(),
+        );
     }
 
-    let mut cmd = std::process::Command::new("gh");
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
-
-    match action {
-        "issue" => {
-            cmd.args(["issue", "create", "--title", title, "--body", body]);
-        }
-        _ => {
-            cmd.args(["pr", "create", "--title", title, "--body", body]);
-            if !base.trim().is_empty() {
-                cmd.args(["--base", base]);
-            }
-            if draft {
-                cmd.arg("--draft");
-            }
-        }
-    }
-
-    let out = cmd
-        .output()
-        .map_err(|e| format!("gh failed to start (is GitHub CLI installed?): {e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    if !out.status.success() {
-        return Err(if stderr.is_empty() {
-            format!("gh failed: {stdout}")
-        } else {
-            format!("gh failed: {stderr}")
-        });
-    }
+    let stdout = crate::commands::github_cli::gh(cwd, &args)?;
     Ok(if stdout.is_empty() {
         format!("{action} created")
     } else {
         stdout
     })
+}
+
+#[cfg(test)]
+mod git_host_tests {
+    use super::{git_host_args, run_git_host};
+
+    #[test]
+    fn pr_without_a_workflow_directory_requires_an_explicit_head() {
+        let error = run_git_host("pr", "acme/app", "Title", "", "", "", false, None).unwrap_err();
+        assert!(error.contains("specify a head branch"));
+        let error =
+            run_git_host("pr", "acme/app", "Title", "", "", " ", false, Some(" ")).unwrap_err();
+        assert!(error.contains("specify a head branch"));
+    }
+
+    #[test]
+    fn missing_repository_context_is_rejected_before_running_gh() {
+        for action in ["pr", "issue"] {
+            let error =
+                run_git_host(action, " ", "Title", "", "", "feature", false, None).unwrap_err();
+            assert!(error.contains("pick a repository"));
+        }
+    }
+
+    #[test]
+    fn pr_args_carry_repo_base_head_and_draft() {
+        let args = git_host_args("pr", "acme/app", "Title", "Body", "main", "feature", true)
+            .expect("valid pr args");
+        assert_eq!(
+            args,
+            vec![
+                "pr", "create", "--title", "Title", "--body", "Body", "--repo", "acme/app",
+                "--base", "main", "--head", "feature", "--draft",
+            ]
+        );
+    }
+
+    #[test]
+    fn issue_args_drop_pr_only_flags() {
+        let args = git_host_args(
+            "issue", "acme/app", "Title", "Body", "main", "feature", true,
+        )
+        .expect("valid issue args");
+        assert_eq!(
+            args,
+            vec!["issue", "create", "--title", "Title", "--body", "Body", "--repo", "acme/app",]
+        );
+    }
+
+    #[test]
+    fn empty_optionals_are_omitted() {
+        let args = git_host_args("pr", "", "Title", "", "", "", false).expect("valid pr args");
+        assert_eq!(args, vec!["pr", "create", "--title", "Title", "--body", ""]);
+    }
+
+    #[test]
+    fn malformed_repo_and_flag_like_branches_are_rejected() {
+        assert!(git_host_args("pr", "acme", "T", "B", "", "", false).is_err());
+        assert!(git_host_args("pr", "", "", "B", "", "", false).is_err());
+        assert!(git_host_args("pr", "", "T", "B", "--draft", "", false).is_err());
+    }
 }

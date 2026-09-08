@@ -96,6 +96,7 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
     (s) => s.agentCapabilityManifest,
   );
   const memories = useWorkflowStore((s) => s.memories);
+  const workflows = useWorkflowStore((s) => s.workflows);
   const activeWorkflowId = useWorkflowStore((s) => s.activeWorkflowId);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const loadProviderModels = useWorkflowStore((s) => s.loadProviderModels);
@@ -105,6 +106,10 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
     () => nodes.find((n) => n.id === nodeId) ?? null,
     [nodes, nodeId],
   );
+
+  const workingDirectory =
+    workflows.find((workflow) => workflow.id === activeWorkflowId)
+      ?.workingDirectory?.trim() ?? "";
 
   const [linkable, setLinkable] = useState<OutputMemory[]>([]);
   const [linkQuery, setLinkQuery] = useState("");
@@ -287,6 +292,7 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
         {isGitHostNodeData(node.data) ? (
           <GitHostSettings
             data={node.data}
+            cwd={workingDirectory}
             onUpdate={(patch) => updateNodeData(node.id, patch)}
           />
         ) : null}

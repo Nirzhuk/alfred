@@ -387,6 +387,8 @@ pub fn run() {
             commands::agent_accounts::cancel_agent_authorization,
             commands::agent_accounts::refresh_agent_account,
             commands::agent_accounts::disconnect_agent_account,
+            commands::github_cli::github_cli_repos,
+            commands::github_cli::github_cli_branches,
             commands::integrations::list_app_providers,
             commands::integrations::list_app_action_descriptors,
             commands::integrations::list_app_action_resources,

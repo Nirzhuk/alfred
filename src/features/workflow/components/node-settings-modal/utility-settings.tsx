@@ -1,5 +1,7 @@
+import { useEffect, useId, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { SelectControl } from "../../../../components/select-control";
+import * as api from "../../api";
 import type {
   CustomAgentNodeData,
   FileInjectNodeData,
@@ -558,10 +560,73 @@ export function WriteFileSettings({
 export function GitHostSettings({
   data,
   onUpdate,
+  cwd,
 }: {
   data: GitHostNodeData;
   onUpdate: (patch: Partial<GitHostNodeData>) => void;
+  /** Workflow working directory — used to detect the checked-out repo. */
+  cwd?: string;
 }) {
+  const repo = data.repo ?? "";
+  const isPr = data.action === "pr";
+  const suggestionsId = useId();
+  const [reloadKey, setReloadKey] = useState(0);
+  const [gh, setGh] = useState<api.GithubCliRepos | null>(null);
+  const [branches, setBranches] = useState<{
+    repo: string;
+    names: string[];
+    error?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setGh(null);
+    api
+      .githubCliRepos(cwd)
+      .then((result) => {
+        if (!cancelled) setGh(result);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setGh({
+            current: null,
+            repos: [],
+            error: String(e),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, reloadKey]);
+
+  const branchRepo = repo.trim() || gh?.current || "";
+  useEffect(() => {
+    setBranches(null);
+    if (!isPr || !branchRepo) {
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api
+        .githubCliBranches(branchRepo)
+        .then((result) => {
+          if (!cancelled) setBranches({ repo: branchRepo, names: result });
+        })
+        .catch((e: unknown) => {
+          if (!cancelled) {
+            setBranches({ repo: branchRepo, names: [], error: String(e) });
+          }
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isPr, branchRepo, reloadKey]);
+
+  const currentBranches = branches?.repo === branchRepo ? branches : null;
+
   return (
     <>
       <LabelField
@@ -570,7 +635,7 @@ export function GitHostSettings({
       />
       <label className="field">
         <span>Action</span>
-        <select
+        <SelectControl
           value={data.action}
           onChange={(e) =>
             onUpdate({ action: e.target.value as GitHostNodeData["action"] })
@@ -578,14 +643,48 @@ export function GitHostSettings({
         >
           <option value="pr">Create pull request</option>
           <option value="issue">Open issue</option>
-        </select>
+        </SelectControl>
       </label>
+      <label className="field">
+        <span>Repository</span>
+        <div className="field-row">
+          <input
+            type="text"
+            list={`${suggestionsId}-repos`}
+            style={{ flex: 1, minWidth: 0 }}
+            value={repo}
+            placeholder={
+              gh?.current || "owner/name (empty uses the working directory)"
+            }
+            onChange={(e) => onUpdate({ repo: e.target.value })}
+          />
+          <datalist id={`${suggestionsId}-repos`}>
+            {gh?.repos.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <button
+            type="button"
+            className="ghost"
+            disabled={!gh}
+            onClick={() => setReloadKey((key) => key + 1)}
+          >
+            {gh ? "Refresh" : "Loading…"}
+          </button>
+        </div>
+      </label>
+      {gh?.error ? <p className="hint">{gh.error}</p> : null}
+      {gh && !gh.error && !repo.trim() && !gh.current ? (
+        <p className="hint">
+          No GitHub checkout in the working directory. Enter a repository above.
+        </p>
+      ) : null}
       <label className="field">
         <span>Title</span>
         <input
           type="text"
           value={data.title}
-          placeholder="Optional — gh may prompt / derive"
+          placeholder="Required — supports {{output}}"
           onChange={(e) => onUpdate({ title: e.target.value })}
         />
       </label>
@@ -597,17 +696,40 @@ export function GitHostSettings({
           onChange={(e) => onUpdate({ body: e.target.value })}
         />
       </label>
-      {data.action === "pr" ? (
+      {isPr ? (
         <>
           <label className="field">
             <span>Base branch</span>
             <input
               type="text"
+              list={`${suggestionsId}-branches`}
               value={data.base}
-              placeholder="main (repo default if empty)"
+              placeholder="Repository default if empty"
               onChange={(e) => onUpdate({ base: e.target.value })}
             />
+            <datalist id={`${suggestionsId}-branches`}>
+              {currentBranches?.names.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </label>
+          {currentBranches?.error ? (
+            <p className="hint">{currentBranches.error}</p>
+          ) : null}
+          <label className="field">
+            <span>Head branch</span>
+            <input
+              type="text"
+              value={data.head ?? ""}
+              placeholder={
+                cwd?.trim()
+                  ? "Current branch of the working directory"
+                  : "Required without a workflow working directory"
+              }
+              onChange={(e) => onUpdate({ head: e.target.value })}
+            />
+          </label>
+          <p className="hint">Push your branch before creating a pull request.</p>
           <label className="field checkbox-field">
             <input
               type="checkbox"
@@ -620,7 +742,7 @@ export function GitHostSettings({
       ) : null}
       <p className="hint">
         Requires the GitHub CLI (<code>gh</code>) authenticated in this
-        environment.
+        environment. Title and body support <code>{"{{output}}"}</code>.
       </p>
     </>
   );
