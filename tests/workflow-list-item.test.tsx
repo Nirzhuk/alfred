@@ -8,6 +8,7 @@ const workflow: Workflow = {
   name: "SEO workflow",
   description: "",
   workingDirectory: "/Users/nirzhuk/development/apps/krysos",
+  memoryLookupEnabled: false,
   graph: { nodes: [], edges: [] },
   createdAt: "2026-08-19T00:00:00Z",
   updatedAt: "2026-08-19T00:00:00Z",

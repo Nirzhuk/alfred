@@ -1,0 +1,1253 @@
+{
+  "fixture_version": "lookup-v1",
+  "evaluator_version": "memory-lookup-eval-1",
+  "lookup_contract_version": 1,
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "fixture_digest": "6deeb417343762984b13f568764abf643a014932d25814ba9609aa8a497edfc6",
+  "development": {
+    "cases": 7,
+    "initial_required_count": 3,
+    "initial_recovered_count": 3,
+    "initial_recall": 1.0,
+    "lookup_required_count": 6,
+    "lookup_recovered_count": 6,
+    "lookup_recall": 1.0,
+    "recovered_after_initial_miss": 4,
+    "expected_no_evidence_cases": 1,
+    "actual_source_free_cases": 1,
+    "actual_no_evidence_cases": 1,
+    "unexpected_nonempty_no_evidence_cases": 0,
+    "lookup_errors": 1,
+    "expected_denied": 1,
+    "wrong_memory_uses": 0,
+    "unexpected_errors": 0,
+    "initial_errors": 0,
+    "trace_violations": 0,
+    "artifact_violations": 0,
+    "budget_violations": 0,
+    "permission_violations": 0,
+    "initial_memory_bytes": 1100,
+    "lookup_calls": 13,
+    "lookup_returned_bytes": 8817,
+    "max_initial_memory_bytes": 381,
+    "max_lookup_calls": 3,
+    "max_lookup_returned_bytes": 5054
+  },
+  "validation": {
+    "cases": 5,
+    "initial_required_count": 6,
+    "initial_recovered_count": 6,
+    "initial_recall": 1.0,
+    "lookup_required_count": 7,
+    "lookup_recovered_count": 7,
+    "lookup_recall": 1.0,
+    "recovered_after_initial_miss": 1,
+    "expected_no_evidence_cases": 1,
+    "actual_source_free_cases": 1,
+    "actual_no_evidence_cases": 0,
+    "unexpected_nonempty_no_evidence_cases": 0,
+    "lookup_errors": 3,
+    "expected_denied": 3,
+    "wrong_memory_uses": 0,
+    "unexpected_errors": 0,
+    "initial_errors": 0,
+    "trace_violations": 0,
+    "artifact_violations": 0,
+    "budget_violations": 0,
+    "permission_violations": 0,
+    "initial_memory_bytes": 1446,
+    "lookup_calls": 16,
+    "lookup_returned_bytes": 13806,
+    "max_initial_memory_bytes": 707,
+    "max_lookup_calls": 8,
+    "max_lookup_returned_bytes": 9486
+  },
+  "current_runtime": {
+    "cases": 12,
+    "initial_required_count": 9,
+    "initial_recovered_count": 9,
+    "initial_recall": 1.0,
+    "lookup_required_count": 13,
+    "lookup_recovered_count": 13,
+    "lookup_recall": 1.0,
+    "recovered_after_initial_miss": 5,
+    "expected_no_evidence_cases": 2,
+    "actual_source_free_cases": 2,
+    "actual_no_evidence_cases": 1,
+    "unexpected_nonempty_no_evidence_cases": 0,
+    "lookup_errors": 4,
+    "expected_denied": 4,
+    "wrong_memory_uses": 0,
+    "unexpected_errors": 0,
+    "initial_errors": 0,
+    "trace_violations": 0,
+    "artifact_violations": 0,
+    "budget_violations": 0,
+    "permission_violations": 0,
+    "initial_memory_bytes": 2546,
+    "lookup_calls": 29,
+    "lookup_returned_bytes": 22623,
+    "max_initial_memory_bytes": 707,
+    "max_lookup_calls": 8,
+    "max_lookup_returned_bytes": 9486
+  },
+  "cases": [
+    {
+      "id": "l01",
+      "category": "recall_miss_recovery",
+      "split": "development",
+      "initial_required_count": 1,
+      "initial_recovered_count": 1,
+      "initial_returned_ids": [
+        "m-l01-evergreen"
+      ],
+      "initial_recall": 1.0,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "m-l01-evergreen"
+      ],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 356,
+      "lookup_calls": 1,
+      "lookup_returned_bytes": 431,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l01-evergreen"
+          ],
+          "response_bytes": 431,
+          "returned_bytes": 431,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l01-evergreen",
+                "version": "memory-v1:59eff0519dfff1daf964a6c426c9116128810cce0d8640cdce6ccc49de02c1c7",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 431,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        2,
+        1
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l02",
+      "category": "recall_miss_recovery",
+      "split": "validation",
+      "initial_required_count": 1,
+      "initial_recovered_count": 1,
+      "initial_returned_ids": [
+        "m-l02-signer"
+      ],
+      "initial_recall": 1.0,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "m-l02-signer"
+      ],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 379,
+      "lookup_calls": 1,
+      "lookup_returned_bytes": 457,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l02-signer"
+          ],
+          "response_bytes": 457,
+          "returned_bytes": 457,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l02-signer",
+                "version": "memory-v1:a0a1113fe8e9f5e77401a068b0bd2e49412446795865ea7186206813890496dc",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 457,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l03",
+      "category": "historical_reports",
+      "split": "development",
+      "initial_required_count": 0,
+      "initial_recovered_count": 0,
+      "initial_returned_ids": [],
+      "initial_recall": null,
+      "lookup_required_count": 2,
+      "lookup_recovered_count": 2,
+      "lookup_recovered_ids": [
+        "evidence-l03-observation",
+        "step-l03-report"
+      ],
+      "recovered_after_initial_miss_ids": [
+        "evidence-l03-observation",
+        "step-l03-report"
+      ],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 0,
+      "lookup_calls": 3,
+      "lookup_returned_bytes": 1472,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "history.search",
+          "returned_source_ids": [
+            "step-l03-report",
+            "evidence-l03-observation"
+          ],
+          "response_bytes": 731,
+          "returned_bytes": 731,
+          "error": null,
+          "trace": {
+            "tool": "history.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l03-report",
+                "version": "receipt-v1:a3ba1819a6a2e0e6171650629e7528bb45c8080298019acea83f1ed61fdf5c14",
+                "state": "historical",
+                "page": null
+              },
+              {
+                "reference": "opaque",
+                "source": "evidence",
+                "source_id": "evidence-l03-observation",
+                "version": "evidence-v1:8faeed4cf666aedca0fd72e21937c8f33371fe266e63cafd2d3c7c43b287d4ea",
+                "state": "historical",
+                "page": null
+              }
+            ],
+            "returned_bytes": 731,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "history.get",
+          "returned_source_ids": [
+            "step-l03-report"
+          ],
+          "response_bytes": 382,
+          "returned_bytes": 382,
+          "error": null,
+          "trace": {
+            "tool": "history.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l03-report",
+                "version": "receipt-v1:a3ba1819a6a2e0e6171650629e7528bb45c8080298019acea83f1ed61fdf5c14",
+                "state": "historical",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 382,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 2,
+          "tool": "history.get",
+          "returned_source_ids": [
+            "evidence-l03-observation"
+          ],
+          "response_bytes": 359,
+          "returned_bytes": 359,
+          "error": null,
+          "trace": {
+            "tool": "history.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "evidence",
+                "source_id": "evidence-l03-observation",
+                "version": "evidence-v1:8faeed4cf666aedca0fd72e21937c8f33371fe266e63cafd2d3c7c43b287d4ea",
+                "state": "historical",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 359,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l04",
+      "category": "historical_reports",
+      "split": "validation",
+      "initial_required_count": 0,
+      "initial_recovered_count": 0,
+      "initial_returned_ids": [],
+      "initial_recall": null,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "step-l04-artifact"
+      ],
+      "recovered_after_initial_miss_ids": [
+        "step-l04-artifact"
+      ],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 0,
+      "lookup_calls": 3,
+      "lookup_returned_bytes": 9486,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "history.search",
+          "returned_source_ids": [
+            "step-l04-artifact"
+          ],
+          "response_bytes": 571,
+          "returned_bytes": 571,
+          "error": null,
+          "trace": {
+            "tool": "history.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l04-artifact",
+                "version": "receipt-v1:b373cbfc4dbe38848be1d0015976d3cf6325b401f4d2ef4e29536e13281d16f1",
+                "state": "historical",
+                "page": null
+              }
+            ],
+            "returned_bytes": 571,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "history.get",
+          "returned_source_ids": [
+            "step-l04-artifact"
+          ],
+          "response_bytes": 4457,
+          "returned_bytes": 4457,
+          "error": null,
+          "trace": {
+            "tool": "history.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l04-artifact",
+                "version": "receipt-v1:b373cbfc4dbe38848be1d0015976d3cf6325b401f4d2ef4e29536e13281d16f1",
+                "state": "historical",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 4457,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 2,
+          "tool": "history.get",
+          "returned_source_ids": [
+            "step-l04-artifact"
+          ],
+          "response_bytes": 4458,
+          "returned_bytes": 4458,
+          "error": null,
+          "trace": {
+            "tool": "history.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l04-artifact",
+                "version": "receipt-v1:b373cbfc4dbe38848be1d0015976d3cf6325b401f4d2ef4e29536e13281d16f1",
+                "state": "historical",
+                "page": 1
+              }
+            ],
+            "returned_bytes": 4458,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        15,
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l05",
+      "category": "correction_aware_reads",
+      "split": "development",
+      "initial_required_count": 1,
+      "initial_recovered_count": 1,
+      "initial_returned_ids": [
+        "m-l05-current"
+      ],
+      "initial_recall": 1.0,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "m-l05-current"
+      ],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 381,
+      "lookup_calls": 3,
+      "lookup_returned_bytes": 1273,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l05-current"
+          ],
+          "response_bytes": 458,
+          "returned_bytes": 458,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l05-current",
+                "version": "memory-v1:149de82641d527636a49242214c2501e0f7b2345c3390be5e6f5704ab32cf2c6",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 458,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "history.search",
+          "returned_source_ids": [
+            "m-l05-old"
+          ],
+          "response_bytes": 416,
+          "returned_bytes": 416,
+          "error": null,
+          "trace": {
+            "tool": "history.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l05-old",
+                "version": "memory-v1:6428162b949d2ad4c89c83a165f5e128f62c41e3d7ffaf06efeeaea96bac5493",
+                "state": "replaced",
+                "page": null
+              }
+            ],
+            "returned_bytes": 416,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 2,
+          "tool": "history.get",
+          "returned_source_ids": [
+            "m-l05-old"
+          ],
+          "response_bytes": 399,
+          "returned_bytes": 399,
+          "error": null,
+          "trace": {
+            "tool": "history.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l05-old",
+                "version": "memory-v1:6428162b949d2ad4c89c83a165f5e128f62c41e3d7ffaf06efeeaea96bac5493",
+                "state": "replaced",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 399,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l06",
+      "category": "wrong_source_privacy",
+      "split": "development",
+      "initial_required_count": 0,
+      "initial_recovered_count": 0,
+      "initial_returned_ids": [],
+      "initial_recall": null,
+      "lookup_required_count": 0,
+      "lookup_recovered_count": 0,
+      "lookup_recovered_ids": [],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": null,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 0,
+      "lookup_calls": 2,
+      "lookup_returned_bytes": 151,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [],
+          "response_bytes": 75,
+          "returned_bytes": 75,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [],
+            "returned_bytes": 75,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "history.search",
+          "returned_source_ids": [],
+          "response_bytes": 76,
+          "returned_bytes": 76,
+          "error": null,
+          "trace": {
+            "tool": "history.search",
+            "sources": [],
+            "returned_bytes": 76,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        0,
+        0
+      ],
+      "expected_no_evidence": true,
+      "actual_no_evidence": true,
+      "actual_source_free": true
+    },
+    {
+      "id": "l07",
+      "category": "independent_permissions",
+      "split": "development",
+      "initial_required_count": 0,
+      "initial_recovered_count": 0,
+      "initial_returned_ids": [],
+      "initial_recall": null,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "m-l07-jsonl"
+      ],
+      "recovered_after_initial_miss_ids": [
+        "m-l07-jsonl"
+      ],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 0,
+      "lookup_calls": 1,
+      "lookup_returned_bytes": 436,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l07-jsonl"
+          ],
+          "response_bytes": 436,
+          "returned_bytes": 436,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l07-jsonl",
+                "version": "memory-v1:b465f126c8fde009bacf8a0422ae990f0cd7456dd020093c6414ac17d55d396f",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 436,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l08",
+      "category": "independent_permissions",
+      "split": "validation",
+      "initial_required_count": 1,
+      "initial_recovered_count": 1,
+      "initial_returned_ids": [
+        "m-l08-window"
+      ],
+      "initial_recall": 1.0,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "m-l08-window"
+      ],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [
+        "1:invalid_scope"
+      ],
+      "lookup_errors": [
+        "1:invalid_scope"
+      ],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 360,
+      "lookup_calls": 2,
+      "lookup_returned_bytes": 438,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l08-window"
+          ],
+          "response_bytes": 438,
+          "returned_bytes": 438,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l08-window",
+                "version": "memory-v1:66b05d83d76605b93e5da976475271abfb71a4d435314a21ec07ff22a21768a1",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 438,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "memory.get",
+          "returned_source_ids": [],
+          "response_bytes": 0,
+          "returned_bytes": 0,
+          "error": "invalid_scope",
+          "trace": null
+        }
+      ],
+      "latency_ms": [
+        0,
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l09",
+      "category": "bounded_artifacts",
+      "split": "development",
+      "initial_required_count": 0,
+      "initial_recovered_count": 0,
+      "initial_returned_ids": [],
+      "initial_recall": null,
+      "lookup_required_count": 1,
+      "lookup_recovered_count": 1,
+      "lookup_recovered_ids": [
+        "step-l09-artifact"
+      ],
+      "recovered_after_initial_miss_ids": [
+        "step-l09-artifact"
+      ],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 0,
+      "lookup_calls": 2,
+      "lookup_returned_bytes": 5054,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "history.search",
+          "returned_source_ids": [
+            "step-l09-artifact"
+          ],
+          "response_bytes": 594,
+          "returned_bytes": 594,
+          "error": null,
+          "trace": {
+            "tool": "history.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l09-artifact",
+                "version": "receipt-v1:35b8724aa1d1e39d90a62647ce76d95a7d3e7cb7295c9b27c6f5bd3d4507d700",
+                "state": "historical",
+                "page": null
+              }
+            ],
+            "returned_bytes": 594,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "history.get",
+          "returned_source_ids": [
+            "step-l09-artifact"
+          ],
+          "response_bytes": 4460,
+          "returned_bytes": 4460,
+          "error": null,
+          "trace": {
+            "tool": "history.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "run_step",
+                "source_id": "step-l09-artifact",
+                "version": "receipt-v1:35b8724aa1d1e39d90a62647ce76d95a7d3e7cb7295c9b27c6f5bd3d4507d700",
+                "state": "historical",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 4460,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        15,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l10",
+      "category": "shared_budget_and_calls",
+      "split": "validation",
+      "initial_required_count": 4,
+      "initial_recovered_count": 4,
+      "initial_returned_ids": [
+        "m-l10-alpha",
+        "m-l10-beta",
+        "m-l10-delta",
+        "m-l10-gamma"
+      ],
+      "initial_recall": 1.0,
+      "lookup_required_count": 4,
+      "lookup_recovered_count": 4,
+      "lookup_recovered_ids": [
+        "m-l10-alpha",
+        "m-l10-beta",
+        "m-l10-delta",
+        "m-l10-gamma"
+      ],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": 1.0,
+      "wrong_memory_uses": [],
+      "expected_denied": [],
+      "lookup_errors": [],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 707,
+      "lookup_calls": 8,
+      "lookup_returned_bytes": 3425,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l10-alpha"
+          ],
+          "response_bytes": 426,
+          "returned_bytes": 426,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-alpha",
+                "version": "memory-v1:005e9c4981617b930c8f0631aaac8952252c05ab36ec604167fa204defdd3033",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 426,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 1,
+          "tool": "memory.get",
+          "returned_source_ids": [
+            "m-l10-alpha"
+          ],
+          "response_bytes": 431,
+          "returned_bytes": 431,
+          "error": null,
+          "trace": {
+            "tool": "memory.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-alpha",
+                "version": "memory-v1:005e9c4981617b930c8f0631aaac8952252c05ab36ec604167fa204defdd3033",
+                "state": "current",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 431,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 2,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l10-beta"
+          ],
+          "response_bytes": 424,
+          "returned_bytes": 424,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-beta",
+                "version": "memory-v1:bbe3a1c8766641ba46ce06e0f6ce570d92ad6881674bb0a3cd169bbbc27c1fdf",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 424,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 3,
+          "tool": "memory.get",
+          "returned_source_ids": [
+            "m-l10-beta"
+          ],
+          "response_bytes": 430,
+          "returned_bytes": 430,
+          "error": null,
+          "trace": {
+            "tool": "memory.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-beta",
+                "version": "memory-v1:bbe3a1c8766641ba46ce06e0f6ce570d92ad6881674bb0a3cd169bbbc27c1fdf",
+                "state": "current",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 430,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 4,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l10-gamma"
+          ],
+          "response_bytes": 426,
+          "returned_bytes": 426,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-gamma",
+                "version": "memory-v1:25470cf49a5180f8ad3d487f4d9da0800afea02091e0cdc6f710719f5857f361",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 426,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 5,
+          "tool": "memory.get",
+          "returned_source_ids": [
+            "m-l10-gamma"
+          ],
+          "response_bytes": 431,
+          "returned_bytes": 431,
+          "error": null,
+          "trace": {
+            "tool": "memory.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-gamma",
+                "version": "memory-v1:25470cf49a5180f8ad3d487f4d9da0800afea02091e0cdc6f710719f5857f361",
+                "state": "current",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 431,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 6,
+          "tool": "memory.search",
+          "returned_source_ids": [
+            "m-l10-delta"
+          ],
+          "response_bytes": 426,
+          "returned_bytes": 426,
+          "error": null,
+          "trace": {
+            "tool": "memory.search",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-delta",
+                "version": "memory-v1:ea856e7a7204758872aa11c7f2f8c0f1bfcddbc9ab9926cd2cab633e56a37c4f",
+                "state": "current",
+                "page": null
+              }
+            ],
+            "returned_bytes": 426,
+            "classification": "retrieved_data"
+          }
+        },
+        {
+          "index": 7,
+          "tool": "memory.get",
+          "returned_source_ids": [
+            "m-l10-delta"
+          ],
+          "response_bytes": 431,
+          "returned_bytes": 431,
+          "error": null,
+          "trace": {
+            "tool": "memory.get",
+            "sources": [
+              {
+                "reference": "opaque",
+                "source": "memory",
+                "source_id": "m-l10-delta",
+                "version": "memory-v1:ea856e7a7204758872aa11c7f2f8c0f1bfcddbc9ab9926cd2cab633e56a37c4f",
+                "state": "current",
+                "page": 0
+              }
+            ],
+            "returned_bytes": 431,
+            "classification": "retrieved_data"
+          }
+        }
+      ],
+      "latency_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    },
+    {
+      "id": "l11",
+      "category": "no_evidence",
+      "split": "validation",
+      "initial_required_count": 0,
+      "initial_recovered_count": 0,
+      "initial_returned_ids": [],
+      "initial_recall": null,
+      "lookup_required_count": 0,
+      "lookup_recovered_count": 0,
+      "lookup_recovered_ids": [],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": null,
+      "wrong_memory_uses": [],
+      "expected_denied": [
+        "0:invalid_scope",
+        "1:invalid_scope"
+      ],
+      "lookup_errors": [
+        "0:invalid_scope",
+        "1:invalid_scope"
+      ],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 0,
+      "lookup_calls": 2,
+      "lookup_returned_bytes": 0,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [],
+          "response_bytes": 0,
+          "returned_bytes": 0,
+          "error": "invalid_scope",
+          "trace": null
+        },
+        {
+          "index": 1,
+          "tool": "history.search",
+          "returned_source_ids": [],
+          "response_bytes": 0,
+          "returned_bytes": 0,
+          "error": "invalid_scope",
+          "trace": null
+        }
+      ],
+      "latency_ms": [
+        0,
+        0,
+        0
+      ],
+      "expected_no_evidence": true,
+      "actual_no_evidence": false,
+      "actual_source_free": true
+    },
+    {
+      "id": "l12",
+      "category": "independent_permissions",
+      "split": "development",
+      "initial_required_count": 1,
+      "initial_recovered_count": 1,
+      "initial_returned_ids": [
+        "m-l12-setting"
+      ],
+      "initial_recall": 1.0,
+      "lookup_required_count": 0,
+      "lookup_recovered_count": 0,
+      "lookup_recovered_ids": [],
+      "recovered_after_initial_miss_ids": [],
+      "lookup_recall": null,
+      "wrong_memory_uses": [],
+      "expected_denied": [
+        "0:invalid_scope"
+      ],
+      "lookup_errors": [
+        "0:invalid_scope"
+      ],
+      "unexpected_errors": [],
+      "initial_errors": [],
+      "trace_violations": [],
+      "artifact_violations": [],
+      "budget_violations": [],
+      "permission_violations": [],
+      "initial_memory_bytes": 363,
+      "lookup_calls": 1,
+      "lookup_returned_bytes": 0,
+      "actions": [
+        {
+          "index": 0,
+          "tool": "memory.search",
+          "returned_source_ids": [],
+          "response_bytes": 0,
+          "returned_bytes": 0,
+          "error": "invalid_scope",
+          "trace": null
+        }
+      ],
+      "latency_ms": [
+        0,
+        0
+      ],
+      "expected_no_evidence": false,
+      "actual_no_evidence": false,
+      "actual_source_free": false
+    }
+  ],
+  "timing_excluded_from_repeatability": true,
+  "limitations": [
+    "Labels are synthetic necessary-memory and expected-fact annotations authored before production evaluation.",
+    "The recall_miss_recovery category labels an intended incremental-recall scenario; observed initial recall may already be complete.",
+    "Recovery, wrong-memory use, bytes, calls, and latency measure host/database behavior, not model answer accuracy.",
+    "Opaque references, generated evidence UUIDs, and wall-clock latency are excluded from repeatability comparison.",
+    "No provider, account, billing source, live runtime, or live usefulness/cost evidence is exercised.",
+    "Native remaining-context allowance and live model usefulness or cost are unmeasured by this host evaluator.",
+    "Initial memory injection is measured through the production retriever and composer; lookup reads are measured through AgentMemoryLookupService.",
+    "Source-free responses, successful no-evidence abstentions, expected permission denials, and unexpected errors are reported separately.",
+    "Automatic-off cases follow the production retrieval_enabled gate and compose with no automatic candidates."
+  ]
+}

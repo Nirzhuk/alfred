@@ -32,6 +32,8 @@ describe("locked capability treatment", () => {
     expect(markup).toContain(LOCKED_CAPABILITY_EXPLANATION);
     expect(markup).toContain("building Alfred from source includes every");
     expect(markup).toContain("at no cost");
+    expect(markup).toContain("Paid feature");
+    expect(markup).toContain("locked-capability-head");
   });
 
   test("routes to the configured desktop checkout through the allow-list", async () => {
@@ -51,7 +53,7 @@ describe("locked capability treatment", () => {
     expect(opened).toBe("https://buy.polar.sh/polar_cl_desktopFixture");
 
     const markup = render(links);
-    expect(markup).toContain('class="ghost"');
+    expect(markup).toContain('class="primary"');
     expect(markup).toContain("<button");
     expect(markup).toContain('type="button"');
     expect(markup).toMatch(/aria-label="Buy a license to use Batch runs"/);

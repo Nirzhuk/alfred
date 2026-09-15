@@ -1,0 +1,17 @@
+{
+  "name": "@alfred/workflow-share-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "bun test",
+    "test:d1": "bun run test/d1-integration.ts",
+    "test:preview": "bun run test/ui-preview.ts",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250906.0",
+    "typescript": "~5.8.3",
+    "wrangler": "^4.34.0"
+  }
+}

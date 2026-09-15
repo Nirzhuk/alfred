@@ -3,7 +3,9 @@ export { openLatestDownload } from "./download-latest";
 export {
   PRO_CAPABILITIES,
   appBuildKind,
+  appLicenseGatingDisabled,
   readBuildKind,
+  readLicenseGatingDisabled,
   resolveCapability,
   resolveEntitlement,
 } from "./entitlement";

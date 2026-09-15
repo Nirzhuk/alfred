@@ -27,6 +27,7 @@ type Props = {
   onMoveToFolder: (folderId: string | null) => void;
   onSchedule: () => void;
   onTriggers: () => void;
+  onShare: () => void;
   onDelete: () => void;
 };
 
@@ -42,6 +43,7 @@ function WorkflowMenuBody({
   onMoveToFolder,
   onSchedule,
   onTriggers,
+  onShare,
   onDelete,
 }: Omit<Props, "x" | "y" | "onClose">) {
   const close = useContextMenuClose();
@@ -119,6 +121,9 @@ function WorkflowMenuBody({
       </MenuItem>
       <MenuItem icon={<FiltersIcon />} onSelect={() => run(onTriggers)}>
         Triggers…
+      </MenuItem>
+      <MenuItem onSelect={() => run(onShare)}>
+        Share workflow…
       </MenuItem>
 
       <MenuSeparator />
@@ -259,6 +264,7 @@ export function WorkflowContextMenu({
   onMoveToFolder,
   onSchedule,
   onTriggers,
+  onShare,
   onDelete,
 }: Props) {
   return (
@@ -275,6 +281,7 @@ export function WorkflowContextMenu({
         onMoveToFolder={onMoveToFolder}
         onSchedule={onSchedule}
         onTriggers={onTriggers}
+        onShare={onShare}
         onDelete={onDelete}
       />
     </ContextMenu>

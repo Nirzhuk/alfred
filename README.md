@@ -60,10 +60,11 @@ Short version:
 
 Alfred does **not** replace those subscriptions or store their API keys. The
 first-class Provider CLI harness shells out to CLIs already authenticated on
-your machine; the additive Alfred harness has separate accounts and currently
-reports native execution as unavailable. See [Agent harnesses](docs/agent-harnesses.md).
+your machine; the additive Alfred native harness has separate accounts and
+currently reports native execution as unavailable. Alfred never silently falls
+back between harnesses. See [Agent harnesses](docs/agent-harnesses.md).
 
-Schedules, file triggers, and webhooks only run while the app is open (including tray / menu bar).
+Schedules, file triggers, and webhooks only run while the app is open (including tray / menu bar). A scheduled time that passes while Alfred is closed follows that schedule's own choice: catch up on open, skip the missed run, or ask you per schedule.
 
 ## What it does
 
@@ -79,10 +80,52 @@ Schedules, file triggers, and webhooks only run while the app is open (including
 | Concept | Meaning |
 | --- | --- |
 | Prompt node | The instruction text fed into the next step |
+| Identity node | Role, personality, and standing instructions for connected downstream agents |
+| Memories node | Select saved context for a workflow path, including linked memories from other workflows |
 | Agent node | Which CLI runs, with optional model + skill |
-| Choose output | Pick which result continues downstream |
+| Choose output | Set execution-time save, pin, and final-result preferences for a result |
 | Run | Manually enqueue/execute the automation |
-| Schedule | Optional cron that fires the same runner while the app is open |
+| Schedule | Optional cron that fires the same runner while the app is open, plus what to do about a time missed while Alfred was closed |
+
+Use **Add step** or right-click the canvas to search for a node. Browse Essentials,
+Agents, Tools, and Outputs, or type a name such as “Identity” or “Script”.
+
+Connect an Identity node to an agent, directly or through other steps, then
+double-click it to edit its role, personality, and standing instructions. Those
+instructions apply on every run to each connected downstream agent, including
+custom agents. Input and Template steps can change the task text without clearing
+the identity. Unconnected agents do not receive it.
+
+Connections blend from the source node's color to the destination node's color.
+Each connection handle uses its own node's color.
+
+The **Memory library** combines search, scope filters, sorting, and an editor.
+Start with a note, preference, decision, lesson, or constraint, then choose whether
+it belongs to this workflow, its workspace, or all your workflows. Pin memories
+for recurring context or select them in a Memories node. Expired and inactive
+entries stay visible in the library and are excluded from agent context.
+
+Open **Memory settings** in the library to control automatic recall, agent
+lookup, and review suggestions. **Allow agents to look up memory** is a separate
+default-off permission from Automatic recall. The current release has no
+release-enabled native runtime for lookup and never falls back to Provider CLI.
+Suggestions require review before becoming saved memories; the restricted
+reviewer remains unavailable until its exact runtime, managed-policy, and
+authorized live-activation gate passes. Linked memories keep their source, and
+clearing a workflow preserves shared and linked entries.
+
+Output save decisions belong to backend execution and use the settings captured
+when the Output node runs. History shows durable receipts, including `Saved`,
+`Failed`, and `Deleted`; **Retry save** retries persistence of the completed
+output only and never reruns the agent. Alfred recovers pending or interrupted
+saves immediately at startup in bounded batches, so a backlog drains without
+an unbounded startup pass. A user/workspace memory promoted from an output
+survives clearing its origin workflow.
+
+When a verified runtime is available, on-demand lookup is read-only and exposes
+exactly four bounded operations: `memory.search`, `memory.get`, `history.search`,
+and `history.get`. Accepted lookup evidence is scoped to the run and records
+body-free source, version, page, and delivery metadata.
 
 ## Platforms
 

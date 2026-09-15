@@ -417,6 +417,24 @@ identified by the loud accent border and the accent dot, not by a heavier fill.
   face, the comfortable control height, and the same hover/focus states as
   `SelectControl`, so every select in the app reads as one physical control.
 
+### Search fields
+
+See [Shared search input](search-input.md) for usage, consumers, and the migration
+checklist. Replacing a search includes migrating existing consumers and removing
+their unused markup, helpers, and field CSS.
+
+- Use `SearchInput` from `src/components/search-input` for search fields in
+  dialogs, sidebars, pickers, and toolbars. It owns the search icon, inset field,
+  focus state, typography, clear button, and optional shortcut hint.
+- Supply an accessible `aria-label`, controlled `value`, native `onChange`, and
+  `onClear`. Clearing restores input focus. Feature code owns filtering, debounce,
+  selection, and keyboard behavior.
+- Refs and native input/ARIA props pass through to the input. Combobox pickers
+  may use `type="text"` and their existing combobox roles and relationships.
+- Use `containerClassName` only for placement and width. Do not add local field
+  paint, icons, or clear buttons. Disabled and read-only fields retain native
+  semantics.
+
 ### Cards and dialogs
 
 - Cards use 12px radius. Borders communicate grouping; shadows are normally off.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../../../components/icon";
+import { SearchInput } from "../../../../components/search-input";
 import { useWorkflowStore } from "../../store";
 import { isAgentNodeData, type OutputMemory } from "../../types";
 import { formatStats } from "../../format-stats";
@@ -552,12 +553,13 @@ export function RunActivityPanel() {
             ) : null}
 
             {promptMemories.length > 4 ? (
-              <input
-                type="search"
-                className="run-memories-search"
+              <SearchInput
+                aria-label="Search library"
+                containerClassName="run-memories-search"
                 placeholder="Search library…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onClear={() => setQuery("")}
               />
             ) : null}
 

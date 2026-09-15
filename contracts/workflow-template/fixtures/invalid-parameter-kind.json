@@ -1,0 +1,19 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Invalid connection binding kind",
+  "description": "A text parameter may not write an execution connection.",
+  "graph": {
+    "nodes": [{
+      "id": "send",
+      "type": "appAction",
+      "data": {"type": "appAction", "label": "Send", "providerId": "slack", "actionId": "slack.send_message", "connectionId": "", "input": {"text": "Hello"}},
+      "position": {"x": 0, "y": 0}
+    }],
+    "edges": []
+  },
+  "parameters": [{"key": "wrong.connection", "label": "Connection", "kind": "text", "required": true, "target": {"kind": "node", "nodeId": "send", "field": "connectionId"}}],
+  "requirements": [],
+  "starts": []
+}

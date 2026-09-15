@@ -1,0 +1,34 @@
+/* geometry: 36rem gives the three-step review enough room without making the dialog full-screen. */
+.sharing-dialog { min-height: 36rem; }
+.sharing-steps { display: flex; gap: var(--space-4); padding: var(--space-3) var(--space-6); border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--text-sm); }
+.sharing-steps span.is-current { color: var(--accent); }
+.sharing-steps span.is-done { color: var(--ink); }
+.sharing-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.sharing-body section { display: flex; flex-direction: column; gap: var(--space-3); }
+.sharing-body label { display: flex; flex-direction: column; gap: var(--space-1-5); color: var(--ink); font-size: var(--text-sm); }
+.sharing-body input, .sharing-body textarea { width: 100%; box-sizing: border-box; }
+.sharing-path-control { display: flex; gap: var(--space-2); align-items: center; }
+.sharing-path-control input { flex: 1; }
+.sharing-parameter-list { display: grid; gap: var(--space-2); }
+.sharing-parameter { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-card); }
+.sharing-parameter span { color: var(--muted); font-size: var(--text-sm); }
+.sharing-preview { padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-inset); }
+.sharing-preview ol { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
+.sharing-success { border: 1px solid var(--accent); border-radius: var(--radius-lg); padding: var(--space-4); }
+.sharing-actions, .sharing-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.sharing-footer { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--line); }
+.sharing-footer .ghost { margin-right: auto; }
+.sharing-error { padding: var(--space-3); color: var(--danger); background: var(--surface-card); border: 1px solid var(--danger); border-radius: var(--radius-md); }
+.sharing-notice { padding: var(--space-3); color: var(--ink); background: var(--surface-card); border: 1px solid var(--accent); border-radius: var(--radius-md); }
+.sharing-empty { color: var(--muted); }
+.sharing-preview pre { max-height: 18rem; overflow: auto; margin: var(--space-3) 0 0; padding: var(--space-3); font: var(--text-sm) / 1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); background: var(--surface-card); border-radius: var(--radius-md); }
+.sharing-publications { display: flex; flex-direction: column; gap: var(--space-3); }
+.sharing-publications-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.sharing-publications-header h3 { margin: 0; }
+.sharing-publications-header p { margin: var(--space-1) 0 0; }
+.sharing-publications ul { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.sharing-publications li { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-card); }
+.sharing-publications li a { flex: 1; min-width: 0; overflow: hidden; color: var(--accent); text-overflow: ellipsis; white-space: nowrap; }
+
+.sharing-parameter .sharing-checkbox { flex-direction: row; align-items: center; gap: var(--space-2); }
+.sharing-checkbox input[type="checkbox"] { width: var(--icon-size-compact); flex: 0 0 var(--icon-size-compact); }

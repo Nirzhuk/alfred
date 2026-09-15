@@ -1,0 +1,17 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Shared agent account",
+  "description": "Two agent nodes use one recipient account selection.",
+  "graph": {
+    "nodes": [
+      { "id": "agent-a", "type": "agent", "data": { "label": "First", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent-b", "type": "agent", "data": { "label": "Second", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 220, "y": 0 } }
+    ],
+    "edges": []
+  },
+  "parameters": [{ "key": "agent.account.group", "label": "Agent account", "kind": "agentAccount", "required": true, "allowedProvider": "claude_code", "target": { "kind": "node", "nodeId": "agent-a", "field": "accountRef" }, "targets": [{ "kind": "node", "nodeId": "agent-b", "field": "accountRef" }] }],
+  "requirements": [{ "kind": "agent", "name": "claude_code", "provider": "claude_code" }, { "kind": "harness", "name": "cli", "provider": "claude_code" }],
+  "starts": []
+}

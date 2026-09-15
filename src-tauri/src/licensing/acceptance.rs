@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Response, Server};
 
 use crate::db::{
-    CreateMemoryInput, CreateWorkflowInput, Db, StoredLicenseSnapshot, UpsertScheduleInput,
-    UpsertTriggerInput,
+    CreateMemoryInput, CreateWorkflowInput, Db, OnMissed, StoredLicenseSnapshot,
+    UpsertScheduleInput, UpsertTriggerInput,
 };
 
 use super::client::{PolarClient, PolarClientError};
@@ -719,7 +719,10 @@ fn seed_local_data(db: &Db) -> String {
         confidence: None,
         status: None,
         supersedes_id: None,
+        fact_key: None,
+        observed_at: None,
         last_confirmed_at: None,
+        valid_from: None,
         expires_at: None,
     })
     .expect("memory");
@@ -728,6 +731,7 @@ fn seed_local_data(db: &Db) -> String {
             workflow_id: workflow.id.clone(),
             cron: "0 9 * * *".into(),
             enabled: true,
+            on_missed: OnMissed::Run,
         },
         None,
     )
@@ -787,7 +791,10 @@ fn assert_local_data_usable(db: &Db, workflow_id: &str, label: &str) {
             confidence: None,
             status: None,
             supersedes_id: None,
+            fact_key: None,
+            observed_at: None,
             last_confirmed_at: None,
+            valid_from: None,
             expires_at: None,
         })
         .unwrap_or_else(|_| panic!("memory write blocked while {label}"));

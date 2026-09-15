@@ -16,15 +16,20 @@ import {
   agentSkillNames,
   parseAgentHarness,
   isAgentNodeData,
+  isIdentityNodeData,
   isOutputNodeData,
   isPromptNodeData,
   normalizeOutputNodeData,
+  normalizeIdentityNodeData,
   type AgentNodeData,
   type AgentProviderId,
   type AgentStepStats,
   type AgentUsageSnapshot,
   type AppTriggerStatus,
+  type MissedSchedule,
+  type OnMissed,
   type OutputMemory,
+  type OutputPersistenceEvent,
   type RunEvent,
   type RunLogLine,
   type RunStepStatus,
@@ -66,7 +71,10 @@ type AddMemoryInput = {
   salience?: number;
   status?: OutputMemory["status"];
   supersedesId?: string | null;
+  factKey?: string | null;
+  observedAt?: string | null;
   lastConfirmedAt?: string | null;
+  validFrom?: string | null;
   expiresAt?: string | null;
 };
 
@@ -211,9 +219,18 @@ function withOpenTab(ids: string[], id: string): string[] {
   return [...ids, id];
 }
 
-/** Migrate legacy agent skills + Output disposition fields on load. */
+/** Restore node defaults and migrate legacy fields on load. */
 export function normalizeNodes(nodes: WorkflowNode[]): WorkflowNode[] {
   return nodes.map((node) => {
+    if (node.type === "identity" || isIdentityNodeData(node.data)) {
+      return {
+        ...node,
+        type: "identity",
+        data: normalizeIdentityNodeData(
+          node.data as unknown as Record<string, unknown>,
+        ),
+      };
+    }
     if (node.type === "chooseOutput" || isOutputNodeData(node.data)) {
       return {
         ...node,
@@ -258,6 +275,8 @@ type WorkflowStore = {
   schedule: Schedule | null;
   /** Saved schedules for labels across the entire workflow sidebar. */
   workflowSchedules: ScheduleListItem[];
+  /** Runs missed while Alfred was closed, waiting on the user's decision. */
+  missedSchedules: MissedSchedule[];
   triggers: Trigger[];
   appTriggerStatuses: AppTriggerStatus[];
   /** `http://127.0.0.1:<port>` for webhook triggers; null if the listener is down. */
@@ -291,12 +310,26 @@ type WorkflowStore = {
   loadProviderModels: () => Promise<void>;
   loadAgentUsage: (providers: AgentProviderId[]) => Promise<void>;
   loadSchedule: (workflowId: string) => Promise<void>;
+  /** Re-read every schedule so sidebar labels match the database after the
+   * schedules page mutates outside this store (delete, force-off). */
+  refreshWorkflowSchedules: () => Promise<void>;
   saveSchedule: (input: {
     workflowId: string;
     cron: string;
     enabled: boolean;
+    onMissed: OnMissed;
   }) => Promise<void>;
   clearSchedule: (workflowId: string) => Promise<void>;
+  /** Load the missed-run list the user still has to answer. */
+  loadMissedSchedules: () => Promise<void>;
+  /**
+   * Answer one missed schedule. Resolves with the error message when the
+   * backend refused the answer, so the prompt can attribute it to that row.
+   */
+  resolveMissedSchedule: (
+    scheduleId: string,
+    decision: "run" | "skip",
+  ) => Promise<string | null>;
   loadTriggers: (workflowId: string) => Promise<void>;
   saveTrigger: (input: {
     id?: string;
@@ -308,7 +341,8 @@ type WorkflowStore = {
   }) => Promise<Trigger | null>;
   removeTrigger: (id: string) => Promise<void>;
   testTrigger: (id: string) => Promise<void>;
-  selectWorkflow: (id: string) => Promise<void>;
+  selectWorkflow: (id: string) => Promise<boolean>;
+  ensureWorkflowMemoryContext: (id: string) => Promise<boolean>;
   closeWorkflowTab: (id: string) => Promise<void>;
   createWorkflow: (name?: string, folderId?: string | null) => Promise<void>;
   createWorkflowFolder: (name: string) => Promise<WorkflowFolder | null>;
@@ -322,6 +356,7 @@ type WorkflowStore = {
   renameWorkflow: (id: string, name: string) => Promise<void>;
   setWorkingDirectory: (id: string, workingDirectory: string) => Promise<void>;
   setMemoryRetrievalEnabled: (id: string, enabled: boolean) => Promise<void>;
+  setMemoryLookupEnabled: (id: string, enabled: boolean) => Promise<boolean>;
   reorderWorkflows: (orderedIds: string[]) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
   saveActiveWorkflow: () => Promise<boolean>;
@@ -335,13 +370,14 @@ type WorkflowStore = {
     nodeId?: string | null;
   }) => void;
   closeOutput: () => void;
-  loadMemories: (workflowId: string) => Promise<void>;
+  loadMemories: (workflowId: string) => Promise<boolean>;
   addMemory: (memory: AddMemoryInput) => Promise<OutputMemory | null>;
   addNote: (title: string, body: string) => Promise<void>;
   linkMemory: (memoryId: string) => Promise<OutputMemory | null>;
   unlinkMemory: (memoryId: string) => Promise<void>;
   updateMemoryFields: (input: {
     id: string;
+    expectedSemanticRevision?: number;
     title?: string;
     body?: string;
     pinned?: boolean;
@@ -352,13 +388,17 @@ type WorkflowStore = {
     salience?: number;
     status?: OutputMemory["status"];
     supersedesId?: string | null;
+    factKey?: string | null;
+    observedAt?: string | null;
     lastConfirmedAt?: string | null;
+    validFrom?: string | null;
     expiresAt?: string | null;
   }) => Promise<OutputMemory | null>;
   togglePinMemory: (id: string) => Promise<void>;
   removeMemory: (id: string) => Promise<void>;
   clearMemories: () => Promise<void>;
   handleRunEvent: (event: RunEvent) => void;
+  handleOutputPersistenceEvent: (event: OutputPersistenceEvent) => void;
   setSelectedNodeId: (id: string | null) => void;
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   onNodesChange: (changes: NodeChange<WorkflowNode>[]) => void;
@@ -417,9 +457,117 @@ async function migrateLegacyMemories(workflowId: string): Promise<boolean> {
 }
 
 let runUnlisten: UnlistenFn | null = null;
+let outputPersistenceUnlisten: UnlistenFn | null = null;
 let usageRequestSequence = 0;
 let workflowSelectionSequence = 0;
 const workflowSaves = new Map<string, Promise<boolean>>();
+
+type WorkflowPermissionField =
+  | "memoryRetrievalEnabled"
+  | "memoryLookupEnabled";
+type WorkflowStoreSet = (
+  partial:
+    | Partial<WorkflowStore>
+    | ((state: WorkflowStore) => Partial<WorkflowStore>),
+) => void;
+type WorkflowStoreGet = () => WorkflowStore;
+
+const workflowPermissionSaves = new Map<string, Promise<boolean>>();
+const workflowPermissionSequences = new Map<string, number>();
+const workflowPermissionConfirmed = new Map<string, boolean>();
+
+async function persistWorkflowPermission(
+  set: WorkflowStoreSet,
+  get: WorkflowStoreGet,
+  workflowId: string,
+  field: WorkflowPermissionField,
+  enabled: boolean,
+): Promise<boolean> {
+  const previous = get().workflows.find(
+    (workflow) => workflow.id === workflowId,
+  );
+  if (!previous) return false;
+
+  const key = `${workflowId}:${field}`;
+  const sequence = (workflowPermissionSequences.get(key) ?? 0) + 1;
+  workflowPermissionSequences.set(key, sequence);
+  const previousValue =
+    field === "memoryLookupEnabled"
+      ? previous.memoryLookupEnabled
+      : (previous.memoryRetrievalEnabled ?? false);
+  if (!workflowPermissionConfirmed.has(key)) {
+    workflowPermissionConfirmed.set(key, previousValue);
+  }
+
+  set((state) => ({
+    error: null,
+    workflows: state.workflows.map((workflow) =>
+      workflow.id === workflowId
+        ? { ...workflow, [field]: enabled }
+        : workflow,
+    ),
+  }));
+
+  const previousSave = workflowPermissionSaves.get(key);
+  let save!: Promise<boolean>;
+  save = (async () => {
+    if (previousSave) {
+      try {
+        await previousSave;
+      } catch {
+        // The previous request has already surfaced its own error state.
+      }
+    }
+
+    try {
+      const workflow = await api.updateWorkflow(
+        field === "memoryLookupEnabled"
+          ? { id: workflowId, memoryLookupEnabled: enabled }
+          : { id: workflowId, memoryRetrievalEnabled: enabled },
+      );
+      const persistedValue =
+        field === "memoryLookupEnabled"
+          ? workflow.memoryLookupEnabled
+          : (workflow.memoryRetrievalEnabled ?? enabled);
+      if (typeof persistedValue !== "boolean") {
+        throw new Error("invalid_workflow_permission_response");
+      }
+      workflowPermissionConfirmed.set(key, persistedValue);
+      if (workflowPermissionSequences.get(key) === sequence) {
+        set((state) => ({
+          workflows: state.workflows.map((item) =>
+            item.id === workflowId
+              ? { ...item, [field]: persistedValue }
+              : item,
+          ),
+        }));
+      }
+      return true;
+    } catch (error) {
+      if (workflowPermissionSequences.get(key) === sequence) {
+        const rollback =
+          workflowPermissionConfirmed.get(key) ?? previousValue;
+        set((state) => ({
+          workflows: state.workflows.map((item) =>
+            item.id === workflowId
+              ? { ...item, [field]: rollback }
+              : item,
+          ),
+          error: String(error),
+        }));
+      }
+      return false;
+    } finally {
+      if (workflowPermissionSaves.get(key) === save) {
+        workflowPermissionSaves.delete(key);
+        workflowPermissionSequences.delete(key);
+        workflowPermissionConfirmed.delete(key);
+      }
+    }
+  })();
+  workflowPermissionSaves.set(key, save);
+  return save;
+}
 
 async function ensureRunListener(handle: (event: RunEvent) => void) {
   if (runUnlisten) return;
@@ -435,6 +583,23 @@ export async function installRunEventBridge() {
   });
 }
 
+export async function installOutputPersistenceEventBridge() {
+  if (outputPersistenceUnlisten) return;
+  outputPersistenceUnlisten = await listen<OutputPersistenceEvent>(
+    "output-persistence://receipt",
+    (event) => {
+      useWorkflowStore
+        .getState()
+        .handleOutputPersistenceEvent(event.payload);
+      window.dispatchEvent(
+        new CustomEvent("alfred:output-persistence-receipt", {
+          detail: event.payload,
+        }),
+      );
+    },
+  );
+}
+
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflows: [],
   workflowFolders: [],
@@ -447,6 +612,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   agentCapabilityManifest: null,
   schedule: null,
   workflowSchedules: [],
+  missedSchedules: [],
   triggers: [],
   appTriggerStatuses: [],
   webhookBaseUrl: null,
@@ -569,6 +735,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       set({ usageLoading: false });
     }
   },
+  refreshWorkflowSchedules: async () => {
+    try {
+      set({ workflowSchedules: await api.listSchedules() });
+    } catch (e) {
+      console.warn("Could not refresh schedules", e);
+    }
+  },
 
   loadSchedule: async (workflowId) => {
     try {
@@ -634,6 +807,31 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }));
     } catch (e) {
       set({ loading: false, error: String(e) });
+    }
+  },
+
+  loadMissedSchedules: async () => {
+    try {
+      set({ missedSchedules: await api.listMissedSchedules() });
+    } catch (e) {
+      // A failed read must never invent an answer prompt; the schedules stay
+      // due for the next launch.
+      console.warn("Could not load missed schedules", e);
+    }
+  },
+
+  resolveMissedSchedule: async (scheduleId, decision) => {
+    try {
+      await api.resolveMissedSchedule(scheduleId, decision);
+      set((state) => ({
+        missedSchedules: state.missedSchedules.filter(
+          (item) => item.scheduleId !== scheduleId,
+        ),
+      }));
+      return null;
+    } catch (e) {
+      // The schedule stays listed and due; the prompt shows this message.
+      return String(e);
     }
   },
 
@@ -729,14 +927,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
     try {
       const workflow = await api.getWorkflow(id);
-      if (request !== workflowSelectionSequence) return;
+      if (request !== workflowSelectionSequence) return false;
       if (!workflow) {
         set({
           loading: false,
           workflowLoading: false,
           error: `Workflow not found: ${id}`,
         });
-        return;
+        return false;
       }
       const graph = workflow.graph ?? emptyGraph();
       const nodes = normalizeNodes(graph.nodes ?? []);
@@ -756,18 +954,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         selectedOutput: null,
         ...visibleRunFields(runState),
       });
-      await Promise.all([
+      const [, , memoriesLoaded] = await Promise.all([
         get().loadSchedule(workflow.id),
         get().loadTriggers(workflow.id),
         get().loadMemories(workflow.id),
       ]);
       if (request === workflowSelectionSequence) {
         set({ workflowLoading: false });
+        return memoriesLoaded && get().activeWorkflowId === workflow.id;
       }
+      return false;
     } catch (e) {
-      if (request !== workflowSelectionSequence) return;
+      if (request !== workflowSelectionSequence) return false;
       set({ loading: false, workflowLoading: false, error: String(e) });
+      return false;
     }
+  },
+
+  ensureWorkflowMemoryContext: async (id) => {
+    if (get().activeWorkflowId !== id) {
+      return get().selectWorkflow(id);
+    }
+    return get().loadMemories(id);
   },
 
   closeWorkflowTab: async (id) => {
@@ -957,29 +1165,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   setMemoryRetrievalEnabled: async (id, enabled) => {
-    const previous = get().workflows;
-    set({
-      error: null,
-      workflows: previous.map((workflow) =>
-        workflow.id === id
-          ? { ...workflow, memoryRetrievalEnabled: enabled }
-          : workflow,
-      ),
-    });
-    try {
-      const workflow = await api.updateWorkflow({
-        id,
-        memoryRetrievalEnabled: enabled,
-      });
-      set((state) => ({
-        workflows: state.workflows.map((item) =>
-          item.id === workflow.id ? workflow : item,
-        ),
-      }));
-    } catch (e) {
-      set({ workflows: previous, error: String(e) });
-    }
+    await persistWorkflowPermission(
+      set,
+      get,
+      id,
+      "memoryRetrievalEnabled",
+      enabled,
+    );
   },
+
+  setMemoryLookupEnabled: (id, enabled) =>
+    persistWorkflowPermission(set, get, id, "memoryLookupEnabled", enabled),
 
   reorderWorkflows: async (orderedIds) => {
     const previous = get().workflows;
@@ -1099,8 +1295,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           graph: { nodes: normalizeNodes(nodes), edges },
         });
         set((state) => ({
-          workflows: state.workflows.map((w) =>
-            w.id === workflow.id ? workflow : w,
+          workflows: state.workflows.map((item) =>
+            item.id === activeWorkflowId
+              ? {
+                  ...item,
+                  graph: workflow.graph,
+                  updatedAt: workflow.updatedAt,
+                }
+              : item,
           ),
           dirty:
             state.activeWorkflowId === activeWorkflowId &&
@@ -1308,9 +1510,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               ? null
               : state.error,
         }));
+        return true;
       }
+      return false;
     } catch (e) {
       set({ error: String(e) });
+      return false;
     }
   },
 
@@ -1334,7 +1539,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         salience: input.salience,
         status: input.status,
         supersedesId: input.supersedesId,
+        factKey: input.factKey,
+        observedAt: input.observedAt,
         lastConfirmedAt: input.lastConfirmedAt,
+        validFrom: input.validFrom,
         expiresAt: input.expiresAt,
       });
       const memory = asOwnedMemory(created);
@@ -1367,12 +1575,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (!workflowId) return null;
     try {
       const linked = await api.linkMemory(workflowId, memoryId);
-      set((state) => ({
-        memories: sortMemories([
-          linked,
-          ...state.memories.filter((m) => m.id !== linked.id),
-        ]),
-      }));
+      if (get().activeWorkflowId === workflowId) {
+        set((state) => ({
+          memories: sortMemories([
+            linked,
+            ...state.memories.filter((m) => m.id !== linked.id),
+          ]),
+        }));
+      }
       return linked;
     } catch (e) {
       set({ error: String(e) });
@@ -1385,36 +1595,52 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (!workflowId) return;
     try {
       await api.unlinkMemory(workflowId, memoryId);
-      set((state) => ({
-        memories: state.memories.filter((m) => m.id !== memoryId),
-      }));
+      if (get().activeWorkflowId === workflowId) {
+        set((state) => ({
+          memories: state.memories.filter((m) => m.id !== memoryId),
+        }));
+      }
     } catch (e) {
       set({ error: String(e) });
     }
   },
 
   updateMemoryFields: async (input) => {
+    const workflowId = get().activeWorkflowId;
     try {
       const existing = get().memories.find((m) => m.id === input.id);
       if (existing?.origin === "linked") {
         set({ error: "Linked memories are read-only here. Unlink to remove." });
         return null;
       }
+      if (!existing) {
+        set({ error: "This memory changed or was removed. Refresh and try again." });
+        return null;
+      }
       const updated = asOwnedMemory({
         ...(await api.updateMemory({
           ...input,
-          contextWorkflowId: get().activeWorkflowId ?? undefined,
+          expectedSemanticRevision:
+            input.expectedSemanticRevision ?? existing.semanticRevision,
+          contextWorkflowId: workflowId ?? undefined,
         })),
         origin: existing?.origin ?? "owned",
         sourceWorkflowName: existing?.sourceWorkflowName,
       });
-      set((state) => ({
-        memories: sortMemories(
-          state.memories.map((m) => (m.id === updated.id ? updated : m)),
-        ),
-      }));
+      if (get().activeWorkflowId === workflowId) {
+        set((state) => ({
+          memories: sortMemories(
+            state.memories.map((m) => (m.id === updated.id ? updated : m)),
+          ),
+        }));
+      }
       return updated;
     } catch (e) {
+      if (String(e).includes("memory_changed") && workflowId) {
+        await get().loadMemories(workflowId);
+        set({ error: "This memory changed. Review the latest version and try again." });
+        return null;
+      }
       set({ error: String(e) });
       return null;
     }
@@ -1459,7 +1685,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       await api.clearMemories(workflowId);
       clearLegacyMemories(workflowId);
-      set({ memories: [] });
+      const memories = await api.listMemories(workflowId, true);
+      if (get().activeWorkflowId === workflowId) {
+        set({ memories: sortMemories(memories) });
+      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -1533,28 +1762,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         if (event.stats) stepStats[event.nodeId] = event.stats;
         if (event.output) {
           stepOutputs[event.nodeId] = event.output;
-          // Only Output nodes optionally persist — agents no longer auto-save.
-          if (event.nodeType === "chooseOutput") {
-            const node = workflowNodes.find((item) => item.id === event.nodeId);
-            const data = node && isOutputNodeData(node.data) ? node.data : null;
-            if (data?.saveToMemory) {
-              const title =
-                data.memoryTitle?.trim() ||
-                event.nodeLabel ||
-                data.label ||
-                "Output";
-              queueMicrotask(() =>
-                get().addMemory({
-                  workflowId: event.workflowId,
-                  runId: event.runId,
-                  nodeId: event.nodeId,
-                  title,
-                  body: event.output!,
-                  pinned: data.pinMemory,
-                }),
-              );
-            }
-          }
         }
       }
       if (event.kind === "step_log" && event.nodeId && event.output) {
@@ -1648,6 +1855,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           : {}),
       };
     });
+  },
+
+  handleOutputPersistenceEvent: (event) => {
+    if (get().activeWorkflowId === event.workflowId) {
+      void get().loadMemories(event.workflowId);
+    }
   },
 
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),

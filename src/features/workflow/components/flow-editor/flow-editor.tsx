@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
-  ConnectionLineType,
   ConnectionMode,
-  Controls,
   ReactFlow,
   useReactFlow,
   type DefaultEdgeOptions,
@@ -12,6 +10,7 @@ import {
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import { useThemeStore } from "../../../settings/theme";
+import { GradientConnectionLine, GradientEdge } from "./gradient-edge";
 import { AddStepPanel } from "../add-step-panel";
 import { NodeSettingsModal } from "../node-settings-modal";
 import {
@@ -45,13 +44,11 @@ function preventsNodeDoubleClick(target: EventTarget | null): boolean {
   );
 }
 
+const edgeTypes = { gradient: GradientEdge };
+
 const defaultEdgeOptions: DefaultEdgeOptions = {
-  type: "default",
+  type: "gradient",
   animated: false,
-  style: {
-    stroke: "var(--accent-edge)",
-    strokeWidth: 1.75,
-  },
 };
 
 type Props = {
@@ -79,9 +76,8 @@ export function FlowEditor({ displayNodes }: Props) {
   const [menu, setMenu] = useState<FlowContextMenuState | null>(null);
   const [settingsNodeId, setSettingsNodeId] = useState<string | null>(null);
 
-  // Force bezier edges even if older graphs were saved as smoothstep.
   const edges = useMemo(
-    () => storeEdges.map((edge) => ({ ...edge, type: "default" as const })),
+    () => storeEdges.map((edge) => ({ ...edge, type: "gradient" as const })),
     [storeEdges],
   );
 
@@ -119,6 +115,25 @@ export function FlowEditor({ displayNodes }: Props) {
     },
     [openNodeSettings],
   );
+
+  useEffect(() => {
+    const editNode = (event: Event) => {
+      const detail = (event as CustomEvent<{ workflowId: string; nodeId: string }>).detail;
+      const state = useWorkflowStore.getState();
+      if (!detail || detail.workflowId !== state.activeWorkflowId) return;
+      if (!state.nodes.some((node) => node.id === detail.nodeId)) return;
+      openNodeSettings(detail.nodeId);
+      void fitView({
+        nodes: [{ id: detail.nodeId }],
+        padding: 0.4,
+        minZoom: MIN_ZOOM,
+        maxZoom: MAX_ZOOM,
+        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180,
+      });
+    };
+    window.addEventListener("alfred:edit-node", editNode);
+    return () => window.removeEventListener("alfred:edit-node", editNode);
+  }, [fitView, openNodeSettings]);
 
   useEffect(() => {
     if (!menu) return;
@@ -280,13 +295,10 @@ export function FlowEditor({ displayNodes }: Props) {
           requestAnimationFrame(() => sharpenViewport());
         }}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         colorMode={colorMode}
         defaultEdgeOptions={defaultEdgeOptions}
-        connectionLineType={ConnectionLineType.Bezier}
-        connectionLineStyle={{
-          stroke: "var(--accent-edge-strong)",
-          strokeWidth: 1.75,
-        }}
+        connectionLineComponent={GradientConnectionLine}
         connectionMode={ConnectionMode.Strict}
         fitView
         fitViewOptions={{ padding: 0.2, minZoom: MIN_ZOOM, maxZoom: MAX_ZOOM }}
@@ -298,13 +310,23 @@ export function FlowEditor({ displayNodes }: Props) {
         proOptions={{ hideAttribution: true }}
       >
         <Background
-          id="canvas-dots"
+          id="canvas-dots-even"
           variant={BackgroundVariant.Dots}
-          gap={22}
-          size={1}
+          gap={[24, 26]}
+          offset={[6, 6]}
+          size={1.5}
           color="var(--canvas-dot)"
+          bgColor="transparent"
         />
-        <Controls position="top-left" />
+        <Background
+          id="canvas-dots-odd"
+          variant={BackgroundVariant.Dots}
+          gap={[24, 26]}
+          offset={[18, 19]}
+          size={1.5}
+          color="var(--canvas-dot)"
+          bgColor="transparent"
+        />
         <AddStepPanel
           onAddPrompt={onAddPrompt}
           onAddAgent={onAddAgent}

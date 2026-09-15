@@ -189,6 +189,10 @@ mod tests {
             .expect("create schema");
         Db {
             conn: Mutex::new(conn),
+            artifact_root: std::env::temp_dir().join(format!(
+                "alfred-workflow-folder-test-{}",
+                uuid::Uuid::new_v4()
+            )),
         }
     }
 

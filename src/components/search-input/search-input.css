@@ -1,0 +1,83 @@
+.ui-search {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: var(--control-height-large);
+  gap: var(--space-2);
+  padding: 0 var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  color: var(--muted);
+}
+
+.ui-search:focus-within {
+  border-color: var(--focus-ring-color);
+}
+.ui-search[data-disabled] {
+  opacity: var(--disabled-opacity);
+}
+.ui-search > svg {
+  flex: 0 0 auto;
+}
+
+.ui-search .ui-search-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height-comfortable);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+}
+.ui-search .ui-search-input:focus-visible {
+  outline: none;
+}
+.ui-search-input::placeholder {
+  color: var(--muted);
+}
+.ui-search-input::-webkit-search-decoration,
+.ui-search-input::-webkit-search-cancel-button {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ui-search .ui-search-clear {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+.ui-search .ui-search-clear:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ui-search .ui-search-clear:active:not(:disabled) {
+  background: var(--surface-pressed);
+  transform: none;
+}
+
+/* The complete field is dimmed once by .ui-search[data-disabled]. */
+.ui-search .ui-search-clear:disabled {
+  opacity: 1;
+}
+.ui-search .ui-search-clear:disabled > svg {
+  color: inherit;
+}
+.ui-search kbd {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}

@@ -19,18 +19,25 @@ export function useDismissable(
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onDismiss();
     };
+    const onScroll = (event: Event) => {
+      if (
+        event.target instanceof Node &&
+        rootRef.current?.contains(event.target)
+      ) return;
+      onDismiss();
+    };
 
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
     if (closeOnResize) window.addEventListener("resize", onDismiss);
-    if (closeOnScroll) window.addEventListener("scroll", onDismiss, true);
+    if (closeOnScroll) window.addEventListener("scroll", onScroll, true);
 
     return () => {
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
       if (closeOnResize) window.removeEventListener("resize", onDismiss);
       if (closeOnScroll) {
-        window.removeEventListener("scroll", onDismiss, true);
+        window.removeEventListener("scroll", onScroll, true);
       }
     };
   }, [enabled, rootRef, onDismiss, closeOnScroll, closeOnResize]);

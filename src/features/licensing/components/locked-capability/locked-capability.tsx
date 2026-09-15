@@ -1,3 +1,4 @@
+import { Icon } from "../../../../components/icon";
 import {
   polarPublicLinks,
   type PolarDestination,
@@ -60,26 +61,40 @@ export function LockedCapability({
   links = polarPublicLinks,
 }: LockedCapabilityProps) {
   const headingId = `locked-capability-${slug(capabilityName)}`;
+  const configured = links.isConfigured(CHECKOUT_DESTINATION);
 
   return (
     <section
       className="settings-card locked-capability"
       aria-labelledby={headingId}
     >
-      <h3 id={headingId}>{capabilityName}</h3>
+      <div className="locked-capability-head">
+        <span className="locked-capability-icon" aria-hidden="true">
+          <Icon name="lock" size={18} />
+        </span>
+        <div className="locked-capability-titles">
+          <p className="locked-capability-kicker">Paid feature</p>
+          <h3 id={headingId}>{capabilityName}</h3>
+        </div>
+      </div>
       {description ? <p className="settings-section-copy">{description}</p> : null}
-      <p>{LOCKED_CAPABILITY_EXPLANATION}</p>
-      {links.isConfigured(CHECKOUT_DESTINATION) ? (
-        <p className="locked-capability-action">
+      <p className="locked-capability-explanation">
+        {LOCKED_CAPABILITY_EXPLANATION}
+      </p>
+      {configured ? (
+        <div className="locked-capability-action">
           <button
             type="button"
-            className="ghost"
+            className="primary"
             aria-label={`Buy a license to use ${capabilityName}`}
             onClick={() => void openLockedCapabilityCheckout(links)}
           >
             Buy Alfred License
           </button>
-        </p>
+          <p className="locked-capability-note">
+            One-time purchase. Manual runs stay free in every build.
+          </p>
+        </div>
       ) : (
         <pre className="locked-capability-instructions">
           {LOCKED_CAPABILITY_SOURCE_INSTRUCTIONS}

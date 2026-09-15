@@ -15,6 +15,7 @@ function workflow(id: string, folderId: string | null): Workflow {
     name: `Workflow ${id}`,
     description: "",
     folderId,
+    memoryLookupEnabled: false,
     graph: { nodes: [], edges: [] },
     createdAt: "2026-08-24T00:00:00Z",
     updatedAt: "2026-08-24T00:00:00Z",

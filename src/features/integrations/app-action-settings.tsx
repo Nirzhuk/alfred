@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { SearchInput } from "../../components/search-input";
 import type { AppActionNodeData } from "../workflow/types";
 import { integrationsApi } from "./api";
 import {
@@ -361,13 +362,15 @@ function ResourceSelector({
     <div className="field app-action-resource-field">
       <span>{field.label}</span>
       <div className="field-row">
-        <input
-          type="search"
+        <SearchInput
+          aria-label={`Search ${field.label} options`}
+          containerClassName="app-action-resource-search"
           value={query}
           maxLength={200}
           disabled={!connectionId || busy}
           placeholder="Search options"
           onChange={(event) => setQuery(event.currentTarget.value)}
+          onClear={() => setQuery("")}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();

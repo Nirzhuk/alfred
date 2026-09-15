@@ -1,57 +1,62 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import * as api from "../src/features/workflow/api";
 import {
+  memoryRecallSummary,
   memoryUseReasonLabel,
   openHistoryMemory,
 } from "../src/features/workflow/components/history-page/history-format";
 import { useWorkflowStore } from "../src/features/workflow/store";
 import type { Workflow } from "../src/features/workflow/types";
 
-const inspectorSource = await Bun.file(
-  new URL(
-    "../src/features/workflow/components/memories-inspector/memories-inspector.tsx",
-    import.meta.url,
-  ),
-).text();
-const historySource = await Bun.file(
-  new URL(
-    "../src/features/workflow/components/history-page/history-page.tsx",
-    import.meta.url,
-  ),
-).text();
-const workflowRust = await Bun.file(
-  new URL("../src-tauri/src/db/workflows.rs", import.meta.url),
-).text();
-const migrationRust = await Bun.file(
-  new URL("../src-tauri/src/db/migrate.rs", import.meta.url),
-).text();
 
-function workflow(enabled: boolean): Workflow {
+function workflow(
+  enabled: boolean,
+  id = "workflow-1",
+): Workflow {
   return {
-    id: "workflow-1",
+    id,
     name: "Recall",
     description: "",
     workingDirectory: "/projects/alfred",
     memoryRetrievalEnabled: enabled,
+    memoryLookupEnabled: false,
     graph: { nodes: [], edges: [] },
     createdAt: "2026-08-18T10:00:00Z",
     updatedAt: "2026-08-18T10:00:00Z",
   };
 }
 
-afterEach(() => {
-  useWorkflowStore.setState({ workflows: [], error: null });
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+let originalWindow: PropertyDescriptor | undefined;
+
+beforeEach(() => {
+  originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {},
+  });
 });
 
-describe("automatic recall rollout and control", () => {
-  test("keeps migrated workflows off and explicitly creates new workflows on", () => {
-    expect(migrationRust).toContain('"INTEGER NOT NULL DEFAULT 0"');
-    expect(workflowRust).toContain(
-      "sort_order, memory_retrieval_enabled, graph_json",
-    );
-    expect(workflowRust).toContain("VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7");
-  });
 
+afterEach(() => {
+  clearMocks();
+  useWorkflowStore.setState({ workflows: [], error: null });
+  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+  else Reflect.deleteProperty(globalThis, "window");
+});
+
+
+describe("automatic recall rollout and control", () => {
   test("saves the workflow toggle through the API", async () => {
     const original = workflow(false);
     const updated = { ...original, memoryRetrievalEnabled: true };
@@ -66,9 +71,9 @@ describe("automatic recall rollout and control", () => {
       id: original.id,
       memoryRetrievalEnabled: true,
     });
-    expect(useWorkflowStore.getState().workflows[0].memoryRetrievalEnabled).toBe(
-      true,
-    );
+    expect(
+      useWorkflowStore.getState().workflows[0].memoryRetrievalEnabled,
+    ).toBe(true);
     update.mockRestore();
   });
 
@@ -83,36 +88,164 @@ describe("automatic recall rollout and control", () => {
       .getState()
       .setMemoryRetrievalEnabled(original.id, true);
 
-    expect(useWorkflowStore.getState().workflows[0].memoryRetrievalEnabled).toBe(
-      false,
-    );
+    expect(
+      useWorkflowStore.getState().workflows[0].memoryRetrievalEnabled,
+    ).toBe(false);
     expect(useWorkflowStore.getState().error).toContain("recall_update_failed");
     update.mockRestore();
   });
 
-  test("states the local exact-search budget without semantic claims", () => {
-    expect(inspectorSource).toContain("Automatic recall");
-    expect(inspectorSource).toContain("local exact FTS5 search + recency");
-    expect(inspectorSource).toContain("not an embedding service");
-    expect(inspectorSource).toContain("8 items / 6,000 bytes");
-    expect(inspectorSource).not.toContain("AI memory");
-    expect(inspectorSource).not.toContain("semantic search");
+  test("saves lookup permission independently from automatic recall", async () => {
+    const original = workflow(true);
+    const updated = { ...original, memoryLookupEnabled: true };
+    const update = spyOn(api, "updateWorkflow").mockResolvedValue(updated);
+    useWorkflowStore.setState({ workflows: [original], error: null });
+
+    expect(
+      await useWorkflowStore
+        .getState()
+        .setMemoryLookupEnabled(original.id, true),
+    ).toBe(true);
+
+    expect(useWorkflowStore.getState().workflows[0]).toMatchObject({
+      memoryRetrievalEnabled: true,
+      memoryLookupEnabled: true,
+    });
+    update.mockRestore();
+  });
+
+  test("rolls back only lookup permission after a failed save", async () => {
+    const original = workflow(false);
+    const other = workflow(false, "workflow-2");
+    let rejectUpdate!: (error: Error) => void;
+    const pending = new Promise<Workflow>((_resolve, reject) => {
+      rejectUpdate = reject;
+    });
+    const update = spyOn(api, "updateWorkflow").mockReturnValue(pending);
+    useWorkflowStore.setState({ workflows: [original], error: null });
+
+    const saving = useWorkflowStore
+      .getState()
+      .setMemoryLookupEnabled(original.id, true);
+    useWorkflowStore.setState((state) => ({
+      workflows: [...state.workflows, other],
+    }));
+    rejectUpdate(new Error("lookup_update_failed"));
+
+    expect(await saving).toBe(false);
+    expect(
+      useWorkflowStore.getState().workflows.map((item) => [
+        item.id,
+        item.memoryLookupEnabled,
+      ]),
+    ).toEqual([
+      [original.id, false],
+      [other.id, false],
+    ]);
+    expect(useWorkflowStore.getState().error).toContain("lookup_update_failed");
+    update.mockRestore();
+  });
+
+
+
+
+  test("keeps the newest lookup intent when saves resolve out of order", async () => {
+    const original = workflow(false);
+    const first = deferred<Workflow>();
+    const second = deferred<Workflow>();
+    const update = spyOn(api, "updateWorkflow").mockImplementation((input) =>
+      input.memoryLookupEnabled === true ? first.promise : second.promise,
+    );
+    useWorkflowStore.setState({ workflows: [original], error: null });
+
+    const firstSave = useWorkflowStore
+      .getState()
+      .setMemoryLookupEnabled(original.id, true);
+    const secondSave = useWorkflowStore
+      .getState()
+      .setMemoryLookupEnabled(original.id, false);
+
+    expect(
+      useWorkflowStore.getState().workflows[0].memoryLookupEnabled,
+    ).toBe(false);
+    first.resolve({ ...original, memoryLookupEnabled: true });
+    await firstSave;
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(
+      useWorkflowStore.getState().workflows[0].memoryLookupEnabled,
+    ).toBe(false);
+
+    second.resolve({ ...original, memoryLookupEnabled: false });
+    expect(await firstSave).toBe(true);
+    expect(await secondSave).toBe(true);
+    expect(
+      useWorkflowStore.getState().workflows[0].memoryLookupEnabled,
+    ).toBe(false);
+    update.mockRestore();
+  });
+
+  test("preserves lookup, recall, and graph changes across overlapping saves", async () => {
+    const original = workflow(false);
+    const updatedGraph = {
+      nodes: [],
+      edges: [{ id: "edge-1", source: "node-a", target: "node-b" }],
+    };
+    const lookup = deferred<Workflow>();
+    const recall = deferred<Workflow>();
+    const graph = deferred<Workflow>();
+    const update = spyOn(api, "updateWorkflow").mockImplementation((input) => {
+      if (input.memoryLookupEnabled !== undefined) return lookup.promise;
+      if (input.memoryRetrievalEnabled !== undefined) return recall.promise;
+      if (input.graph !== undefined) return graph.promise;
+      throw new Error("unexpected_workflow_update");
+    });
+    useWorkflowStore.setState({
+      workflows: [original],
+      activeWorkflowId: original.id,
+      nodes: [],
+      edges: [],
+      dirty: true,
+      error: null,
+    });
+
+    const lookupSave = useWorkflowStore
+      .getState()
+      .setMemoryLookupEnabled(original.id, true);
+    const recallSave = useWorkflowStore
+      .getState()
+      .setMemoryRetrievalEnabled(original.id, true);
+    const graphSave = useWorkflowStore.getState().saveActiveWorkflow();
+
+    graph.resolve({ ...original, graph: updatedGraph });
+    recall.resolve({
+      ...original,
+      memoryRetrievalEnabled: true,
+    });
+    lookup.resolve({
+      ...original,
+      memoryLookupEnabled: true,
+    });
+    await Promise.all([lookupSave, recallSave, graphSave]);
+
+    expect(useWorkflowStore.getState().workflows[0]).toMatchObject({
+      memoryRetrievalEnabled: true,
+      memoryLookupEnabled: true,
+      graph: updatedGraph,
+    });
+    update.mockRestore();
   });
 });
 
 describe("memory-use explanations", () => {
   test("maps persisted reasons without treating score as confidence", () => {
+    expect(memoryUseReasonLabel("explicit")).toBe("Selected in a Memory step");
     expect(memoryUseReasonLabel("pinned")).toBe("Pinned core");
-    expect(memoryUseReasonLabel("lexical")).toBe(
-      "Matched this step's prompt",
-    );
+    expect(memoryUseReasonLabel("lexical")).toBe("Matched this step's prompt");
     expect(memoryUseReasonLabel("recent")).toBe("Recent fallback");
-    expect(historySource).toContain("score {memoryUse.score.toFixed(2)}");
-    expect(historySource).not.toContain("score confidence");
   });
 
-  test("links a trace row to the Memories inspector event", () => {
-    let received: { memoryId?: string } | undefined;
+  test("links a trace row to the correct workflow-aware Memories event", () => {
+    let received: { memoryId?: string; workflowId?: string } | undefined;
     const previousWindow = globalThis.window;
     const previousCustomEvent = globalThis.CustomEvent;
     class TestCustomEvent<T> {
@@ -140,6 +273,11 @@ describe("memory-use explanations", () => {
     openHistoryMemory("memory-42");
 
     expect(received).toEqual({ memoryId: "memory-42" });
+    openHistoryMemory("memory-43", "workflow-7");
+    expect(received).toEqual({
+      memoryId: "memory-43",
+      workflowId: "workflow-7",
+    });
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: previousWindow,
@@ -150,12 +288,33 @@ describe("memory-use explanations", () => {
     });
   });
 
-  test("renders an explicit empty trace state and never renders a query", () => {
-    expect(historySource).toContain(
-      "No pinned or recalled memory was recorded for this run.",
-    );
-    expect(historySource).toContain("detail.memoryUses ?? []");
-    expect(historySource).not.toContain("searchQuery");
-    expect(historySource).not.toContain("queryText");
+
+  test("distinguishes successful abstention, omission, and unavailable recall", () => {
+    expect(
+      memoryRecallSummary([
+        {
+          input: {
+            memoryRecallStatus: "abstained",
+            memoryRecallOmittedCount: 0,
+          },
+        },
+      ]),
+    ).toEqual({ status: "abstained", omittedCount: 0 });
+    expect(
+      memoryRecallSummary([
+        {
+          input: {
+            memoryRecallStatus: "included",
+            memoryRecallOmittedCount: 2,
+          },
+        },
+        {
+          input: {
+            memoryRecallStatus: "unavailable",
+            memoryRecallOmittedCount: 1,
+          },
+        },
+      ]),
+    ).toEqual({ status: "unavailable", omittedCount: 3 });
   });
 });

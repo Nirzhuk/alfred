@@ -167,7 +167,14 @@ export function FlowContextMenu({
   }
 
   return (
-    <ContextMenu x={menu.screen.x} y={menu.screen.y} onClose={onClose}>
+    <ContextMenu
+      x={menu.screen.x}
+      y={menu.screen.y}
+      onClose={onClose}
+      role="dialog"
+      aria-label="Add step"
+      className="add-step-picker-surface"
+    >
       <PaneMenu
         flow={menu.flow}
         onAddPrompt={onAddPrompt}

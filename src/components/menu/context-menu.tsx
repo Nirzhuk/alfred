@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type AriaRole,
   type ReactNode,
   type TransitionEvent,
 } from "react";
@@ -34,6 +35,8 @@ type Props = {
   /** Soft enter/exit like the workflow list menu. */
   animated?: boolean;
   zIndex?: number;
+  role?: AriaRole;
+  "aria-label"?: string;
 };
 
 /**
@@ -48,6 +51,8 @@ export function ContextMenu({
   className,
   animated = false,
   zIndex = 40,
+  role = "menu",
+  "aria-label": ariaLabel,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const closedRef = useRef(false);
@@ -62,8 +67,8 @@ export function ContextMenu({
     const rect = el.getBoundingClientRect();
     const pad = 8;
     setPos({
-      left: Math.min(x, window.innerWidth - rect.width - pad),
-      top: Math.min(y, window.innerHeight - rect.height - pad),
+      left: Math.max(pad, Math.min(x, window.innerWidth - rect.width - pad)),
+      top: Math.max(pad, Math.min(y, window.innerHeight - rect.height - pad)),
     });
   }, [x, y]);
 
@@ -109,6 +114,8 @@ export function ContextMenu({
     <ContextMenuCloseContext.Provider value={requestClose}>
       <Menu
         ref={ref}
+        role={role}
+        aria-label={ariaLabel}
         placement="fixed"
         animated={animated}
         state={state}

@@ -1,0 +1,11 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Parameterized file start",
+  "description": "The recipient chooses the watched folder.",
+  "graph": { "nodes": [{ "id": "input", "type": "input", "data": { "label": "Input", "prompt": "Ready" }, "position": { "x": 0, "y": 0 } }], "edges": [] },
+  "parameters": [{ "key": "start.folder", "label": "Watched folder", "kind": "folder", "required": true, "target": { "kind": "start", "nodeId": null, "field": "0.path" } }],
+  "requirements": [],
+  "starts": [{ "kind": "file", "config": { "path": "" } }]
+}

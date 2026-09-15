@@ -2,14 +2,15 @@ use super::redaction::{
     contains_cli_permission_flag, contains_secret_marker, is_secret_key, redact_text,
 };
 use super::{
-    NativeApprovalPolicy, NativeCancellation, NativeErrorCode, NativePermissionProfile,
-    NativeRuntimeError, NativeToolCapabilitySet,
+    NativeAgentRuntime, NativeApprovalPolicy, NativeCancellation, NativeErrorCode,
+    NativePermissionProfile, NativeRuntimeError, NativeToolCapabilitySet, NativeTurnRequest,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
-pub const TOOL_CONTRACT_VERSION: u16 = 1;
+pub const TOOL_CONTRACT_VERSION: u16 = 2;
 pub const DEFAULT_MAX_TOOL_OUTPUT_BYTES: usize = 128 * 1024;
 pub const DEFAULT_MAX_COMMAND_TIMEOUT_MS: u64 = 120_000;
 pub const MAX_TOOL_ARGUMENT_BYTES: usize = 64 * 1024;
@@ -26,6 +27,7 @@ pub enum AlfredToolKind {
     ApplyPatch,
     Mcp,
     Subagent,
+    MemoryLookup,
 }
 
 impl AlfredToolKind {
@@ -39,6 +41,7 @@ impl AlfredToolKind {
             Self::Shell | Self::Process => profile.shell,
             Self::Mcp => profile.mcp,
             Self::Subagent => profile.subagents,
+            Self::MemoryLookup => profile.memory_lookup,
         }
     }
 
@@ -66,7 +69,36 @@ impl AlfredToolKind {
             Self::ApplyPatch => capabilities.patch,
             Self::Mcp => capabilities.mcp,
             Self::Subagent => capabilities.subagents,
+            Self::MemoryLookup => capabilities.memory_lookup,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlfredToolExecutionContext {
+    pub turn_id: String,
+    pub provider: crate::agents::AgentProvider,
+    pub model: String,
+    pub run_id: String,
+    pub node_id: String,
+    pub working_directory: PathBuf,
+    pub memory_lookup_enabled: bool,
+}
+
+impl AlfredToolExecutionContext {
+    pub(crate) fn from_turn(request: &NativeTurnRequest) -> Result<Self, NativeRuntimeError> {
+        let cancellation = request.cancellation()?;
+        Ok(Self {
+            turn_id: cancellation.id().to_owned(),
+            provider: request.provider,
+            model: request.model.clone(),
+            run_id: request.run_id.clone(),
+            node_id: request.node_id.clone(),
+            working_directory: request.working_directory.clone(),
+            memory_lookup_enabled: request.permission_profile.memory_lookup
+                == NativeApprovalPolicy::Allow
+                && request.tool_capabilities.memory_lookup,
+        })
     }
 }
 
@@ -171,11 +203,71 @@ pub trait AlfredApprovalHandler: Send + Sync {
 }
 
 pub trait AlfredToolExecutor: Send + Sync {
+    /// Whether this installed host executor can serve Alfred-owned memory
+    /// lookup requests. Deny-all and legacy executors stay unavailable.
+    fn supports_memory_lookup(&self) -> bool {
+        false
+    }
+    /// Binds this executor to the selected runtime for one native turn.
+    /// Registry-backed lookup executors use this to pin reservations and
+    /// releases to the exact runtime selected for execution.
+    fn bind_runtime(
+        &self,
+        _context: &AlfredToolExecutionContext,
+        _runtime: Arc<dyn NativeAgentRuntime>,
+    ) -> Result<(), NativeRuntimeError> {
+        Ok(())
+    }
+
+    fn begin_turn(
+        &self,
+        _context: &AlfredToolExecutionContext,
+        _cancellation: &NativeCancellation,
+    ) -> Result<(), NativeRuntimeError> {
+        Ok(())
+    }
+
     fn execute(
         &self,
         request: &AlfredToolRequest,
         cancellation: &NativeCancellation,
     ) -> Result<AlfredToolResult, NativeRuntimeError>;
+
+    fn execute_for_turn(
+        &self,
+        _context: &AlfredToolExecutionContext,
+        request: &AlfredToolRequest,
+        cancellation: &NativeCancellation,
+    ) -> Result<AlfredToolResult, NativeRuntimeError> {
+        self.execute(request, cancellation)
+    }
+
+    /// Gives a scoped executor a commit point after the registry has accepted
+    /// the normalized result. Lookup traces use this hook so a result that
+    /// fails host output or context validation is never marked Delivered.
+    fn finalize_for_turn(
+        &self,
+        _context: &AlfredToolExecutionContext,
+        _request: &AlfredToolRequest,
+        _result: &AlfredToolResult,
+    ) -> Result<(), NativeRuntimeError> {
+        Ok(())
+    }
+
+    /// Rejects a result that was produced by a scoped executor but cancelled
+    /// before the host delivered it. The default is a no-op for executors that
+    /// do not stage durable result metadata.
+    fn reject_for_turn(
+        &self,
+        _context: &AlfredToolExecutionContext,
+        _request: &AlfredToolRequest,
+        _error: &NativeRuntimeError,
+    ) -> Result<(), NativeRuntimeError> {
+        Ok(())
+    }
+
+    fn finish_turn(&self, _context: &AlfredToolExecutionContext) {}
+
 }
 
 pub struct DenyAllToolExecutor;

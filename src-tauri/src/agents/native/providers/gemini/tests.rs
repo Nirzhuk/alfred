@@ -209,6 +209,7 @@ fn request_with(
             patch: true,
             mcp: false,
             subagents: false,
+            memory_lookup: false,
         },
         session_mode: NativeSessionMode::Ephemeral,
         session_id: None,

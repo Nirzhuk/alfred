@@ -65,9 +65,9 @@ Related docs: [README.md](README.md), [docs/install.md](docs/install.md),
 | **Input** | Instruction / context for downstream steps (legacy graph type: `prompt`) |
 | **Agent** | Local CLI step: provider + optional model + optional skill |
 | **Memories** | Inject selected / pinned library items into the run context |
-| **Output** | Choose what to keep / pin / set as final result (legacy: `chooseOutput`) |
+| **Output** | Execution-time save/pin preferences and final-result selection; backend-owned receipt persistence |
 | **Run** | One execution (manual, schedule, or event); statuses: pending → running → completed \| failed \| cancelled |
-| **Schedule** | Optional cron (one per workflow); ticker while app is open |
+| **Schedule** | Optional cron (one per workflow) with a missed-run choice (run on open / skip / ask); ticker while app is open |
 | **Trigger** | File watcher or loopback webhook; fires the same runner with a payload |
 | **Library** | Durable notes / artifacts / agent outputs; star to inject on next run |
 | **Skill** | `SKILL.md` package pinned on an agent step (`/skill-name …`) |
@@ -109,10 +109,144 @@ workflow graph and can be reversed from the node, its context menu, or settings.
 1. Start via UI `run_workflow`, schedule tick (~20s), file/webhook trigger, or tray
 2. Insert SQLite `runs` row (`trigger_kind` + optional `payload_json`); spawn worker
 3. Load graph → topological order → prelude (pinned memories + trigger payload)
-4. Walk nodes: Input → Memories → Agent (CLI adapter) → Output (persist / final)
+4. Walk nodes: Input → Memories → Agent (CLI adapter) → Output (capture execution-time disposition; backend persists save receipt / final result)
 5. Persist `run_steps`, emit `run://event` for the activity UI; finish status; refresh tray
 
 Schedules and event triggers only fire while Alfred is running (including tray).
+A scheduled time that passes while Alfred is closed is a miss: that schedule's
+own choice either runs it as soon as Alfred opens, drops it, or leaves it due in
+a list the user answers per schedule (`list_missed_schedules` /
+`resolve_missed_schedule`).
+
+### Backend-owned output persistence
+
+An Output node's save, pin, title, final-result, HTML-report, and changed-files
+settings are captured from the executing graph at node execution time. The
+backend inserts the completed `run_step` and its output-receipt seed in one
+transaction; the renderer does not decide whether a completed output is saved.
+The receipt key is `(run_id, node_id)`, and its storage identity is retained
+across save retries.
+
+The receipt is durable and reports `not_requested`, `skipped_empty`, `pending`,
+`saving`, `saved`, `failed`, or `deleted`. In particular, `saved`, `failed`, and
+`deleted` remain explicit outcomes in History: a saved receipt points to the
+canonical memory or artifact, a failed receipt retains the completed output and
+stable failure code, and a deleted receipt is a tombstone after cleanup is
+requested. The full output remains in canonical `run_steps.output_json`; the
+receipt does not duplicate it. SQLite is the source of truth; UI receipt events
+are notifications emitted after a durable transition.
+
+`Retry save` is an explicit save-only retry. It may claim only a failed receipt
+with a retryable storage or database failure and reuses the completed `run_step`
+and storage identity; it never invokes the agent or reruns the workflow.
+
+Startup recovery begins immediately: Alfred atomically snapshots pending and
+interrupted `saving` receipts, fences interrupted claims, and processes the
+snapshot in batches of at most 32. A larger backlog is handled across batches;
+failed recovery rows remain pending for later retry rather than being dropped.
+
+When workflow or memory deletion starts, the backend tombstones owned output
+receipts before removing staged or final files. A saved output promoted to user
+or workspace scope is not owned by the origin workflow; its canonical memory
+and artifact remain live when that workflow is cleared.
+
+---
+
+### Agent-requested memory lookup
+
+`memory_lookup_enabled` is a separate workflow permission from
+`memory_retrieval_enabled` (**Automatic recall**). It defaults off for new and
+imported workflows. Each request rechecks this permission and the persisted
+run/workflow relationship; enabling the setting does not grant an unavailable
+runtime.
+
+The release-enabled native provider registry is currently empty, so this path
+is unavailable. Alfred never falls back to Provider CLI or exposes an
+unrestricted second route.
+
+The provider-neutral contract exposes exactly four bounded, read-only
+operations:
+
+| Operation | Read-only use |
+| --- | --- |
+| `memory.search` | Search current visible memories in the bound scope |
+| `memory.get` | Read one current memory by an opaque reference, in pages |
+| `history.search` | Search saved workflow outputs, historical memories, and evidence |
+| `history.get` | Read one historical source by an opaque reference, in pages |
+
+Requests are capped at 4 KiB; queries at 2,000 bytes / 24 terms (64 characters
+per term); results at 8 items; search and get responses at 6,000 bytes; and a
+body page at 4,000 bytes. A step may make at most 8 calls and receive 16,000
+bytes total within a 5-second deadline. References and cursors are opaque,
+session-local, and bound to the run, node, workflow, workspace, and source
+version. Scope, lifecycle, receipt, and evidence visibility are rechecked on
+every call.
+
+Lookup traces are scoped to the run and node. They record source kind,
+identifier/version/state/page, request/tool identity, retrieved and returned
+byte counts, and delivery classification. Accepted deliveries can be projected
+into body-free evidence inputs; lookup bodies, raw search queries, and provider
+context are not copied into those evidence traces.
+
+---
+
+### Reviewable post-run memory suggestions
+
+Memory review is a **candidate-only** pipeline, off by default globally and per
+workflow. Ordinary Provider CLI execution is not a reviewer. The only reviewer
+path currently specified is the restricted Claude Code transport, whose
+activation remains unavailable in this release until every gate passes: exact
+runtime `2.1.263`, restriction contract `memory-review-restricted-v1`, all
+required restricted flags, verified managed-policy assurance, and an
+authorized synthetic live-activation check on an already-authorized account.
+The currently installed `2.1.271` runtime does not satisfy the exact-runtime
+gate. Before the gate is recorded, jobs are marked unavailable/skipped with
+zero provider calls; Alfred does not fall back to an ordinary CLI invocation.
+
+Review settings require choosing the restricted reviewer and acknowledging that
+each eligible completed run may make at most **one additional model
+invocation** (never for failed or cancelled runs). There are no automatic
+provider retries; a failed review can be retried once manually. The restricted
+request receives a bounded digest of persisted run text — at most 32 KiB —
+plus up to 12 relevant existing memories. It carries fixed review instructions
+only, with no workspace, skills, session, or tool configuration. Provider
+authentication and billing remain CLI-owned.
+
+The restricted transport's required flags are the allowlisted
+`--safe-mode`, `--restricted`, `--tools`, `--strict-mcp-config`,
+`--disable-slash-commands`, `--setting-sources`, `--permission-prompts`,
+`--max-turns`, `--input-format`, `--output-format`, and
+`--no-session-persistence`. The selected product/runtime and restriction
+contract are persisted with the job. One review process is active at a time;
+ready work is bounded at 32 jobs, with overflow durable in SQLite for restart
+recovery.
+
+The reviewer returns strict JSON proposing `create`, `supersede`, or `retract`
+candidates (at most five). Every candidate is deterministically validated for
+size, scope, target visibility, exact current duplicates, secret-like material,
+invisible characters, and instruction-like language before storage. Exact
+duplicate identity collapses whitespace but preserves case; looser matches are
+shown only as possible relationships. Malformed responses are rejected whole
+without a "repair" call.
+
+Targeted candidates retain the reviewed target ID, semantic revision, content
+digest, relevant dates, and completeness. Candidate edits and approvals require
+the displayed candidate revision. Approval reloads and revalidates both
+versions in one transaction; stale or incomplete destructive targets become
+`blocked` instead of being retargeted. Artifact targets are incomplete because
+their external bytes can change independently of the database. Observation and
+validity dates require supporting source text or host timestamps; review does
+not invent an expiry. Future-effective corrections remain pending and do not
+supersede the current claim early.
+
+Candidates never change canonical memory by themselves. Users can edit
+title/body/scope/type and supported validity dates while pending, approve,
+reject, or retry a failed review once manually. Reviews never modify skills and
+never write directly to memory; failures persist only stable codes
+(`auth_required`, `restricted_review_unavailable`, `provider_unavailable`,
+`timeout`, `invalid_response`, `queue`, `internal`) and never affect run status
+or output. Review can be disabled globally or per workflow at any time, and
+decided suggestion history can be physically deleted through Data settings.
 
 ---
 
@@ -157,19 +291,37 @@ Each memory is one compact claim or note. Its semantic type—`preference`,
 - **Workflow memory** is visible to its owning workflow and to workflows with
   an explicit legacy memory link.
 
-Lifecycle is explicit: `active`, `superseded`, or `retracted`. Inactive or
-expired records remain inspectable for correction history but never enter a
-prompt. Explicit deletion physically removes the canonical local row; deleting
-a workflow removes its workflow memory while preserving user/workspace memory
-that originated there.
+Lifecycle is explicit: `active`, `superseded`, or `retracted`. A record is
+current only while active, after its optional `validFrom` instant (inclusive),
+and before its optional `expiresAt` instant (exclusive). Missing dates do not
+create a default expiry. Future, inactive, and expired records remain
+inspectable for correction history but never enter a prompt; a pinned future
+record stays pinned and is omitted until it becomes current. Explicit deletion
+physically removes the canonical local row; deleting a workflow removes its
+workflow memory and owned output receipts while preserving promoted
+user/workspace memory and its output artifact.
 
-Pinned active memory forms bounded core context. The complete block is at most
-6,000 UTF-8 bytes: 1,500 for user, 2,000 for workspace, and 2,500 for
-workflow/linked memory, with unused capacity flowing forward and no item above
-1,500 bytes. Overflow remains in the library and the prompt reports only an
-omitted count. Durable memory is reference data, not authorization: it cannot
+Selected Memory-node references, pinned active memory, and automatic recall
+share a 12,000-byte UTF-8 limit at final Agent or Custom agent dispatch.
+Selected references are allocated first in authored order (6,000 total / 1,500
+per item), then pins (6,000 total / 1,500 per item), then up to eight recalled
+items (6,000 total / 1,200 per item) in the remaining space. Pin allocation
+retains the user, workspace, and workflow/linked order and its 1,500 / 2,000 /
+2,500 soft scope shares. An id is rendered once with selected, pinned, then
+recalled precedence. Headings, trust text, separators, and aggregate omission
+notices count toward the limit. Overflow remains in the library. Durable memory
+is reference data, not authorization: it cannot
 override the current request, workflow instructions, permissions, or safety
 boundaries, and instructions embedded in memory text are ignored.
+
+Current context and last output retain typed origins until dispatch. A direct
+Memory-node value remains a memory reference through template copies; generated
+or tool output that happens to quote it does not become a reference. Utility
+templates still receive complete visible memory values and are outside this
+agent-memory limit. Prompt rendering checks scope, lifecycle, and expiry again,
+and reads artifact excerpts with bounded I/O. Truncated excerpts and fallback
+previews for unavailable or malformed artifacts are labeled without changing
+the stored source.
 
 ### Automatic recall
 
@@ -178,53 +330,42 @@ from earlier Alfred versions remain off until the user opts in from the
 Memories inspector. The same switch disables recall again without changing the
 workflow graph or deleting memory.
 
-Immediately before every Agent or Custom agent step, Alfred searches against
-that step's current accumulated prompt. Candidate visibility reuses the scoped,
-active, unexpired memory rules above. Ranking is deterministic: local exact
-FTS5 result position, scope, salience, confidence, and last-confirmed recency;
-when exact search has no matches, recent in-scope memory is the fallback.
+Immediately before every Agent or Custom agent step, Alfred builds a bounded
+query from authored Input/Prompt text, authored template text and substitutions,
+and allowlisted message, subject, project, ticket, or document fields from a
+connected-app event. Model output, arbitrary tool output, memory bodies,
+identity instructions, and provider wrappers do not enter this query. Candidate
+visibility reuses the scoped, active, unexpired memory rules above.
+
+Automatic recall uses literal-safe disjunctive FTS5 matching, term coverage,
+and exact identifier evidence. Scope, salience, confidence, and last-confirmed
+recency deterministically order candidates that already have query evidence;
+there is no recent-only fallback. An unrelated or empty query succeeds with no
+recalled memory. Preference, fact, decision, constraint, and lesson records are
+eligible; notes are eligible only when manually authored or approved through
+review. Episode, checkpoint, output, and artifact records remain available for
+pinning and explicit Memory nodes but are excluded from automatic recall.
 Pinned core memory and memories already loaded by a Memory node are excluded
 from recall so prompt text is not duplicated. Utility nodes never receive
 automatic memory.
 
 Recalled context is capped at 8 items and 6,000 UTF-8 bytes, with at most 1,200
-bytes per item and 8,000 newest bytes of the current prompt used for its query.
-Every included id, reason, rank, score, and rendered byte count is recorded in
-`run_memory_uses` and shown in History; the audit row never copies a memory body
-or search query. A retrieval or FTS5 failure is non-fatal and the agent proceeds
-without recalled context while preserving pinned core behavior.
+bytes per item inside the shared limit, and the query projection is separately
+bounded to 8,000 bytes. Every final included id, reason, rank, score, rendered
+byte count, and ranking policy version is recorded in `run_memory_uses` and
+shown in History. Selected rows use `explicit_v1`, pins retain `pinned_v1`, and
+current recall uses `lexical_v2`; historical lexical versions remain readable.
+A per-run/node summary records the 12,000-byte budget, actual memory bytes,
+omission counts, and trace availability. Neither audit table copies a memory
+body or search query. History distinguishes a successful empty result from
+unavailable recall and explains omissions by count and cause.
+A retrieval or FTS5 failure is non-fatal and the agent proceeds without recalled
+context while preserving pinned core behavior.
 
-V1 has no embeddings, remote retrieval API, network call, or model download.
+Recall has no embeddings, remote retrieval API, network call, or model download.
 Retrieved text is explicitly untrusted reference data: it cannot override
 current instructions, authorize actions, expand connected-app scope, or grant
 tool access.
-
-### Reviewable post-run memory suggestions
-
-Memory review is a **candidate-only** pipeline, off by default globally and per
-workflow. Enabling it requires choosing one supported agent provider in the
-Memory review settings and explicitly acknowledging the cost: after each
-eligible completed run (never failed or cancelled runs), Alfred may make at
-most **one additional model invocation** with that CLI. The reviewer receives a
-bounded digest of persisted run text — at most 32 KiB, built from canonical run
-steps with control characters stripped — plus up to 12 relevant existing
-memories for context. The digest stays inside the same local CLI boundary the
-user already chose; no other data leaves the machine.
-
-The reviewer returns strict JSON proposing `create`, `supersede`, or `retract`
-candidates (at most five). Every candidate is deterministically validated for
-size, scope, target visibility, duplicate hashes, secret-like material,
-invisible characters, and instruction-like language before storage; malformed
-responses are rejected whole without a "repair" call. Candidates never change
-canonical memory by themselves: approval is transactional and revalidated, and
-a stale candidate becomes `blocked` instead of being adapted. Users can edit
-title/body/scope/type while pending, approve, reject, or retry a failed review
-once manually. Reviews never modify skills and never write directly to memory;
-failures persist only stable codes (`auth_required`, `provider_unavailable`,
-`timeout`, `invalid_response`, `internal`) and never affect run status or
-output. Review can be disabled globally or per workflow at any time, and
-decided suggestion history can be physically deleted through Data settings.
-
 
 ---
 

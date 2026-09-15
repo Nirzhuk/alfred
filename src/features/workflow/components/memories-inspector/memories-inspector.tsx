@@ -1,4 +1,6 @@
+import { SearchInput } from "../../../../components/search-input";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   useEffect,
@@ -9,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { Icon } from "../../../../components/icon";
+import { SelectControl } from "../../../../components/select-control";
 import {
   memoryReviewFailureCopy,
   useMemoryReviewStore,
@@ -23,14 +26,30 @@ import {
 } from "../../../../components/menu";
 import { Modal, ModalHeader } from "../../../../components/modal";
 import * as api from "../../api";
-import {
-  createHtmlReportPreview,
-} from "../../html-report";
+import { createHtmlReportPreview } from "../../html-report";
 import { useWorkflowStore } from "../../store";
-import { workspaceScopeAvailable } from "../../memories";
+import {
+  canPinMemory,
+  isMemoryPromptEligible,
+  workspaceScopeAvailable,
+} from "../../memories";
+import { MemoryLibrarySidebar } from "./memory-library-sidebar";
+import { MemoryLibraryList } from "./memory-library-list";
+import {
+  MemoryEditor,
+  MEMORY_STARTERS,
+  MEMORY_TYPE_LABELS,
+  localDateTime,
+  storedDateTime,
+  type MemoryDraft,
+} from "./memory-editor";
+import { MemoryAutomationSettings } from "./memory-automation-settings";
+import "./memory-workspace.css";
 import type {
   MemoryCandidate,
   MemoryKind,
+  MemoryEvidenceItem,
+  MemoryLookupAvailability,
   MemoryReviewJob,
   MemoryScopeType,
   MemoryStatus,
@@ -40,13 +59,16 @@ import type {
 import {
   CANDIDATE_OPERATION_LABELS,
   CANDIDATE_STATUS_LABELS,
-  SUGGESTION_SCOPE_TYPES,
   applyCandidateUpdate,
   blockedCandidateCopy,
+  candidateActionErrorCopy,
   candidateApprovalRequiresConfirmation,
+  candidateCanReject,
   candidateConfidencePercent,
   candidateEditPayload,
   candidateIsEditable,
+  candidateMemoryTypeChoices,
+  candidateScopeChoices,
   countPendingSuggestions,
   failedReviewJobs,
   hasCandidateEdits,
@@ -58,30 +80,13 @@ import {
 import {
   filterAndSortMemories,
   memorySearchSnippet,
+  memoryFilterCounts,
+  memoryUsageStatus,
   type MemoryKindFilter,
   type MemoryQuickFilter,
+  type MemoryScopeFilter,
+  type MemorySort,
 } from "./memory-list-model";
-
-const KIND_LABELS: Record<MemoryKind, string> = {
-  note: "Note",
-  text: "Output",
-  artifact: "Artifact",
-};
-
-type ScopeFilter = "all" | "user" | "workspace" | "workflow" | "inactive";
-
-const MEMORY_TYPES: MemoryType[] = [
-  "preference",
-  "fact",
-  "decision",
-  "constraint",
-  "lesson",
-  "episode",
-  "checkpoint",
-  "note",
-  "output",
-  "artifact",
-];
 
 function formatWhen(value: string) {
   const date = new Date(value);
@@ -90,6 +95,141 @@ function formatWhen(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function memoryLookupAvailabilityCopy(reason: string | null): string {
+  switch (reason) {
+    case "workflow_not_found":
+      return "This workflow could not be found.";
+    case "native_capability_manifest_invalid":
+      return "The native agent capability manifest could not be verified.";
+    case "native_route_descriptor_mismatch":
+      return "The configured native runtime does not match the verified capability manifest.";
+    case "claude_package_target_unsupported":
+    case "claude_release_manifest_invalid":
+    case "claude_release_manifest_mismatch":
+    case "claude_release_signature_missing":
+    case "claude_publisher_verification_rejected":
+    case "claude_sealed_verification_mismatch":
+    case "claude_package_store_rejected":
+      return "The native provider release could not be verified.";
+    case "claude_commercial_terms_unconfirmed":
+      return "The native provider release is blocked pending terms verification.";
+    case "claude_managed_package_integration_missing":
+      return "The native provider release package integration is not verified.";
+    case "claude_publisher_verification_integration_missing":
+      return "The native provider publisher verification is not integrated.";
+    case "claude_packaged_no_cli_smoke_missing":
+      return "The packaged native provider runtime has not passed verification.";
+    case "claude_native_workflow_renderer_approval_missing":
+      return "The native provider workflow renderer is not approved.";
+    case "codex_cross_platform_signing_and_packaged_smoke_missing":
+    case "codex_app_server_production_unsupported":
+    case "codex_runtime_signature_verification_missing":
+    case "codex_runtime_license_notice_packaging_missing":
+    case "codex_packaged_no_cli_smoke_missing":
+    case "codex_python_sdk_public_capability_audit_blocked":
+    case "codex_python_sdk_host_approval_unavailable":
+    case "codex_python_sdk_known_client_enterprise_clearance_missing":
+    case "codex_python_sdk_sealed_package_unverified":
+    case "codex_python_sdk_packaged_smoke_missing":
+    case "claude_api_key_account_intake_unavailable":
+    case "claude_live_api_key_smoke_missing":
+    case "cursor_account_repository_consent_and_e2e_gates_missing":
+    case "cursor_native_contract_blocked":
+    case "opencode_package_account_and_tool_bridge_unverified":
+    case "opencode_native_commercial_approval_missing":
+    case "opencode_native_package_unverified":
+    case "opencode_native_supervisor_http_capability_unavailable":
+    case "opencode_native_secret_entry_unavailable":
+    case "opencode_native_host_approval_bridge_unavailable":
+    case "opencode_native_packaged_live_smoke_missing":
+    case "copilot_sdk_package_license_and_packaged_smoke_missing":
+    case "gemini_api_key_account_intake_unavailable":
+    case "gemini_live_api_key_smoke_missing":
+    case "grok_live_api_key_smoke_missing":
+    case "native_provider_not_implemented":
+      return "This native provider is not release-ready for memory lookup.";
+    case "native_provider_unconfigured":
+      return "No native agent provider is configured for this workflow.";
+    case "native_account_unconfigured":
+      return "The native agent account is not configured.";
+    case "native_provider_unavailable":
+    case "provider_unavailable":
+      return "The configured native agent provider is unavailable.";
+    case "native_provider_blocked":
+      return "The configured native agent provider is blocked by its release policy.";
+    case "native_runtime_unavailable":
+      return "No supported native agent runtime is available for this workflow.";
+    case "native_runtime_context_capacity_unavailable":
+    case "context_capacity_unknown":
+    case "context_capacity_unavailable":
+      return "The runtime's remaining context capacity could not be verified.";
+    case "memory_lookup_transport_unavailable":
+    case "lookup_transport_unavailable":
+    case "native_lookup_transport_unavailable":
+      return "The configured runtime cannot receive memory lookup results.";
+    case "capability_unsupported":
+    case "memory_lookup_unsupported":
+      return "The configured runtime does not support memory lookup.";
+    case "workflow_has_no_configured_alfred_agent":
+      return "This workflow has no configured Alfred agent.";
+    case "runtime_not_configured":
+    case "no_release_eligible_runtime":
+      return "No release-eligible native runtime is configured for this workflow.";
+    case "memory_lookup_unavailable":
+      return "Memory lookup is unavailable for this workflow right now.";
+    default: {
+      const dynamicReason = reason?.trim() ?? "";
+      if (
+        dynamicReason.length > 0 &&
+        /\s/.test(dynamicReason) &&
+        !dynamicReason.includes("_")
+      ) {
+        return dynamicReason.length > 160
+          ? `${dynamicReason.slice(0, 157)}…`
+          : dynamicReason;
+      }
+      return "Memory lookup is unavailable for this workflow right now.";
+    }
+  }
+}
+
+const MEMORY_LOOKUP_PROBE_ERROR =
+  "Could not check memory lookup availability. Try again.";
+
+function evidenceOriginLabel(origin: MemoryEvidenceItem["origin"]): string {
+  return origin
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function evidenceSubjectLabel(subject: NonNullable<OutputMemory["evidenceSubject"]>): string {
+  switch (subject) {
+    case "user_statement":
+      return "User statement";
+    case "workflow_configuration":
+      return "Workflow configuration";
+    case "recorded_observation":
+      return "Recorded observation";
+  }
+}
+
+function memoryProvenanceCopy(memory: OutputMemory): string {
+  const state =
+    memory.provenanceState ??
+    (memory.source === "manual" ? "manual" : "legacy_unknown");
+  switch (state) {
+    case "manual":
+      return "Written manually. No run citation is expected.";
+    case "evidence_verified":
+      return "Approved from a source-backed suggestion.";
+    case "source_removed":
+      return "The source history was deleted. Copied quotes and digests were removed.";
+    default:
+      return "No verified curation citation is available for this memory.";
+  }
 }
 
 function highlightText(text: string, query: string): ReactNode {
@@ -151,11 +291,19 @@ export function MemoriesInspector({
   const setMemoryRetrievalEnabled = useWorkflowStore(
     (s) => s.setMemoryRetrievalEnabled,
   );
+  const setMemoryLookupEnabled = useWorkflowStore(
+    (s) => s.setMemoryLookupEnabled,
+  );
 
   const [query, setQuery] = useState("");
   const [quickFilter, setQuickFilter] = useState<MemoryQuickFilter>("all");
   const [kindFilter, setKindFilter] = useState<MemoryKindFilter>("all");
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+  const [scopeFilter, setScopeFilter] = useState<MemoryScopeFilter>("all");
+  const [sort, setSort] = useState<MemorySort>("recent");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pinSaving, setPinSaving] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [typeFilter, setTypeFilter] = useState<MemoryType | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -166,7 +314,10 @@ export function MemoriesInspector({
   const [status, setStatus] = useState<MemoryStatus>("active");
   const [salience, setSalience] = useState(50);
   const [confidence, setConfidence] = useState(1);
+  const [draftSemanticRevision, setDraftSemanticRevision] = useState(1);
+  const [observedAt, setObservedAt] = useState("");
   const [lastConfirmedAt, setLastConfirmedAt] = useState("");
+  const [validFrom, setValidFrom] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -179,27 +330,49 @@ export function MemoriesInspector({
   const [linkerQuery, setLinkerQuery] = useState("");
   const [linkerLoading, setLinkerLoading] = useState(false);
   const [linkerError, setLinkerError] = useState<string | null>(null);
+  const [linkerRetry, setLinkerRetry] = useState(0);
   const [linkable, setLinkable] = useState<OutputMemory[]>([]);
   const [showLinker, setShowLinker] = useState(false);
   const [viewSource, setViewSource] = useState(false);
   const [htmlExpanded, setHtmlExpanded] = useState(false);
   const [recallSaving, setRecallSaving] = useState(false);
+  const [memoryLookupSaving, setMemoryLookupSaving] = useState(false);
+  const [memoryLookupAvailability, setMemoryLookupAvailability] =
+    useState<MemoryLookupAvailability | null>(null);
+  const [memoryLookupAvailabilityWorkflowId, setMemoryLookupAvailabilityWorkflowId] =
+    useState<string | null>(null);
+  const [memoryLookupAvailabilityLoading, setMemoryLookupAvailabilityLoading] =
+    useState(false);
+  const [memoryLookupAvailabilityError, setMemoryLookupAvailabilityError] =
+    useState<string | null>(null);
+  const [memoryLookupAvailabilityRetry, setMemoryLookupAvailabilityRetry] =
+    useState(0);
   const [mode, setMode] = useState<MemoriesInspectorMode>("memories");
   const [candidates, setCandidates] = useState<MemoryCandidate[]>([]);
   const [reviewJobs, setReviewJobs] = useState<MemoryReviewJob[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState(false);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<
-    string | null
-  >(null);
+  const [suggestionsRetry, setSuggestionsRetry] = useState(0);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
+    null,
+  );
   const [candidateEditing, setCandidateEditing] = useState(false);
+  const [candidateEvidenceConfirmed, setCandidateEvidenceConfirmed] =
+    useState(false);
   const [candidateDraft, setCandidateDraft] = useState<CandidateEditDraft>({
+    expectedCandidateRevision: 1,
     title: "",
     body: "",
     scopeType: "workflow",
     memoryType: "note",
+    validFrom: "",
+    expiresAt: "",
   });
   const [candidateBusy, setCandidateBusy] = useState<string | null>(null);
+  const [memoryEvidence, setMemoryEvidence] = useState<MemoryEvidenceItem[]>([]);
+  const [memoryEvidenceLoading, setMemoryEvidenceLoading] = useState(false);
+  const [memoryEvidenceError, setMemoryEvidenceError] = useState(false);
+  const [memoryEvidenceRetry, setMemoryEvidenceRetry] = useState(0);
   const [workflowReviewEnabled, setWorkflowReviewEnabled] = useState(false);
   const [workflowReviewSaving, setWorkflowReviewSaving] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -207,10 +380,42 @@ export function MemoriesInspector({
   const detailRef = useRef<HTMLElement>(null);
   const linkerSearchRef = useRef<HTMLInputElement>(null);
   const htmlPreviewRef = useRef<HTMLIFrameElement>(null);
+  const currentView = useRef({ open, workflowId: activeWorkflowId, settingsOpen });
+  currentView.current = { open, workflowId: activeWorkflowId, settingsOpen };
 
+  const lookupViewKey = `${open ? "open" : "closed"}:${
+    activeWorkflowId ?? ""
+  }`;
+  const lookupGeneration = useRef(0);
+  const previousLookupViewKey = useRef<string | null>(null);
+  if (previousLookupViewKey.current !== lookupViewKey) {
+    previousLookupViewKey.current = lookupViewKey;
+    lookupGeneration.current += 1;
+  }
+  const lookupSaveViewKey = `${lookupViewKey}:${settingsOpen ? "settings" : "list"}`;
+  const lookupSaveGeneration = useRef(0);
+  const previousLookupSaveViewKey = useRef<string | null>(null);
+  if (previousLookupSaveViewKey.current !== lookupSaveViewKey) {
+    previousLookupSaveViewKey.current = lookupSaveViewKey;
+    lookupSaveGeneration.current += 1;
+  }
   const htmlPreview = useMemo(() => createHtmlReportPreview(body), [body]);
   const activeWorkflow = workflows.find(({ id }) => id === activeWorkflowId);
   const automaticRecall = activeWorkflow?.memoryRetrievalEnabled ?? false;
+  const memoryLookupEnabled = activeWorkflow?.memoryLookupEnabled ?? false;
+  const currentMemoryLookupAvailability =
+    memoryLookupAvailabilityWorkflowId === activeWorkflowId
+      ? memoryLookupAvailability
+      : null;
+  const currentMemoryLookupAvailabilityError =
+    memoryLookupAvailabilityWorkflowId === activeWorkflowId
+      ? memoryLookupAvailabilityError
+      : null;
+  const currentMemoryLookupAvailabilityLoading =
+    Boolean(open && activeWorkflowId) &&
+    (memoryLookupAvailabilityWorkflowId !== activeWorkflowId
+      ? true
+      : memoryLookupAvailabilityLoading);
   const hasWorkingDirectory = workspaceScopeAvailable(
     activeWorkflow?.workingDirectory,
   );
@@ -223,12 +428,12 @@ export function MemoriesInspector({
     () => sortSuggestions(candidates),
     [candidates],
   );
-  const failedJobs = useMemo(
-    () => failedReviewJobs(reviewJobs),
-    [reviewJobs],
-  );
+  const failedJobs = useMemo(() => failedReviewJobs(reviewJobs), [reviewJobs]);
   const selectedCandidate =
     candidates.find(({ id }) => id === selectedCandidateId) ?? null;
+  const selectedCandidateTarget = selectedCandidate?.targetMemoryId
+    ? memories.find(({ id }) => id === selectedCandidate.targetMemoryId) ?? null
+    : null;
 
   useEffect(() => {
     if (!htmlPreview || viewSource || editing) return;
@@ -236,23 +441,6 @@ export function MemoriesInspector({
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, [htmlPreview, viewSource, editing]);
-
-  const scopeTypeFiltered = useMemo(
-    () =>
-      memories.filter((m) => {
-        if (scopeFilter === "inactive" && m.status === "active") return false;
-        if (
-          scopeFilter !== "all" &&
-          scopeFilter !== "inactive" &&
-          m.scopeType !== scopeFilter
-        ) {
-          return false;
-        }
-        if (typeFilter !== "all" && m.memoryType !== typeFilter) return false;
-        return true;
-      }),
-    [memories, scopeFilter, typeFilter],
-  );
 
   const filteredLinkable = useMemo(() => {
     const q = linkerQuery.trim().toLowerCase();
@@ -267,17 +455,35 @@ export function MemoriesInspector({
 
   const filtered = useMemo(
     () =>
-      filterAndSortMemories(scopeTypeFiltered, query, quickFilter, kindFilter),
-    [scopeTypeFiltered, query, quickFilter, kindFilter],
+      filterAndSortMemories(memories, query, quickFilter, kindFilter, sort, {
+        scopeFilter,
+        typeFilter,
+      }),
+    [memories, query, quickFilter, kindFilter, sort, scopeFilter, typeFilter],
   );
 
-  const linkedCount = memories.filter((m) => m.origin === "linked").length;
+  const libraryCounts = useMemo(
+    () => memoryFilterCounts(memories, query, kindFilter, { typeFilter }),
+    [memories, query, kindFilter, typeFilter],
+  );
 
   const selected =
     filtered.find((m) => m.id === selectedId) ??
     memories.find((m) => m.id === selectedId) ??
     null;
   const isLinkedSelected = selected?.origin === "linked";
+  const selectedUsage = selected ? memoryUsageStatus(selected) : null;
+  const libraryTitle =
+    scopeFilter !== "all"
+      ? { workflow: "This workflow", workspace: "Workspace", user: "Personal" }[
+          scopeFilter
+        ]
+      : {
+          all: "All memories",
+          pinned: "Pinned",
+          linked: "Linked",
+          inactive: "Inactive",
+        }[quickFilter];
 
   useEffect(() => {
     if (!open) return;
@@ -291,6 +497,10 @@ export function MemoriesInspector({
     setKindFilter("all");
     setScopeFilter("all");
     setTypeFilter("all");
+    setSort("recent");
+    setSettingsOpen(false);
+    setActionError(null);
+    setDirty(false);
     setEditing(false);
     setCreating(false);
     setShowLinker(false);
@@ -299,14 +509,91 @@ export function MemoriesInspector({
     setDetailOpen(Boolean(initialMemoryId));
     setMode(initialMode);
     setSelectedCandidateId(null);
+    setCandidates([]);
+    setReviewJobs([]);
     setCandidateEditing(false);
+    setCandidateEvidenceConfirmed(false);
     setSuggestionsError(false);
   }, [open, initialMemoryId, activeWorkflowId, initialMode]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      setMemoryLookupSaving(false);
+    }
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (!open) return;
     void loadReviewSettings();
   }, [open, loadReviewSettings]);
+
+  useEffect(() => {
+    const generation = lookupGeneration.current;
+    setMemoryLookupSaving(false);
+    setMemoryLookupAvailability(null);
+    setMemoryLookupAvailabilityWorkflowId(null);
+    setMemoryLookupAvailabilityError(null);
+    if (!open || !activeWorkflowId) {
+      setMemoryLookupAvailabilityLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMemoryLookupAvailabilityLoading(true);
+    void api
+      .getMemoryLookupAvailability(activeWorkflowId)
+      .then((result) => {
+        if (
+          cancelled ||
+          lookupGeneration.current !== generation ||
+          !currentView.current.open ||
+          currentView.current.workflowId !== activeWorkflowId
+        ) {
+          return;
+        }
+        const reason = result?.reason;
+        if (
+          typeof result?.available !== "boolean" ||
+          (reason !== undefined &&
+            reason !== null &&
+            typeof reason !== "string")
+        ) {
+          throw new Error("invalid_memory_lookup_availability");
+        }
+        setMemoryLookupAvailability({
+          available: result.available,
+          reason: reason ?? null,
+        });
+        setMemoryLookupAvailabilityWorkflowId(activeWorkflowId);
+      })
+      .catch(() => {
+        if (
+          cancelled ||
+          lookupGeneration.current !== generation ||
+          !currentView.current.open ||
+          currentView.current.workflowId !== activeWorkflowId
+        ) {
+          return;
+        }
+        setMemoryLookupAvailability({ available: false, reason: null });
+        setMemoryLookupAvailabilityWorkflowId(activeWorkflowId);
+        setMemoryLookupAvailabilityError(MEMORY_LOOKUP_PROBE_ERROR);
+      })
+      .finally(() => {
+        if (
+          !cancelled &&
+          lookupGeneration.current === generation &&
+          currentView.current.open &&
+          currentView.current.workflowId === activeWorkflowId
+        ) {
+          setMemoryLookupAvailabilityLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeWorkflowId, memoryLookupAvailabilityRetry]);
 
   // Per-workflow review flag lives in SQLite; fetch it for this workflow.
   useEffect(() => {
@@ -332,7 +619,10 @@ export function MemoriesInspector({
 
   const loadSuggestions = async (
     workflowId: string,
-  ): Promise<{ candidates: MemoryCandidate[]; jobs: MemoryReviewJob[] } | null> => {
+  ): Promise<{
+    candidates: MemoryCandidate[];
+    jobs: MemoryReviewJob[];
+  } | null> => {
     try {
       const [nextCandidates, nextJobs] = await Promise.all([
         api.listMemoryCandidates({ workflowId }),
@@ -346,12 +636,16 @@ export function MemoriesInspector({
 
   // Keep keyboard focus on the same suggestion across background refreshes.
   const refreshPreservingFocus = async (workflowId: string) => {
-    const activeElement =
-      document.activeElement as HTMLElement | null;
+    const activeElement = document.activeElement as HTMLElement | null;
     const focusKey = activeElement
       ?.closest("[data-suggestion-id]")
       ?.getAttribute("data-suggestion-id");
     const result = await loadSuggestions(workflowId);
+    if (
+      !currentView.current.open ||
+      currentView.current.workflowId !== workflowId
+    )
+      return;
     if (!result) {
       setSuggestionsError(true);
       return;
@@ -370,7 +664,7 @@ export function MemoriesInspector({
   };
 
   useEffect(() => {
-    if (!open || mode !== "suggestions" || !activeWorkflowId) return;
+    if (!open || !activeWorkflowId) return;
     let cancelled = false;
     setSuggestionsLoading(true);
     void loadSuggestions(activeWorkflowId).then((result) => {
@@ -394,11 +688,11 @@ export function MemoriesInspector({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, activeWorkflowId, focusRunId]);
+  }, [open, activeWorkflowId, focusRunId, suggestionsRetry]);
 
   // Backend-driven refresh: only the affected active workflow reloads.
   useEffect(() => {
-    if (!open || !activeWorkflowId || mode !== "suggestions") return;
+    if (!open || !activeWorkflowId) return;
     let unlisten: UnlistenFn | undefined;
     let cancelled = false;
     void listen<{ workflowId: string; pendingCount: number }>(
@@ -407,6 +701,7 @@ export function MemoriesInspector({
         if (!shouldRefreshSuggestions(event.payload, activeWorkflowId, open))
           return;
         void refreshPreservingFocus(activeWorkflowId).then(() => {
+          if (cancelled) return;
           setAnnouncement(
             `${event.payload.pendingCount} pending memory suggestion${
               event.payload.pendingCount === 1 ? "" : "s"
@@ -423,16 +718,24 @@ export function MemoriesInspector({
       unlisten?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeWorkflowId, mode]);
+  }, [open, activeWorkflowId]);
 
-  const selectCandidate = (candidate: MemoryCandidate) => {
+  const selectCandidate = async (candidate: MemoryCandidate) => {
+    if (!(await confirmDiscard())) return;
     setSelectedCandidateId(candidate.id);
+    setSettingsOpen(false);
+    setDetailOpen(true);
+    setActionError(null);
     setCandidateEditing(false);
+    setCandidateEvidenceConfirmed(false);
     setCandidateDraft({
+      expectedCandidateRevision: candidate.candidateRevision,
       title: candidate.title,
       body: candidate.body,
       scopeType: candidate.scopeType,
       memoryType: candidate.memoryType,
+      validFrom: candidate.validFrom ?? "",
+      expiresAt: candidate.expiresAt ?? "",
     });
   };
 
@@ -440,6 +743,8 @@ export function MemoriesInspector({
     candidate: MemoryCandidate,
     decision: "approve" | "reject",
   ) => {
+    if (candidateBusy || candidateEditing) return;
+    setActionError(null);
     if (
       decision === "approve" &&
       candidateApprovalRequiresConfirmation(candidate)
@@ -458,7 +763,10 @@ export function MemoriesInspector({
     try {
       const updated =
         decision === "approve"
-          ? await api.approveMemoryCandidate(candidate.id)
+          ? await api.approveMemoryCandidate(
+              candidate.id,
+              candidate.candidateRevision,
+            )
           : await api.rejectMemoryCandidate(candidate.id);
       setCandidates((list) => applyCandidateUpdate(list, updated));
       setAnnouncement(
@@ -468,36 +776,76 @@ export function MemoriesInspector({
             ? "Suggestion approved."
             : "Suggestion rejected.",
       );
-    } catch {
-      setAnnouncement("That action could not be completed. Try again.");
+      if (
+        activeWorkflowId &&
+        (updated.status === "approved" ||
+          (updated.status === "blocked" &&
+            updated.blockedCode?.startsWith("target_")))
+      ) {
+        await useWorkflowStore.getState().loadMemories(activeWorkflowId);
+      }
+    } catch (error) {
+      const copy = candidateActionErrorCopy(error, decision);
+      setActionError(copy);
+      setAnnouncement(copy);
+      if (
+        [
+          "candidate_changed",
+          "candidate_not_found",
+          "candidate_not_pending",
+          "candidate_evidence_unavailable",
+          "evidence_validation_failed",
+        ].some((code) => String(error).includes(code)) &&
+        activeWorkflowId
+      ) {
+        await refreshPreservingFocus(activeWorkflowId);
+      }
     } finally {
       setCandidateBusy(null);
     }
   };
 
   const saveCandidateEdits = async (candidate: MemoryCandidate) => {
+    if (candidateBusy) return;
+    setActionError(null);
     if (!hasCandidateEdits(candidate, candidateDraft)) {
       setCandidateEditing(false);
       return;
     }
     setCandidateBusy(candidate.id);
     try {
-      const updated = await api.updateMemoryCandidate(
-        candidateEditPayload(candidate, candidateDraft),
-      );
+      const updated = await api.updateMemoryCandidate({
+        ...candidateEditPayload(candidate, candidateDraft),
+        evidenceConfirmed: candidateEvidenceConfirmed,
+      });
       setCandidates((list) => applyCandidateUpdate(list, updated));
       setCandidateEditing(false);
+      setCandidateEvidenceConfirmed(false);
       setAnnouncement("Suggestion updated.");
-    } catch {
-      setAnnouncement(
-        "This edit was not accepted. Titles and bodies have length limits and cannot contain credentials.",
-      );
+    } catch (error) {
+      const copy = candidateActionErrorCopy(error, "edit");
+      setActionError(copy);
+      setAnnouncement(copy);
+      if (
+        [
+          "candidate_changed",
+          "candidate_not_found",
+          "candidate_not_pending",
+          "candidate_evidence_unavailable",
+          "evidence_validation_failed",
+        ].some((code) => String(error).includes(code)) &&
+        activeWorkflowId
+      ) {
+        await refreshPreservingFocus(activeWorkflowId);
+      }
     } finally {
       setCandidateBusy(null);
     }
   };
 
   const retryFailedReview = async (job: MemoryReviewJob) => {
+    if (candidateBusy) return;
+    setActionError(null);
     setCandidateBusy(job.runId);
     try {
       const retried = await api.retryMemoryReview(job.runId);
@@ -506,6 +854,10 @@ export function MemoriesInspector({
       );
       setAnnouncement("Review queued again.");
     } catch {
+      setActionError(
+        reviewGateReason ??
+          "The review could not be retried. Check memory settings, then try again.",
+      );
       setAnnouncement(
         reviewGateReason
           ? reviewGateReason
@@ -520,12 +872,11 @@ export function MemoriesInspector({
     if (!activeWorkflowId) return;
     setWorkflowReviewSaving(true);
     void api
-      .setWorkflowMemoryReview(
-        activeWorkflowId,
-        !workflowReviewEnabled,
-      )
+      .setWorkflowMemoryReview(activeWorkflowId, !workflowReviewEnabled)
       .then((row) => setWorkflowReviewEnabled(row.enabled))
-      .catch(() => {})
+      .catch(() =>
+        setActionError("Could not update memory suggestions. Try again."),
+      )
       .finally(() => setWorkflowReviewSaving(false));
   };
 
@@ -548,14 +899,14 @@ export function MemoriesInspector({
     return () => {
       cancelled = true;
     };
-  }, [open, activeWorkflowId, showLinker, memories.length]);
+  }, [open, activeWorkflowId, showLinker, memories.length, linkerRetry]);
 
   useEffect(() => {
     if (!open) return;
-    if (selectedId && !memories.some((m) => m.id === selectedId)) {
+    if (!editing && selectedId && !memories.some((m) => m.id === selectedId)) {
       setSelectedId(memories[0]?.id ?? null);
     }
-  }, [open, memories, selectedId]);
+  }, [open, memories, selectedId, editing]);
 
   useEffect(() => {
     if (!selected || creating || editing) return;
@@ -567,12 +918,49 @@ export function MemoriesInspector({
     setStatus(selected.status);
     setSalience(selected.salience);
     setConfidence(selected.confidence);
+    setDraftSemanticRevision(selected.semanticRevision);
+    setObservedAt(selected.observedAt ?? "");
     setLastConfirmedAt(selected.lastConfirmedAt ?? "");
+    setValidFrom(selected.validFrom ?? "");
     setExpiresAt(selected.expiresAt ?? "");
     setDirty(false);
     setViewSource(false);
     setHtmlExpanded(false);
-  }, [selected?.id, selected?.updatedAt, creating, editing]);
+  }, [
+    selected?.id,
+    selected?.updatedAt,
+    selected?.semanticRevision,
+    creating,
+    editing,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!open || !selected?.id) {
+      setMemoryEvidence([]);
+      setMemoryEvidenceLoading(false);
+      setMemoryEvidenceError(false);
+      return;
+    }
+    setMemoryEvidenceLoading(true);
+    setMemoryEvidenceError(false);
+    api.listMemoryEvidence(selected.id)
+      .then((items) => {
+        if (!cancelled) setMemoryEvidence(items);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMemoryEvidence([]);
+          setMemoryEvidenceError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMemoryEvidenceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selected?.id, memoryEvidenceRetry]);
 
   useEffect(() => {
     if (!open) return;
@@ -602,7 +990,12 @@ export function MemoriesInspector({
   }, [showLinker]);
 
   const confirmDiscard = async () => {
-    if (!dirty || (!editing && !creating)) return true;
+    if (saving || candidateBusy) return false;
+    const candidateDirty =
+      candidateEditing &&
+      selectedCandidate &&
+      hasCandidateEdits(selectedCandidate, candidateDraft);
+    if ((!dirty || (!editing && !creating)) && !candidateDirty) return true;
     return confirmDialog("Discard your unsaved changes?", {
       title: "Unsaved changes",
       kind: "warning",
@@ -614,14 +1007,182 @@ export function MemoriesInspector({
     onClose();
   };
 
-  const loadMemory = async (memory: OutputMemory) => {
+  const cancelCandidateEditing = async () => {
+    if (!(await confirmDiscard())) return;
+    setCandidateEditing(false);
+    setCandidateEvidenceConfirmed(false);
+    setActionError(null);
+  };
+
+  const openRunHistory = async (runId: string) => {
+    if (!(await confirmDiscard())) return;
+    onOpenRunHistory(runId);
+  };
+
+  const openTargetMemory = async (id: string) => {
+    const memory = memories.find((item) => item.id === id);
+    if (memory) await loadMemory(memory);
+  };
+
+  const resetFilters = () => {
+    setQuery("");
+    setQuickFilter("all");
+    setScopeFilter("all");
+    setKindFilter("all");
+    setTypeFilter("all");
+  };
+
+  const changeMode = async (next: MemoriesInspectorMode) => {
+    if (!(await confirmDiscard())) return false;
+    setEditing(false);
+    setCreating(false);
+    setCandidateEditing(false);
+    setCandidateEvidenceConfirmed(false);
+    setDirty(false);
+    setDetailOpen(false);
+    setMode(next);
+    setSettingsOpen(false);
+    setActionError(null);
+    return true;
+  };
+
+  const openSettings = async () => {
     if (!(await confirmDiscard())) return;
     setEditing(false);
     setCreating(false);
+    setCandidateEditing(false);
+    setDirty(false);
+    setSettingsOpen((current) => !current);
+    setDetailOpen(true);
+    setHtmlExpanded(false);
+    setActionError(null);
+  };
+
+  const toggleRecall = () => {
+    if (!activeWorkflowId || recallSaving) return;
+    const requested = !automaticRecall;
+    setRecallSaving(true);
+    setActionError(null);
+    void setMemoryRetrievalEnabled(activeWorkflowId, requested)
+      .then(() => {
+        const workflow = useWorkflowStore
+          .getState()
+          .workflows.find((item) => item.id === activeWorkflowId);
+        if (workflow?.memoryRetrievalEnabled !== requested)
+          setActionError("Could not update automatic recall. Try again.");
+      })
+      .catch(() =>
+        setActionError("Could not update automatic recall. Try again."),
+      )
+      .finally(() => setRecallSaving(false));
+  };
+
+  const retryMemoryLookupAvailability = () => {
+    if (
+      !open ||
+      !activeWorkflowId ||
+      currentMemoryLookupAvailabilityLoading
+    ) {
+      return;
+    }
+    setMemoryLookupAvailabilityRetry((retry) => retry + 1);
+  };
+
+  const toggleMemoryLookup = () => {
+    const workflowId = activeWorkflowId;
+    if (!workflowId || memoryLookupSaving) return;
+    const requested = !memoryLookupEnabled;
+    if (
+      requested &&
+      (currentMemoryLookupAvailabilityLoading ||
+        currentMemoryLookupAvailability?.available !== true ||
+        Boolean(currentMemoryLookupAvailabilityError)
+    )) {
+      return;
+    }
+
+    const generation = lookupGeneration.current;
+    const saveGeneration = lookupSaveGeneration.current;
+    const isCurrentView = () =>
+      lookupGeneration.current === generation &&
+      lookupSaveGeneration.current === saveGeneration &&
+      currentView.current.open &&
+      currentView.current.workflowId === workflowId &&
+      currentView.current.settingsOpen;
+    setMemoryLookupSaving(true);
+    setActionError(null);
+    void setMemoryLookupEnabled(workflowId, requested)
+      .then((saved) => {
+        if (!isCurrentView()) return;
+        const workflow = useWorkflowStore
+          .getState()
+          .workflows.find((item) => item.id === workflowId);
+        if (!saved || workflow?.memoryLookupEnabled !== requested) {
+          setActionError("Could not update memory lookup permission. Try again.");
+        }
+      })
+      .catch(() => {
+        if (isCurrentView()) {
+          setActionError("Could not update memory lookup permission. Try again.");
+        }
+      })
+      .finally(() => {
+        if (isCurrentView()) setMemoryLookupSaving(false);
+      });
+  };
+
+  const updateDraft = (patch: Partial<MemoryDraft>) => {
+    if (patch.title !== undefined) setTitle(patch.title);
+    if (patch.body !== undefined) setBody(patch.body);
+    if (patch.kind !== undefined) setKind(patch.kind);
+    if (patch.scopeType !== undefined) setScopeType(patch.scopeType);
+    if (patch.memoryType !== undefined) setMemoryType(patch.memoryType);
+    if (patch.status !== undefined) setStatus(patch.status);
+    if (patch.salience !== undefined) setSalience(patch.salience);
+    if (patch.confidence !== undefined) setConfidence(patch.confidence);
+    if (patch.observedAt !== undefined) setObservedAt(patch.observedAt);
+    if (patch.lastConfirmedAt !== undefined)
+      setLastConfirmedAt(patch.lastConfirmedAt);
+    if (patch.validFrom !== undefined) setValidFrom(patch.validFrom);
+    if (patch.expiresAt !== undefined) setExpiresAt(patch.expiresAt);
+    setDirty(true);
+    setActionError(null);
+  };
+
+  const toggleSelectedPin = async () => {
+    if (!selected || pinSaving) return;
+    setPinSaving(true);
+    setActionError(null);
+    try {
+      await togglePinMemory(selected.id);
+      const updated = useWorkflowStore
+        .getState()
+        .memories.find((memory) => memory.id === selected.id);
+      if (updated?.pinned === selected.pinned)
+        setActionError("Could not change this pin. Try again.");
+      else
+        setAnnouncement(
+          updated?.pinned ? "Memory pinned." : "Memory unpinned.",
+        );
+    } finally {
+      setPinSaving(false);
+    }
+  };
+
+  const loadMemory = async (memory: OutputMemory) => {
+    if (!(await confirmDiscard())) return false;
+    setMode("memories");
+    setCandidateEditing(false);
+    setEditing(false);
+    setCreating(false);
     setSelectedId(memory.id);
+    setSettingsOpen(false);
+    setDirty(false);
+    setActionError(null);
     setViewSource(false);
     setHtmlExpanded(false);
     setDetailOpen(true);
+    return true;
   };
 
   const resetDraftFields = () => {
@@ -633,30 +1194,51 @@ export function MemoriesInspector({
     setStatus("active");
     setSalience(50);
     setConfidence(1);
+    setObservedAt("");
     setLastConfirmedAt("");
+    setValidFrom("");
     setExpiresAt("");
   };
 
-  const startNewNote = async () => {
+  const startNewNote = async (
+    type: MemoryType = "note",
+    copy?: OutputMemory,
+  ) => {
     if (!(await confirmDiscard())) return;
+    setMode("memories");
+    setSettingsOpen(false);
+    setActionError(null);
+    setCandidateEditing(false);
     setEditing(true);
     setCreating(true);
     setSelectedId(null);
     resetDraftFields();
-    setDirty(false);
+    setMemoryType(type);
+    if (copy) {
+      setTitle(`${copy.title} (copy)`);
+      setBody(copy.body);
+    }
+    setDirty(Boolean(copy));
     setViewSource(true);
     setHtmlExpanded(false);
     setDetailOpen(true);
   };
 
   const saveSelected = async () => {
-    if (!title.trim() && !creating) return;
+    if (saving) return;
+    if (!creating && !selected) {
+      setActionError(
+        "This memory is no longer in the library. Your draft is still here; copy its contents before closing.",
+      );
+      return;
+    }
+    if (!body.trim() && (creating || !selected?.artifactPath)) return;
+    setActionError(null);
     setSaving(true);
     try {
       if (creating) {
-        const previousIds = new Set(memories.map((memory) => memory.id));
-        await addMemory({
-          title: title.trim() || "Note",
+        const created = await addMemory({
+          title: title.trim() || MEMORY_TYPE_LABELS[memoryType],
           body,
           kind,
           scopeType,
@@ -665,41 +1247,62 @@ export function MemoriesInspector({
           salience,
           confidence,
           status,
+          observedAt: observedAt || null,
           lastConfirmedAt: lastConfirmedAt || null,
+          validFrom: validFrom || null,
           expiresAt: expiresAt || null,
         });
+        if (!created) {
+          setActionError(
+            "Could not create this memory. Your draft is still here; try saving again.",
+          );
+          return;
+        }
         setCreating(false);
-        const created = useWorkflowStore
-          .getState()
-          .memories.find((memory) => !previousIds.has(memory.id));
-        if (created) setSelectedId(created.id);
+        setSelectedId(created.id);
       } else if (selected) {
         if (
           selected.scopeType !== scopeType &&
-          !window.confirm(
-            `Move this memory from ${selected.scopeLabel} scope to ${scopeType} scope?`,
-          )
+          !(await confirmDialog(
+            `Move this memory to ${scopeType === "user" ? "all your workflows" : scopeType === "workspace" ? "this workspace" : "this workflow"}? Its availability to other workflows will change.`,
+            { title: "Change memory scope", kind: "warning" },
+          ))
         ) {
           return;
         }
-        await updateMemoryFields({
+        const updated = await updateMemoryFields({
           id: selected.id,
+          expectedSemanticRevision: draftSemanticRevision,
           title: title.trim() || selected.title,
-          ...(body !== selected.body ? { body } : {}),
+          ...(!selected.artifactPath && body !== selected.body ? { body } : {}),
           kind,
-          scopeType,
+          ...(scopeType !== selected.scopeType ? { scopeType } : {}),
           memoryType,
           salience,
           confidence,
           status,
+          ...(status !== "active" && selected.pinned ? { pinned: false } : {}),
+          observedAt: observedAt || null,
           lastConfirmedAt: lastConfirmedAt || null,
+          validFrom: validFrom || null,
           expiresAt: expiresAt || null,
         });
+        if (!updated) {
+          setActionError(
+            "Could not save these changes. Your draft is still here; try saving again.",
+          );
+          return;
+        }
       }
       setEditing(false);
       setDirty(false);
       setViewSource(false);
       setHtmlExpanded(false);
+      setAnnouncement(creating ? "Memory created." : "Memory saved.");
+    } catch {
+      setActionError(
+        "Could not save this memory. Your draft is still here; try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -719,39 +1322,102 @@ export function MemoriesInspector({
   };
 
   const deleteSelected = async () => {
-    if (!selected) return;
+    if (!selected || saving) return;
     const confirmed = await confirmDialog(
       `Delete “${selected.title}”? This cannot be undone.`,
       { title: "Delete memory", kind: "warning" },
     );
     if (!confirmed) return;
     const id = selected.id;
-    await removeMemory(id);
+    setActionError(null);
+    setSaving(true);
+    try {
+      await removeMemory(id);
+      if (
+        useWorkflowStore.getState().memories.some((memory) => memory.id === id)
+      ) {
+        setActionError("Could not delete this memory. Try again.");
+      } else {
+        setAnnouncement("Memory deleted.");
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const unlinkSelected = async () => {
-    if (!selected) return;
+    if (!selected || saving) return;
     const confirmed = await confirmDialog(
       `Unlink “${selected.title}” from this workflow? The original memory will remain available.`,
       { title: "Unlink memory", kind: "warning" },
     );
     if (!confirmed) return;
-    await unlinkMemory(selected.id);
+    setActionError(null);
+    setSaving(true);
+    try {
+      await unlinkMemory(selected.id);
+      if (
+        useWorkflowStore
+          .getState()
+          .memories.some((memory) => memory.id === selected.id)
+      ) {
+        setActionError("Could not unlink this memory. Try again.");
+      } else {
+        setAnnouncement("Memory unlinked. The original is unchanged.");
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const clearOwned = async () => {
     if (!(await confirmDiscard())) return;
     const ownedCount = memories.filter(
-      (memory) => memory.origin !== "linked",
+      (memory) =>
+        memory.origin !== "linked" &&
+        memory.scopeType === "workflow" &&
+        memory.workflowId === activeWorkflowId,
     ).length;
+    if (!ownedCount) {
+      setActionError(
+        "This workflow has no memories to clear. Linked, workspace, and personal memories are managed at their source.",
+      );
+      return;
+    }
     const confirmed = await confirmDialog(
-      `Delete ${ownedCount} owned ${
+      `Delete ${ownedCount} ${
         ownedCount === 1 ? "memory" : "memories"
-      }? Linked memories will remain.`,
-      { title: "Clear owned memories", kind: "warning" },
+      } from this workflow? Linked, workspace, and personal memories will remain.`,
+      { title: "Clear workflow memories", kind: "warning" },
     );
     if (!confirmed) return;
-    await clearMemories();
+    setEditing(false);
+    setCreating(false);
+    setCandidateEditing(false);
+    setDirty(false);
+    setSelectedId(null);
+    setActionError(null);
+    setSaving(true);
+    try {
+      await clearMemories();
+      const remaining = useWorkflowStore.getState().memories;
+      if (
+        remaining.some(
+          (memory) =>
+            memory.origin !== "linked" &&
+            memory.scopeType === "workflow" &&
+            memory.workflowId === activeWorkflowId,
+        )
+      ) {
+        setActionError("Could not clear workflow memories. Try again.");
+      } else {
+        setAnnouncement(
+          "Workflow memories cleared. Shared and linked memories remain.",
+        );
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openLinker = () => {
@@ -760,6 +1426,8 @@ export function MemoriesInspector({
   };
 
   const linkSelectedMemory = async (memory: OutputMemory) => {
+    if (linkingId || !(await confirmDiscard())) return;
+    setLinkerError(null);
     setLinkingId(memory.id);
     try {
       const linked = await linkMemory(memory.id);
@@ -769,6 +1437,12 @@ export function MemoriesInspector({
         setCreating(false);
         setEditing(false);
         setDetailOpen(true);
+        setSettingsOpen(false);
+        setMode("memories");
+        setDirty(false);
+        setActionError(null);
+      } else {
+        setLinkerError("Could not link this memory. Try again.");
       }
     } finally {
       setLinkingId(null);
@@ -776,9 +1450,15 @@ export function MemoriesInspector({
   };
 
   const handleListKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("input, textarea, select, [contenteditable='true']"))
+      return;
+    if (mode !== "memories") return;
     if (!filtered.length) return;
+    const focusedId =
+      target.closest<HTMLElement>("[data-memory-id]")?.dataset.memoryId;
     const currentIndex = filtered.findIndex(
-      (memory) => memory.id === selectedId,
+      (memory) => memory.id === (focusedId ?? selectedId),
     );
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -788,18 +1468,18 @@ export function MemoriesInspector({
           ? 0
           : (currentIndex + direction + filtered.length) % filtered.length;
       void loadMemory(filtered[nextIndex]);
-    } else if (event.key === "Enter" && selected) {
+    } else if (event.key === "Enter" && focusedId) {
+      const memory = filtered.find((item) => item.id === focusedId);
+      if (!memory) return;
       event.preventDefault();
-      setDetailOpen(true);
-      detailRef.current?.focus();
+      void loadMemory(memory).then((loaded) => {
+        if (loaded) requestAnimationFrame(() => detailRef.current?.focus());
+      });
     }
   };
 
-  const pinnedCount = memories.filter(
-    (m) => m.pinned && m.origin !== "linked",
-  ).length;
   const visiblePinnedBytes = memories
-    .filter((memory) => memory.pinned && memory.status === "active")
+    .filter((memory) => memory.pinned && isMemoryPromptEligible(memory))
     .reduce(
       (total, memory) =>
         total +
@@ -817,323 +1497,192 @@ export function MemoriesInspector({
     <Modal
       open={open}
       size="xl"
-      className={`memories-inspector-modal${
+      className={`memories-inspector-modal memory-workspace${
         htmlExpanded ? " is-html-expanded" : ""
       }`}
       onClose={() => void requestClose()}
       labelledBy="memories-inspector-title"
       describedBy="memories-inspector-description"
-      closeOnEscape={!showLinker}
+      closeOnEscape={
+        !showLinker && !showHeaderMenu && !showDetailMenu && !showCreateMenu
+      }
     >
       <ModalHeader
-        strong
         titleAs="h2"
+        leading={
+          <span className="memory-workspace-mark">
+            <Icon name="note" size={22} />
+          </span>
+        }
         title="Memories"
         titleId="memories-inspector-title"
-        description={
-          memories.length === 0 ? (
-            "No memories yet for this workflow."
-          ) : (
-            <span className="memories-header-stats">
-              <span>{memories.length} memories</span>
-              {pinnedCount ? <span>{pinnedCount} in next run</span> : null}
-              {linkedCount ? <span>{linkedCount} linked</span> : null}
-            </span>
-          )
-        }
+        description="Knowledge your agents can use again."
         descriptionId="memories-inspector-description"
         actions={
           <>
-            <button type="button" className="ghost" onClick={openLinker}>
-              <Icon name="link" size={15} />
-              Link memory
-            </button>
             <button
               type="button"
-              className="ghost"
-              onClick={() => void startNewNote()}
+              className="ghost memory-link-button"
+              disabled={!activeWorkflowId}
+              onClick={openLinker}
             >
-              <Icon name="plus" size={15} />
-              New note
+              <Icon name="link" size={16} /> Link memory
             </button>
+            <DropdownMenu
+              open={showCreateMenu}
+              onOpenChange={setShowCreateMenu}
+            >
+              <DropdownMenuTrigger
+                className="primary memory-create-button"
+                disabled={!activeWorkflowId}
+              >
+                <Icon name="plus" size={16} /> New memory{" "}
+                <Icon name="caret-down" size={14} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                aria-label="Create a memory"
+                className="memory-starters-menu"
+              >
+                {MEMORY_STARTERS.map((starter) => (
+                  <MenuItem
+                    key={starter.type}
+                    onSelect={() => {
+                      setShowCreateMenu(false);
+                      void startNewNote(starter.type);
+                    }}
+                  >
+                    <span>
+                      <strong>{starter.label}</strong>
+                      <small>{starter.description}</small>
+                    </span>
+                  </MenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <DropdownMenu
               open={showHeaderMenu}
               onOpenChange={setShowHeaderMenu}
             >
-              <DropdownMenuTrigger className="ghost memories-more-button">
-                More
-                <Icon name="caret-down" size={12} />
+              <DropdownMenuTrigger
+                className="ghost memory-header-more"
+                aria-label="Memory library actions"
+              >
+                <Icon name="sliders" size={18} />
               </DropdownMenuTrigger>
               <DropdownMenuContent aria-label="Memory library actions">
                 <MenuItem
-                  danger
-                  disabled={!memories.some((m) => m.origin !== "linked")}
-                  onSelect={() => setShowHeaderMenu(false)}
-                  onClick={() => void clearOwned()}
+                  onSelect={() => {
+                    setShowHeaderMenu(false);
+                    void openSettings();
+                  }}
                 >
-                  Clear owned memories
+                  Memory settings
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem
+                  danger
+                  disabled={
+                    !memories.some(
+                      (memory) =>
+                        memory.origin !== "linked" &&
+                        memory.scopeType === "workflow" &&
+                        memory.workflowId === activeWorkflowId,
+                    )
+                  }
+                  onSelect={() => {
+                    setShowHeaderMenu(false);
+                    void clearOwned();
+                  }}
+                >
+                  Clear workflow memories
                 </MenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <button
               type="button"
               className="ghost modal-close-button"
-              aria-label="Close"
+              aria-label="Close memories"
               onClick={() => void requestClose()}
             >
-              <Icon name="x" size={16} />
+              <Icon name="x" size={18} />
             </button>
           </>
         }
       />
-
-      <div className="memory-recall-control">
-        <div>
-          <strong>Automatic recall</strong>
-          <p>
-            Relevant local memories may be added to agent prompts for this workflow. Uses local exact FTS5 search + recency, not an embedding service.
-          </p>
-          <span>
-            Fixed limit: 8 items / 6,000 bytes per agent or custom-agent step.
-          </span>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={automaticRecall}
-          aria-label="Automatic recall"
-          className={`settings-toggle${automaticRecall ? " is-on" : ""}`}
-          disabled={!activeWorkflowId || recallSaving}
-          onClick={() => {
-            if (!activeWorkflowId) return;
-            setRecallSaving(true);
-            void setMemoryRetrievalEnabled(activeWorkflowId, !automaticRecall).finally(
-              () => setRecallSaving(false),
-            );
-          }}
-        >
-          <span className="settings-toggle-knob" />
-        </button>
-      </div>
-
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
-
-      <div className="memory-recall-control">
-        <div>
-          <strong>Suggest memories after runs</strong>
-          <p>
-            After a completed run, the reviewer provider chosen in Settings may
-            propose memory changes. Nothing is saved without your approval.
-          </p>
-          {reviewGateReason ? <span>{reviewGateReason}</span> : null}
+      {actionError ? (
+        <div className="memory-workspace-error" role="alert">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            className="ghost"
+            aria-label="Dismiss memory error"
+            onClick={() => setActionError(null)}
+          >
+            <Icon name="x" size={16} />
+          </button>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={workflowReviewEnabled}
-          aria-label="Suggest memories after runs"
-          className={`settings-toggle${
-            workflowReviewEnabled ? " is-on" : ""
-          }`}
-          disabled={
-            Boolean(reviewGateReason) ||
-            !activeWorkflowId ||
-            workflowReviewSaving
-          }
-          onClick={toggleWorkflowReview}
-        >
-          <span className="settings-toggle-knob" />
-        </button>
-      </div>
+      ) : null}
 
       <div
         className={`memories-inspector-body${
           detailOpen ? " is-detail-open" : ""
         }`}
       >
-        <aside
-          className="memories-inspector-list"
-          aria-label="Memory library"
-          onKeyDown={handleListKeyDown}
-        >
-          <div className="memories-mode-tabs" role="tablist" aria-label="Memories modes">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "memories"}
-              className={`ghost memories-filter${mode === "memories" ? " is-active" : ""}`}
-              onClick={() => setMode("memories")}
-            >
-              All memories
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "suggestions"}
-              className={`ghost memories-filter${mode === "suggestions" ? " is-active" : ""}`}
-              onClick={() => setMode("suggestions")}
-            >
-              Suggestions
-              {pendingCount > 0 ? (
-                <span className="suggestion-pending-badge">{pendingCount}</span>
-              ) : null}
-            </button>
-          </div>
-          {mode === "memories" ? (
-          <>
-          <div className="memories-search-wrap">
-            <Icon name="magnifying-glass" size={15} />
-            <input
-              ref={searchRef}
-              type="search"
-              className="memories-inspector-search"
-              aria-label="Search memories"
-              placeholder="Search memories"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <kbd>/</kbd>
-          </div>
-          <div className="memories-filter-row" role="tablist">
-            {(
-              [
-                ["all", "All"],
-                ["pinned", "Next run"],
-                ["linked", "Linked"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={quickFilter === id}
-                className={`ghost memories-filter${
-                  quickFilter === id ? " is-active" : ""
-                }`}
-                onClick={() => setQuickFilter(id)}
-              >
-                {label}
-              </button>
-            ))}
-            <select
-              className="memories-kind-filter"
-              aria-label="Filter by memory kind"
-              value={kindFilter}
-              onChange={(event) =>
-                setKindFilter(event.target.value as MemoryKindFilter)
-              }
-            >
-              <option value="all">All kinds</option>
-              <option value="note">Notes</option>
-              <option value="text">Outputs</option>
-              <option value="artifact">Artifacts</option>
-            </select>
-          </div>
-          <div className="memories-filter-selects">
-            <label className="field">
-              <span>Scope</span>
-              <select
-                value={scopeFilter}
-                onChange={(event) =>
-                  setScopeFilter(event.target.value as ScopeFilter)
-                }
-              >
-                <option value="all">All scopes</option>
-                <option value="user">User</option>
-                <option value="workspace">Workspace</option>
-                <option value="workflow">Workflow</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Type</span>
-              <select
-                value={typeFilter}
-                onChange={(event) =>
-                  setTypeFilter(event.target.value as MemoryType | "all")
-                }
-              >
-                <option value="all">All types</option>
-                {MEMORY_TYPES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          {filtered.length === 0 ? (
-            <div className="memories-list-empty">
-              <Icon name="note" size={22} />
-              <p>
-                {memories.length === 0
-                  ? "Run a workflow, link a memory, or create a note."
-                  : "No memories match your search and filters."}
-              </p>
-              {memories.length === 0 ? (
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => void startNewNote()}
-                >
-                  New note
-                </button>
-              ) : null}
+        <MemoryLibrarySidebar
+          workflowName={activeWorkflow?.name ?? "No workflow selected"}
+          mode={mode}
+          onModeChange={changeMode}
+          quickFilter={quickFilter}
+          onQuickFilterChange={setQuickFilter}
+          scopeFilter={scopeFilter}
+          onScopeFilterChange={setScopeFilter}
+          counts={libraryCounts}
+          pendingCount={pendingCount}
+          automaticRecall={automaticRecall}
+          automaticSuggestions={workflowReviewEnabled}
+          suggestionsUnavailableReason={reviewGateReason}
+          settingsOpen={settingsOpen}
+          onOpenSettings={() => void openSettings()}
+        />
+        {mode === "memories" ? (
+          <MemoryLibraryList
+            memories={filtered}
+            totalCount={memories.length}
+            selectedId={creating ? null : selectedId}
+            onSelect={(memory) => void loadMemory(memory)}
+            query={query}
+            onQueryChange={setQuery}
+            kindFilter={kindFilter}
+            onKindFilterChange={setKindFilter}
+            typeFilter={typeFilter}
+            onTypeFilterChange={setTypeFilter}
+            sort={sort}
+            onSortChange={setSort}
+            onResetFilters={resetFilters}
+            onNewNote={() => void startNewNote()}
+            title={libraryTitle}
+            hasActiveFilters={Boolean(
+              query ||
+              quickFilter !== "all" ||
+              scopeFilter !== "all" ||
+              kindFilter !== "all" ||
+              typeFilter !== "all",
+            )}
+            searchRef={searchRef}
+            onKeyDown={handleListKeyDown}
+          />
+        ) : (
+          <aside
+            className="memories-inspector-list memory-suggestions-list"
+            aria-label="Memory suggestions"
+          >
+            <div className="memory-suggestions-heading">
+              <h3>Suggestions</h3>
+              <p>Review what your agents learned before adding it to memory.</p>
             </div>
-          ) : (
-            <ul className="memories-results">
-              {filtered.map((memory) => (
-                <li key={memory.id}>
-                  <button
-                    type="button"
-                    className={`memories-list-item${
-                      memory.id === selectedId && !creating ? " is-active" : ""
-                    }`}
-                    onClick={() => void loadMemory(memory)}
-                  >
-                    <span className="memories-list-top">
-                      <span className="memories-list-title">
-                        {memory.pinned && memory.origin !== "linked" ? (
-                          <Icon
-                            name="push-pin"
-                            size={12}
-                            className="memories-pin-icon"
-                          />
-                        ) : null}
-                        <span className="memories-list-title-text">
-                          {highlightText(memory.title, query)}
-                        </span>
-                      </span>
-                      <span className="memories-list-kind">
-                        {KIND_LABELS[memory.kind]}
-                      </span>
-                    </span>
-                    <span className="memories-list-preview">
-                      {highlightText(memorySearchSnippet(memory, query), query)}
-                    </span>
-                    <span className="memories-list-meta-row">
-                      <span>
-                        {memory.origin === "linked"
-                          ? `From ${memory.sourceWorkflowName ?? "workflow"}`
-                          : `${memory.scopeType} · ${memory.memoryType}`}
-                        {memory.status !== "active"
-                          ? ` · ${memory.status}`
-                          : ""}
-                      </span>
-                      <time>
-                        {formatWhen(memory.updatedAt || memory.createdAt)}
-                      </time>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          </>
-          ) : (
             <div className="suggestions-list-wrap">
               {failedJobs.map((job) => (
                 <div
@@ -1162,6 +1711,15 @@ export function MemoriesInspector({
               ) : suggestionsError && sortedCandidates.length === 0 ? (
                 <div className="memories-list-empty" role="alert">
                   <p>Suggestions could not be loaded. Try again.</p>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() =>
+                      setSuggestionsRetry((current) => current + 1)
+                    }
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : sortedCandidates.length === 0 && failedJobs.length === 0 ? (
                 <div className="memories-list-empty">
@@ -1179,7 +1737,9 @@ export function MemoriesInspector({
                         type="button"
                         data-suggestion-id={candidate.id}
                         className={`memories-list-item suggestion-item${
-                          candidate.id === selectedCandidateId ? " is-active" : ""
+                          candidate.id === selectedCandidateId
+                            ? " is-active"
+                            : ""
                         }`}
                         onClick={() => selectCandidate(candidate)}
                       >
@@ -1187,15 +1747,16 @@ export function MemoriesInspector({
                           <span className="memories-list-title-text">
                             {candidate.title}
                           </span>
-                          <span className={`suggestion-status is-${candidate.status}`}>
+                          <span
+                            className={`suggestion-status is-${candidate.status}`}
+                          >
                             {CANDIDATE_STATUS_LABELS[candidate.status]}
                           </span>
                         </span>
                         <span className="suggestion-item-meta">
                           {CANDIDATE_OPERATION_LABELS[candidate.operation]} ·{" "}
                           {candidate.scopeType} · {candidate.memoryType} ·{" "}
-                          {candidateConfidencePercent(candidate.confidence)}%
-                          confident
+                          Model assessment: {candidateConfidencePercent(candidate.confidence)}%
                         </span>
                       </button>
                     </li>
@@ -1203,15 +1764,59 @@ export function MemoriesInspector({
                 </ul>
               )}
             </div>
-          )}
-        </aside>
+          </aside>
+        )}
 
         <section
           ref={detailRef}
           className="memories-inspector-detail"
           tabIndex={-1}
+          aria-label="Memory details"
         >
-          {mode === "suggestions" ? (
+          {settingsOpen || mode === "suggestions" ? (
+            <button
+              type="button"
+              className="ghost memories-detail-back"
+              onClick={() => {
+                if (settingsOpen) setSettingsOpen(false);
+                setDetailOpen(false);
+              }}
+            >
+              <Icon name="arrow-left" size={16} /> Back to list
+            </button>
+          ) : null}
+          {settingsOpen ? (
+            <MemoryAutomationSettings
+              automaticRecall={automaticRecall}
+              recallSaving={recallSaving}
+              onToggleRecall={toggleRecall}
+              memoryLookupEnabled={memoryLookupEnabled}
+              memoryLookupAvailable={
+                currentMemoryLookupAvailability?.available === true
+              }
+              memoryLookupAvailabilityLoading={
+                currentMemoryLookupAvailabilityLoading
+              }
+              memoryLookupAvailabilityError={
+                currentMemoryLookupAvailabilityError
+              }
+              onRetryMemoryLookupAvailability={retryMemoryLookupAvailability}
+              memoryLookupSaving={memoryLookupSaving}
+              memoryLookupAvailabilityReason={
+                currentMemoryLookupAvailability?.available === false
+                  ? memoryLookupAvailabilityCopy(
+                      currentMemoryLookupAvailability.reason,
+                    )
+                  : null
+              }
+              onToggleMemoryLookup={toggleMemoryLookup}
+              automaticSuggestions={workflowReviewEnabled}
+              reviewSaving={workflowReviewSaving}
+              reviewGateReason={reviewGateReason}
+              onToggleReview={toggleWorkflowReview}
+              disabled={!activeWorkflowId}
+            />
+          ) : mode === "suggestions" ? (
             selectedCandidate ? (
               <article
                 className="suggestion-detail"
@@ -1222,14 +1827,22 @@ export function MemoriesInspector({
                   <div className="memories-detail-heading">
                     <div className="suggestion-chip-row">
                       <span className="suggestion-op-chip">
-                        {CANDIDATE_OPERATION_LABELS[selectedCandidate.operation]}
+                        {
+                          CANDIDATE_OPERATION_LABELS[
+                            selectedCandidate.operation
+                          ]
+                        }
                       </span>
-                      <span className={`suggestion-status is-${selectedCandidate.status}`}>
+                      <span
+                        className={`suggestion-status is-${selectedCandidate.status}`}
+                      >
                         {CANDIDATE_STATUS_LABELS[selectedCandidate.status]}
                       </span>
                       <span className="muted">
-                        {candidateConfidencePercent(selectedCandidate.confidence)}%
-                        confident · {formatWhen(selectedCandidate.createdAt)}
+                        {candidateConfidencePercent(
+                          selectedCandidate.confidence,
+                        )}
+                        % model assessment · {formatWhen(selectedCandidate.createdAt)}
                       </span>
                     </div>
                     {!candidateEditing ? (
@@ -1246,56 +1859,62 @@ export function MemoriesInspector({
                 ) : null}
 
                 {candidateEditing && candidateIsEditable(selectedCandidate) ? (
-                  <div className="memories-edit-form">
+                  <fieldset
+                    className="memories-edit-form memory-suggestion-editor"
+                    disabled={Boolean(candidateBusy)}
+                  >
                     <label className="field">
                       <span>Title</span>
                       <input
                         type="text"
                         value={candidateDraft.title}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          setCandidateEvidenceConfirmed(false);
                           setCandidateDraft((draft) => ({
                             ...draft,
                             title: event.target.value,
-                          }))
-                        }
+                          }));
+                        }}
                       />
                     </label>
                     <div className="memories-detail-toolbar">
                       <label className="field memories-kind-field">
                         <span>Scope</span>
-                        <select
+                        <SelectControl
                           value={candidateDraft.scopeType}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            setCandidateEvidenceConfirmed(false);
                             setCandidateDraft((draft) => ({
                               ...draft,
                               scopeType: event.target.value as MemoryScopeType,
-                            }))
-                          }
+                            }));
+                          }}
                         >
-                          {SUGGESTION_SCOPE_TYPES.map((value) => (
+                          {candidateScopeChoices(selectedCandidate).map((value) => (
                             <option key={value} value={value}>
                               {value}
                             </option>
                           ))}
-                        </select>
+                        </SelectControl>
                       </label>
                       <label className="field memories-kind-field">
                         <span>Type</span>
-                        <select
+                        <SelectControl
                           value={candidateDraft.memoryType}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            setCandidateEvidenceConfirmed(false);
                             setCandidateDraft((draft) => ({
                               ...draft,
                               memoryType: event.target.value as MemoryType,
-                            }))
-                          }
+                            }));
+                          }}
                         >
-                          {MEMORY_TYPES.map((value) => (
+                          {candidateMemoryTypeChoices(selectedCandidate).map((value) => (
                             <option key={value} value={value}>
                               {value}
                             </option>
                           ))}
-                        </select>
+                        </SelectControl>
                       </label>
                     </div>
                     <label className="field memories-body-field">
@@ -1304,20 +1923,63 @@ export function MemoriesInspector({
                         aria-label="Suggestion content"
                         value={candidateDraft.body}
                         rows={10}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          setCandidateEvidenceConfirmed(false);
                           setCandidateDraft((draft) => ({
                             ...draft,
                             body: event.target.value,
-                          }))
+                          }));
+                        }}
+                      />
+                    </label>
+                    <div className="memories-detail-toolbar">
+                      <label className="field memories-kind-field">
+                        <span>Valid from</span>
+                        <input
+                          type="datetime-local"
+                          value={localDateTime(candidateDraft.validFrom)}
+                          onChange={(event) => {
+                            setCandidateEvidenceConfirmed(false);
+                            setCandidateDraft((draft) => ({
+                              ...draft,
+                              validFrom: storedDateTime(event.target.value),
+                            }));
+                          }}
+                        />
+                      </label>
+                      <label className="field memories-kind-field">
+                        <span>Expires</span>
+                        <input
+                          type="datetime-local"
+                          value={localDateTime(candidateDraft.expiresAt)}
+                          onChange={(event) => {
+                            setCandidateEvidenceConfirmed(false);
+                            setCandidateDraft((draft) => ({
+                              ...draft,
+                              expiresAt: storedDateTime(event.target.value),
+                            }));
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <label className="suggestion-evidence-confirmation">
+                      <input
+                        type="checkbox"
+                        checked={candidateEvidenceConfirmed}
+                        onChange={(event) =>
+                          setCandidateEvidenceConfirmed(event.target.checked)
                         }
                       />
+                      <span>
+                        I reconfirm that the evidence below supports this edited claim.
+                      </span>
                     </label>
                     <div className="memories-edit-actions">
                       <button
                         type="button"
                         className="ghost"
                         disabled={candidateBusy === selectedCandidate.id}
-                        onClick={() => setCandidateEditing(false)}
+                        onClick={() => void cancelCandidateEditing()}
                       >
                         Cancel
                       </button>
@@ -1327,16 +1989,19 @@ export function MemoriesInspector({
                         disabled={
                           candidateBusy === selectedCandidate.id ||
                           !candidateDraft.title.trim() ||
-                          !candidateDraft.body.trim()
+                          !candidateDraft.body.trim() ||
+                          !candidateEvidenceConfirmed
                         }
-                        onClick={() => void saveCandidateEdits(selectedCandidate)}
+                        onClick={() =>
+                          void saveCandidateEdits(selectedCandidate)
+                        }
                       >
                         {candidateBusy === selectedCandidate.id
                           ? "Saving…"
                           : "Save changes"}
                       </button>
                     </div>
-                  </div>
+                  </fieldset>
                 ) : (
                   <>
                     <div className="memories-content-surface">
@@ -1346,8 +2011,90 @@ export function MemoriesInspector({
                       <strong>Why it was proposed</strong>
                       <p>{selectedCandidate.rationale}</p>
                     </div>
+                    {selectedCandidateTarget ? (
+                      <section className="suggestion-current-target" aria-label="Current target memory">
+                        <strong>Current target</strong>
+                        <h4>{selectedCandidateTarget.title}</h4>
+                        <pre>{selectedCandidateTarget.body}</pre>
+                        <p className="muted">
+                          Reviewed revision {selectedCandidate.expectedTargetSemanticRevision ?? "unknown"}; current revision {selectedCandidateTarget.semanticRevision}.
+                        </p>
+                      </section>
+                    ) : selectedCandidate.targetMemoryId ? (
+                      <p className="suggestion-blocked">
+                        The reviewed target is no longer available in this memory list.
+                      </p>
+                    ) : null}
+                    {selectedCandidate.validFrom || selectedCandidate.expiresAt ? (
+                      <p className="muted suggestion-validity">
+                        {selectedCandidate.validFrom
+                          ? `Effective ${formatWhen(selectedCandidate.validFrom)}`
+                          : "Effective immediately"}
+                        {selectedCandidate.expiresAt
+                          ? ` · Expires ${formatWhen(selectedCandidate.expiresAt)}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    {selectedCandidate.possibleConflicts.length > 0 ? (
+                      <section className="suggestion-possible-conflicts" aria-label="Possible relationships">
+                        <strong>Possible relationships</strong>
+                        <p className="muted">These matches may be related. They were not merged or used as replacement targets.</p>
+                        <ul>
+                          {selectedCandidate.possibleConflicts.map((conflict) => (
+                            <li key={conflict.memoryId}>
+                              {conflict.title} · {conflict.relation.replace(/_/g, " ")}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
                   </>
                 )}
+
+                <section className="suggestion-evidence" aria-label="Suggestion evidence">
+                  <h4>Evidence</h4>
+                  {selectedCandidate.evidenceSubject ? (
+                    <p className="muted">
+                      Evidence category: {evidenceSubjectLabel(selectedCandidate.evidenceSubject)}
+                    </p>
+                  ) : null}
+                  {selectedCandidate.isInference ? (
+                    <p className="suggestion-inference-label">
+                      Inference — review whether the cited text supports this conclusion.
+                    </p>
+                  ) : null}
+                  {selectedCandidate.evidenceState !== "verified" ? (
+                    <p className="suggestion-evidence-unavailable">
+                      {selectedCandidate.evidenceState === "source_removed"
+                        ? "The source history was deleted. Copied quotes and digests were removed."
+                        : "This legacy suggestion has no verifiable recorded evidence."}
+                    </p>
+                  ) : selectedCandidate.evidence.length === 0 ? (
+                    <p className="suggestion-evidence-unavailable">
+                      Recorded evidence is unavailable. This suggestion cannot be approved.
+                    </p>
+                  ) : (
+                    <ul>
+                      {selectedCandidate.evidence.map((item) => (
+                        <li key={`${item.fragmentId}-${item.ordinal}`}>
+                          <div className="suggestion-evidence-source">
+                            {item.sourceLabel ?? "Recorded source"}
+                            {` · ${evidenceOriginLabel(item.origin)}`}
+                            {item.sourceNodeId ? ` · Step ${item.sourceNodeId}` : ""}
+                          </div>
+                          {item.sourceRemoved || !item.quote ? (
+                            <p>Source removed.</p>
+                          ) : (
+                            <blockquote>{item.quote}</blockquote>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="muted">
+                    Exact quotes prove source linkage. You decide whether they support the claim.
+                  </p>
+                </section>
 
                 <div className="muted memories-detail-meta">
                   <p>
@@ -1358,7 +2105,9 @@ export function MemoriesInspector({
                   <button
                     type="button"
                     className="ghost memories-history-link"
-                    onClick={() => onOpenRunHistory(selectedCandidate.reviewRunId)}
+                    onClick={() =>
+                      void openRunHistory(selectedCandidate.reviewRunId)
+                    }
                   >
                     Open source run in History
                   </button>
@@ -1369,55 +2118,64 @@ export function MemoriesInspector({
                     <button
                       type="button"
                       className="ghost memories-history-link"
-                      onClick={() => {
-                        setMode("memories");
-                        setSelectedId(selectedCandidate.targetMemoryId);
-                        setDetailOpen(true);
-                      }}
+                      onClick={() =>
+                        void openTargetMemory(selectedCandidate.targetMemoryId!)
+                      }
                     >
                       Open target memory
                     </button>
                   ) : null}
                 </div>
 
-                {candidateIsEditable(selectedCandidate) ? (
+                {candidateCanReject(selectedCandidate) ? (
                   <div className="suggestion-actions">
-                    {candidateEditing ? null : (
+                    {!candidateEditing && candidateIsEditable(selectedCandidate) ? (
                       <button
                         type="button"
                         className="ghost"
                         onClick={() => {
                           setCandidateDraft({
+                            expectedCandidateRevision:
+                              selectedCandidate.candidateRevision,
                             title: selectedCandidate.title,
                             body: selectedCandidate.body,
                             scopeType: selectedCandidate.scopeType,
                             memoryType: selectedCandidate.memoryType,
+                            validFrom: selectedCandidate.validFrom ?? "",
+                            expiresAt: selectedCandidate.expiresAt ?? "",
                           });
+                          setCandidateEvidenceConfirmed(false);
                           setCandidateEditing(true);
                         }}
                       >
                         <Icon name="pencil-simple" size={15} />
                         Edit
                       </button>
-                    )}
+                    ) : null}
                     <button
                       type="button"
                       className="ghost context-action"
-                      disabled={candidateBusy === selectedCandidate.id}
-                      onClick={() => void decideCandidate(selectedCandidate, "reject")}
+                      disabled={Boolean(candidateBusy) || candidateEditing}
+                      onClick={() =>
+                        void decideCandidate(selectedCandidate, "reject")
+                      }
                     >
                       Reject
                     </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={candidateBusy === selectedCandidate.id}
-                      onClick={() => void decideCandidate(selectedCandidate, "approve")}
-                    >
-                      {candidateBusy === selectedCandidate.id
-                        ? "Working…"
-                        : "Approve"}
-                    </button>
+                    {candidateIsEditable(selectedCandidate) ? (
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={Boolean(candidateBusy) || candidateEditing}
+                        onClick={() =>
+                          void decideCandidate(selectedCandidate, "approve")
+                        }
+                      >
+                        {candidateBusy === selectedCandidate.id
+                          ? "Working…"
+                          : "Approve"}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </article>
@@ -1430,8 +2188,7 @@ export function MemoriesInspector({
                 </p>
               </div>
             )
-          ) : (
-          creating || selected ? (
+          ) : editing || creating || selected ? (
             <>
               <button
                 type="button"
@@ -1444,6 +2201,14 @@ export function MemoriesInspector({
 
               <header className="memories-detail-header">
                 <div className="memories-detail-heading">
+                  <div className="memory-detail-eyebrow">
+                    <Icon name="note" size={16} />{" "}
+                    {
+                      MEMORY_TYPE_LABELS[
+                        creating ? memoryType : (selected?.memoryType ?? "note")
+                      ]
+                    }
+                  </div>
                   {selected?.origin === "linked" ? (
                     <div className="memories-detail-provenance">
                       <span className="memories-linked-source">
@@ -1455,13 +2220,15 @@ export function MemoriesInspector({
                   {!editing && selected ? (
                     <h3>{selected.title}</h3>
                   ) : (
-                    <h3>{creating ? "New note" : "Edit memory"}</h3>
+                    <h3>{creating ? "New memory" : "Edit memory"}</h3>
                   )}
                   {selected ? (
                     <p className="muted">
                       Updated{" "}
                       {formatWhen(selected.updatedAt || selected.createdAt)}
-                      {selected.artifactPath ? ". Artifact stored on disk." : ""}
+                      {selected.artifactPath
+                        ? ". Artifact stored on disk."
+                        : ""}
                     </p>
                   ) : (
                     <p className="muted">
@@ -1483,7 +2250,9 @@ export function MemoriesInspector({
                             : "Expand HTML preview"
                         }
                         title={
-                          htmlExpanded ? "Exit expanded preview" : "Expand preview"
+                          htmlExpanded
+                            ? "Exit expanded preview"
+                            : "Expand preview"
                         }
                         onClick={() => setHtmlExpanded((current) => !current)}
                       >
@@ -1506,12 +2275,20 @@ export function MemoriesInspector({
                       className={
                         selected.pinned ? "primary" : "ghost context-action"
                       }
-                      onClick={() => void togglePinMemory(selected.id)}
+                      aria-pressed={selected.pinned}
+                      disabled={
+                        pinSaving ||
+                        !canPinMemory(selected) ||
+                        (!selected.pinned && !isMemoryPromptEligible(selected))
+                      }
+                      onClick={() => void toggleSelectedPin()}
                     >
                       <Icon name="push-pin" size={15} />
-                      {selected.pinned
-                        ? "Remove from next run"
-                        : "Add to next run"}
+                      {pinSaving
+                        ? "Updating…"
+                        : selected.pinned
+                          ? "Unpin"
+                          : "Pin memory"}
                     </button>
                   ) : null}
                   {selected && !editing && !isLinkedSelected ? (
@@ -1519,6 +2296,7 @@ export function MemoriesInspector({
                       type="button"
                       className="ghost"
                       onClick={() => {
+                        setDraftSemanticRevision(selected.semanticRevision);
                         setEditing(true);
                         setDirty(false);
                       }}
@@ -1537,6 +2315,32 @@ export function MemoriesInspector({
                         <Icon name="caret-down" size={12} />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent aria-label="Selected memory actions">
+                        {!selected.artifactPath ? (
+                          <MenuItem
+                            onSelect={() => {
+                              setShowDetailMenu(false);
+                              void startNewNote(selected.memoryType, selected);
+                            }}
+                          >
+                            Make an editable copy
+                          </MenuItem>
+                        ) : null}
+                        {selected.artifactPath ? (
+                          <MenuItem
+                            onSelect={() => {
+                              setShowDetailMenu(false);
+                              void revealItemInDir(
+                                selected.artifactPath!,
+                              ).catch(() =>
+                                setActionError(
+                                  "Could not locate the memory file.",
+                                ),
+                              );
+                            }}
+                          >
+                            Show original file
+                          </MenuItem>
+                        ) : null}
                         {htmlPreview ? (
                           <>
                             <MenuItem
@@ -1569,173 +2373,51 @@ export function MemoriesInspector({
                 </div>
               </header>
 
-              {editing ? (
-                <div className="memories-edit-form">
-                  <label className="field">
-                    <span>Title</span>
-                    <input
-                      type="text"
-                      value={title}
-                      placeholder="Memory title"
-                      autoFocus
-                      onChange={(event) => {
-                        setTitle(event.target.value);
-                        setDirty(true);
-                      }}
-                    />
-                  </label>
-                  <div className="memories-detail-toolbar">
-                    <label className="field memories-kind-field">
-                      <span>Kind</span>
-                      <select
-                        value={kind}
-                        onChange={(event) => {
-                          setKind(event.target.value as MemoryKind);
-                          setDirty(true);
-                        }}
-                      >
-                        <option value="note">Note</option>
-                        <option value="text">Output</option>
-                        <option value="artifact">Artifact</option>
-                      </select>
-                    </label>
-                    <label className="field memories-kind-field">
-                      <span>Scope</span>
-                      <select
-                        value={scopeType}
-                        onChange={(event) => {
-                          setScopeType(event.target.value as MemoryScopeType);
-                          setDirty(true);
-                        }}
-                      >
-                        <option value="workflow">Workflow</option>
-                        <option value="workspace" disabled={!hasWorkingDirectory}>
-                          Workspace
-                        </option>
-                        <option value="user">User</option>
-                      </select>
-                    </label>
-                    <label className="field memories-kind-field">
-                      <span>Type</span>
-                      <select
-                        value={memoryType}
-                        onChange={(event) => {
-                          setMemoryType(event.target.value as MemoryType);
-                          setDirty(true);
-                        }}
-                      >
-                        {MEMORY_TYPES.map((value) => (
-                          <option key={value} value={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field memories-kind-field">
-                      <span>Status</span>
-                      <select
-                        value={status}
-                        onChange={(event) => {
-                          setStatus(event.target.value as MemoryStatus);
-                          setDirty(true);
-                        }}
-                      >
-                        <option value="active">Active</option>
-                        <option value="superseded">Superseded</option>
-                        <option value="retracted">Retracted</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="memories-metadata-grid">
-                    <label className="field">
-                      <span>Salience · {salience}</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={salience}
-                        onChange={(event) => {
-                          setSalience(Number(event.target.value));
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Confidence · {Math.round(confidence * 100)}%</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={Math.round(confidence * 100)}
-                        onChange={(event) => {
-                          setConfidence(Number(event.target.value) / 100);
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Last confirmed (RFC3339)</span>
-                      <input
-                        type="text"
-                        placeholder="2026-08-18T10:00:00Z"
-                        value={lastConfirmedAt}
-                        onChange={(event) => {
-                          setLastConfirmedAt(event.target.value);
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Expiry (RFC3339)</span>
-                      <input
-                        type="text"
-                        placeholder="No expiry"
-                        value={expiresAt}
-                        onChange={(event) => {
-                          setExpiresAt(event.target.value);
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <label className="field memories-body-field">
-                    <span>Content</span>
-                    <textarea
-                      aria-label="Content"
-                      value={body}
-                      rows={16}
-                      placeholder="Write a durable note"
-                      onChange={(event) => {
-                        setBody(event.target.value);
-                        setDirty(true);
-                      }}
-                    />
-                  </label>
-                  <div className="memories-edit-actions">
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={saving}
-                      onClick={() => void cancelEditing()}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={
-                        saving || (!dirty && !creating) || !body.trim()
-                      }
-                      onClick={() => void saveSelected()}
-                    >
-                      {saving
-                        ? "Saving…"
-                        : creating
-                          ? "Create note"
-                          : "Save changes"}
-                    </button>
+              {!editing && selectedUsage ? (
+                <div
+                  className={`memory-usage-summary is-${selectedUsage.state}`}
+                >
+                  <Icon
+                    name={
+                      selectedUsage.state === "pinned"
+                        ? "push-pin"
+                        : selectedUsage.state === "available"
+                          ? "note"
+                          : "clock"
+                    }
+                    size={18}
+                  />
+                  <div>
+                    <strong>{selectedUsage.label}</strong>
+                    <p>{selectedUsage.description}</p>
                   </div>
                 </div>
+              ) : null}
+              {editing ? (
+                <MemoryEditor
+                  draft={{
+                    title,
+                    body,
+                    kind,
+                    scopeType,
+                    memoryType,
+                    status,
+                    salience,
+                    confidence,
+                    observedAt,
+                    lastConfirmedAt,
+                    validFrom,
+                    expiresAt,
+                  }}
+                  onChange={updateDraft}
+                  onSave={() => void saveSelected()}
+                  onCancel={() => void cancelEditing()}
+                  creating={creating}
+                  saving={saving}
+                  dirty={dirty}
+                  hasWorkingDirectory={hasWorkingDirectory}
+                  fileBacked={!creating && Boolean(selected?.artifactPath)}
+                />
               ) : htmlPreview && !viewSource ? (
                 <div className="memories-content-surface is-html">
                   <iframe
@@ -1756,43 +2438,140 @@ export function MemoriesInspector({
               )}
 
               {selected && !editing ? (
-                <div className="muted memories-detail-meta">
-                  <p>
-                    Scope: {selected.scopeLabel} · Type: {selected.memoryType} ·
-                    Source: {selected.source}
-                    {selected.sourceWorkflowName
-                      ? ` from ${selected.sourceWorkflowName}`
-                      : ""}
-                    {selected.nodeId ? ` · Node ${selected.nodeId}` : ""}
-                    {selected.artifactPath ? " · Artifact on disk" : ""}
-                  </p>
+                <section className="suggestion-evidence memory-evidence" aria-label="Memory evidence">
+                  <h4>Provenance</h4>
+                  {selected.evidenceSubject ? (
+                    <p className="suggestion-inference-label">
+                      Evidence category: {evidenceSubjectLabel(selected.evidenceSubject)}
+                      {selected.evidenceIsInference
+                        ? " · Inference — the approved claim goes beyond its exact quotes."
+                        : ""}
+                    </p>
+                  ) : null}
+                  {memoryEvidenceLoading ? (
+                    <p className="muted">Loading evidence…</p>
+                  ) : memoryEvidenceError ? (
+                    <div className="suggestion-evidence-unavailable" role="alert">
+                      <p>Evidence could not be loaded.</p>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setMemoryEvidenceRetry((value) => value + 1)}
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  ) : memoryEvidence.length > 0 ? (
+                    <>
+                      <p className="muted">Approved from recorded run evidence.</p>
+                      <ul>
+                        {memoryEvidence.map((item) => (
+                          <li key={`${item.fragmentId}-${item.ordinal}`}>
+                            <div className="suggestion-evidence-source">
+                              {item.sourceLabel ?? "Recorded source"}
+                              {` · ${evidenceOriginLabel(item.origin)}`}
+                              {item.sourceNodeId ? ` · Step ${item.sourceNodeId}` : ""}
+                            </div>
+                            {item.sourceRemoved || !item.quote ? (
+                              <p>Source history removed.</p>
+                            ) : (
+                              <blockquote>{item.quote}</blockquote>
+                            )}
+                            <button
+                              type="button"
+                              className="ghost memories-history-link"
+                              onClick={() => void openRunHistory(item.sourceRunId)}
+                            >
+                              Open source run in History
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="muted">
+                        Deleting source history removes copied quotes while keeping the approved memory.
+                      </p>
+                    </>
+                  ) : (
+                    <p className={
+                      selected.provenanceState === "manual" || selected.source === "manual"
+                        ? "muted"
+                        : "suggestion-evidence-unavailable"
+                    }>
+                      {memoryProvenanceCopy(selected)}
+                    </p>
+                  )}
+                </section>
+              ) : null}
+
+              {selected && !editing ? (
+                <div className="memory-details-footer">
+                  <dl className="memory-facts">
+                    <div>
+                      <dt>Available to</dt>
+                      <dd>
+                        {selected.scopeType === "user"
+                          ? "All my workflows"
+                          : selected.scopeType === "workspace"
+                            ? "This workspace"
+                            : "This workflow"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Source</dt>
+                      <dd>
+                        {selected.sourceWorkflowName ??
+                          (selected.source === "manual"
+                            ? "Written by you"
+                            : selected.source === "run"
+                              ? "Workflow output"
+                              : selected.source)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Importance</dt>
+                      <dd>{selected.salience ?? 50} / 100</dd>
+                    </div>
+                  </dl>
+                  {selected.artifactPath ? (
+                    <p className="memory-file-note">
+                      <Icon name="file" size={16} /> Showing the saved file
+                      preview.{" "}
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() =>
+                          void revealItemInDir(selected.artifactPath!).catch(
+                            () =>
+                              setActionError(
+                                "Could not locate the memory file.",
+                              ),
+                          )
+                        }
+                      >
+                        Show original file
+                      </button>
+                    </p>
+                  ) : null}
                   {selected.runId ? (
                     <button
                       type="button"
                       className="ghost memories-history-link"
                       onClick={() => onOpenRunHistory(selected.runId!)}
                     >
-                      Open run {selected.runId} in History
+                      <Icon name="arrow-square-out" size={16} /> View source run
                     </button>
                   ) : null}
-                  {supersedes ? <p>Supersedes {supersedes.title}</p> : null}
-                  {supersededBy ? (
-                    <p>Superseded by {supersededBy.title}</p>
+                  {supersedes ? (
+                    <p className="muted">Replaces {supersedes.title}</p>
                   ) : null}
-                </div>
-              ) : null}
-
-              {!editing ? (
-                <div className="memory-budget-note" role="status">
-                  Pinned context is selected deterministically within a
-                  6,000-byte budget (User 1,500 · Workspace 2,000 ·
-                  Workflow/linked 2,500).
+                  {supersededBy ? (
+                    <p className="muted">Replaced by {supersededBy.title}</p>
+                  ) : null}
                   {visiblePinnedBytes > 6_000 ? (
-                    <strong>
-                      {" "}
-                      Visible pins exceed the budget; overflow remains in the
-                      library and will be omitted from the run prompt.
-                    </strong>
+                    <p className="memory-budget-note">
+                      Your pinned memories exceed the context limit. Some will
+                      stay in the library without being included in a run.
+                    </p>
                   ) : null}
                 </div>
               ) : null}
@@ -1802,18 +2581,17 @@ export function MemoriesInspector({
               <Icon name="note" size={28} />
               <h3>Select a memory</h3>
               <p className="muted">
-                Choose an item to read it, add it to the next run, or edit its
-                content.
+                Keep useful context, decisions, and preferences here. Select a
+                memory to read it or create one for your agents.
               </p>
               <button
                 type="button"
                 className="primary"
                 onClick={() => void startNewNote()}
               >
-                New note
+                Create a memory
               </button>
             </div>
-          )
           )}
         </section>
       </div>
@@ -1848,28 +2626,37 @@ export function MemoriesInspector({
             }
           />
           <div className="memories-link-picker">
-            <div className="memories-search-wrap">
-              <Icon name="magnifying-glass" size={15} />
-              <input
-                ref={linkerSearchRef}
-                type="search"
-                aria-label="Search linkable memories"
-                placeholder="Search other workflows"
-                value={linkerQuery}
-                onChange={(event) => setLinkerQuery(event.target.value)}
-              />
-            </div>
+            <SearchInput
+              onClear={() => setLinkerQuery("")}
+              ref={linkerSearchRef}
+              type="search"
+              aria-label="Search linkable memories"
+              placeholder="Search other workflows"
+              value={linkerQuery}
+              onChange={(event) => setLinkerQuery(event.target.value)}
+            />
             <div className="memories-link-picker-results">
+              {linkerError ? (
+                <div className="memories-link-picker-error" role="alert">
+                  <p>{linkerError}</p>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setLinkerRetry((current) => current + 1)}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
               {linkerLoading ? (
-                <div className="memories-link-picker-loading" aria-label="Loading">
+                <div
+                  className="memories-link-picker-loading"
+                  aria-label="Loading"
+                >
                   <span />
                   <span />
                   <span />
                 </div>
-              ) : linkerError ? (
-                <p className="memories-link-picker-error" role="alert">
-                  {linkerError}
-                </p>
               ) : filteredLinkable.length === 0 ? (
                 <div className="memories-list-empty">
                   <Icon name="link" size={22} />

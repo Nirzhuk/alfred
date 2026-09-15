@@ -1,0 +1,773 @@
+{
+  "version": "lookup-v1",
+  "evaluator_version": "memory-lookup-eval-1",
+  "lookup_contract_version": 1,
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "limits": {
+    "initial_memory_bytes": 12000,
+    "incremental_lookup_bytes": 16000,
+    "lookup_calls": 8,
+    "body_page_bytes": 4000,
+    "search_results": 8
+  },
+  "cases": [
+    {
+      "id": "l01",
+      "category": "recall_miss_recovery",
+      "split": "development",
+      "workflow_id": "wf-lookup-l01",
+      "working_directory": "/fixture/lookup/l01",
+      "run_id": "run-lookup-l01",
+      "node_id": "agent",
+      "task_question": "Which destination is approved for the shipment?",
+      "expected_answer_facts": ["Ship through the evergreen channel."],
+      "initial_query": "Which destination is approved for the shipment?",
+      "initial_required_ids": ["m-l01-evergreen"],
+      "initial_allowed_ids": ["m-l01-evergreen"],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": true,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "evergreen channel",
+          "limit": 1,
+          "expected_source_ids": ["m-l01-evergreen"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["evergreen channel"]
+        }
+      ],
+      "expected_recovered_ids": ["m-l01-evergreen"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "memories": [
+        {
+          "id": "m-l01-evergreen",
+          "title": "Shipment route",
+          "body": "Ship through the evergreen channel.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "l02",
+      "category": "recall_miss_recovery",
+      "split": "validation",
+      "workflow_id": "wf-lookup-l02",
+      "working_directory": "/fixture/lookup/l02",
+      "run_id": "run-lookup-l02",
+      "node_id": "agent",
+      "task_question": "Which credential is involved in the cutover?",
+      "expected_answer_facts": ["The sealed signer key is used for the blue-green cutover."],
+      "initial_query": "What credential is involved?",
+      "initial_required_ids": ["m-l02-signer"],
+      "initial_allowed_ids": ["m-l02-signer"],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": true,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "blue-green cutover",
+          "limit": 1,
+          "expected_source_ids": ["m-l02-signer"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["sealed signer key"]
+        }
+      ],
+      "expected_recovered_ids": ["m-l02-signer"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "memories": [
+        {
+          "id": "m-l02-signer",
+          "title": "Cutover credential",
+          "body": "The sealed signer key is used for the blue-green cutover.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        },
+        {
+          "id": "m-l02-noise",
+          "title": "Unrelated maintenance",
+          "body": "The archive mirror is checked monthly.",
+          "scope_type": "workflow",
+          "memory_type": "note",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-11T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "l03",
+      "category": "historical_reports",
+      "split": "development",
+      "workflow_id": "wf-lookup-l03",
+      "working_directory": "/fixture/lookup/l03",
+      "run_id": "run-lookup-l03",
+      "node_id": "agent",
+      "task_question": "What did the previous audit report record?",
+      "expected_answer_facts": ["The previous audit report recorded zero incidents."],
+      "initial_query": "What did the previous audit report record?",
+      "initial_required_ids": [],
+      "initial_allowed_ids": [],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": false,
+      "lookup_actions": [
+        {
+          "tool": "history.search",
+          "query": "audit incidents",
+          "expected_source_ids": ["step-l03-report", "evidence-l03-observation"],
+          "expected_source_kind": "mixed",
+          "expected_state": "historical",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "history.get",
+          "reference_source_id": "step-l03-report",
+          "expected_source_ids": ["step-l03-report"],
+          "expected_source_kind": "run_step",
+          "expected_state": "historical",
+          "expected_body_contains": ["zero incidents"]
+        },
+        {
+          "tool": "history.get",
+          "reference_source_id": "evidence-l03-observation",
+          "expected_source_ids": ["evidence-l03-observation"],
+          "expected_source_kind": "evidence",
+          "expected_state": "historical",
+          "expected_body_contains": ["zero incidents"]
+        }
+      ],
+      "expected_recovered_ids": ["step-l03-report", "evidence-l03-observation"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "history_records": [
+        {
+          "kind": "run_step",
+          "alias": "step-l03-report",
+          "node_id": "report",
+          "output_text": "Audit report: zero incidents in the signed release window.",
+          "artifact": false,
+          "receipt_state": "saved",
+          "storage_id": "550e8400-e29b-41d4-a716-446655440003"
+        },
+        {
+          "kind": "evidence",
+          "alias": "evidence-l03-observation",
+          "text": "Host observation: the audit report recorded zero incidents.",
+          "origin": "host_recorded_observation",
+          "source_label": "Synthetic audit observation"
+        }
+      ]
+    },
+    {
+      "id": "l04",
+      "category": "historical_reports",
+      "split": "validation",
+      "workflow_id": "wf-lookup-l04",
+      "working_directory": "/fixture/lookup/l04",
+      "run_id": "run-lookup-l04",
+      "node_id": "agent",
+      "task_question": "What checksum did the archived release report contain?",
+      "expected_answer_facts": ["The archived report contains the synthetic checksum record."],
+      "initial_query": "What checksum did the archived release report contain?",
+      "initial_required_ids": [],
+      "initial_allowed_ids": [],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": false,
+      "lookup_actions": [
+        {
+          "tool": "history.search",
+          "query": "synthetic checksum",
+          "limit": 1,
+          "expected_source_ids": ["step-l04-artifact"],
+          "expected_source_kind": "run_step",
+          "expected_state": "historical",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "history.get",
+          "reference_source_id": "step-l04-artifact",
+          "expected_source_ids": ["step-l04-artifact"],
+          "expected_source_kind": "run_step",
+          "expected_state": "historical",
+          "expected_body_contains": ["artifact-l04", "synthetic checksum"]
+        },
+        {
+          "tool": "history.get",
+          "reference_source_id": "step-l04-artifact",
+          "cursor_from_previous": true,
+          "expected_source_ids": ["step-l04-artifact"],
+          "expected_source_kind": "run_step",
+          "expected_state": "historical",
+          "expected_body_contains": ["artifact-l04"]
+        }
+      ],
+      "expected_recovered_ids": ["step-l04-artifact"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "history_records": [
+        {
+          "kind": "run_step",
+          "alias": "step-l04-artifact",
+          "node_id": "report",
+          "output_text": "artifact-l04: synthetic checksum record.\n",
+          "artifact": true,
+          "artifact_unit": "artifact-l04: synthetic checksum record. Ω 🧠\n",
+          "artifact_repeat": 1800,
+          "storage_id": "550e8400-e29b-41d4-a716-446655440001",
+          "receipt_state": "saved"
+        }
+      ]
+    },
+    {
+      "id": "l05",
+      "category": "correction_aware_reads",
+      "split": "development",
+      "workflow_id": "wf-lookup-l05",
+      "working_directory": "/fixture/lookup/l05",
+      "run_id": "run-lookup-l05",
+      "node_id": "agent",
+      "task_question": "Which shipping window applies now?",
+      "expected_answer_facts": ["The current shipping window is Thursday at 09:00 UTC."],
+      "initial_query": "Which shipping window applies now?",
+      "initial_required_ids": ["m-l05-current"],
+      "initial_allowed_ids": ["m-l05-current"],
+      "initial_forbidden_ids": ["m-l05-old"],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": true,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "shipping window",
+          "limit": 8,
+          "expected_source_ids": ["m-l05-current"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["Thursday"]
+        },
+        {
+          "tool": "history.search",
+          "query": "shipping window",
+          "limit": 8,
+          "expected_source_ids": ["m-l05-old"],
+          "expected_source_kind": "memory",
+          "expected_state": "replaced",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "history.get",
+          "reference_source_id": "m-l05-old",
+          "expected_source_ids": ["m-l05-old"],
+          "expected_source_kind": "memory",
+          "expected_state": "replaced",
+          "expected_body_contains": []
+        }
+      ],
+      "expected_recovered_ids": ["m-l05-current"],
+      "lookup_forbidden_ids": [],
+      "lookup_allowed_historical_ids": ["m-l05-old"],
+      "expected_no_evidence": false,
+      "memories": [
+        {
+          "id": "m-l05-old",
+          "title": "Previous shipping window",
+          "body": "The previous shipping window was Monday at 09:00 UTC.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "superseded",
+          "pinned": false,
+          "fact_key": "shipping-window",
+          "created_at": "2026-07-01T00:00:00Z",
+          "updated_at": "2026-08-01T00:00:00Z"
+        },
+        {
+          "id": "m-l05-current",
+          "title": "Current shipping window",
+          "body": "The current shipping window is Thursday at 09:00 UTC.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "fact_key": "shipping-window",
+          "supersedes_id": "m-l05-old",
+          "created_at": "2026-08-02T00:00:00Z",
+          "updated_at": "2026-08-02T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "l06",
+      "category": "wrong_source_privacy",
+      "split": "development",
+      "workflow_id": "wf-lookup-l06",
+      "working_directory": "/fixture/lookup/l06",
+      "run_id": "run-lookup-l06",
+      "node_id": "agent",
+      "task_question": "Is there a launch code for this workflow?",
+      "expected_answer_facts": ["No launch code is recorded for this workflow."],
+      "initial_query": "private launch code",
+      "initial_required_ids": [],
+      "initial_allowed_ids": [],
+      "initial_forbidden_ids": ["m-l06-private", "step-l06-private"],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": true,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "private launch code",
+          "limit": 8,
+          "expected_source_ids": [],
+          "expected_source_kind": "memory",
+          "expected_state": "empty",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "history.search",
+          "query": "private launch code",
+          "limit": 8,
+          "expected_source_ids": [],
+          "expected_source_kind": "run_step",
+          "expected_state": "empty",
+          "expected_body_contains": []
+        }
+      ],
+      "expected_recovered_ids": [],
+      "lookup_forbidden_ids": ["m-l06-private", "step-l06-private"],
+      "expected_no_evidence": true,
+      "memories": [
+        {
+          "id": "m-l06-private",
+          "title": "Private launch code",
+          "body": "Private launch code: violet-771.",
+          "scope_type": "workflow",
+          "owner_workflow_id": "wf-lookup-l06-other",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        }
+      ],
+      "history_records": [
+        {
+          "kind": "run_step",
+          "alias": "step-l06-private",
+          "workflow_id": "wf-lookup-l06-other",
+          "run_id": "run-lookup-l06-other",
+          "node_id": "report",
+          "output_text": "Private launch code: violet-771.",
+          "artifact": false,
+          "receipt_state": "saved",
+          "storage_id": "550e8400-e29b-41d4-a716-446655440004"
+        }
+      ]
+    },
+    {
+      "id": "l07",
+      "category": "independent_permissions",
+      "split": "development",
+      "workflow_id": "wf-lookup-l07",
+      "working_directory": "/fixture/lookup/l07",
+      "run_id": "run-lookup-l07",
+      "node_id": "agent",
+      "task_question": "What format does the export use?",
+      "expected_answer_facts": ["The approved export format is JSON Lines."],
+      "initial_query": "What format does the export use?",
+      "initial_required_ids": [],
+      "initial_allowed_ids": [],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": false,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "approved export format",
+          "limit": 1,
+          "expected_source_ids": ["m-l07-jsonl"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["JSON Lines"]
+        }
+      ],
+      "expected_recovered_ids": ["m-l07-jsonl"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "memories": [
+        {
+          "id": "m-l07-jsonl",
+          "title": "Export format",
+          "body": "The approved export format is JSON Lines.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "l08",
+      "category": "independent_permissions",
+      "split": "validation",
+      "workflow_id": "wf-lookup-l08",
+      "working_directory": "/fixture/lookup/l08",
+      "run_id": "run-lookup-l08",
+      "node_id": "agent",
+      "task_question": "When is the cutover window?",
+      "expected_answer_facts": ["The cutover window is Friday at 21:00 UTC."],
+      "initial_query": "When is the cutover window?",
+      "initial_required_ids": ["m-l08-window"],
+      "initial_allowed_ids": ["m-l08-window"],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": true,
+      "permission_revoke_after_calls": 1,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "cutover window",
+          "limit": 1,
+          "expected_source_ids": ["m-l08-window"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "memory.get",
+          "reference_source_id": "m-l08-window",
+          "expected_source_ids": [],
+          "expected_source_kind": "memory",
+          "expected_state": "permission_denied",
+          "expected_error": "invalid_scope",
+          "expected_body_contains": []
+        }
+      ],
+      "expected_recovered_ids": ["m-l08-window"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "memories": [
+        {
+          "id": "m-l08-window",
+          "title": "Cutover window",
+          "body": "The cutover window is Friday at 21:00 UTC.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "l09",
+      "category": "bounded_artifacts",
+      "split": "development",
+      "workflow_id": "wf-lookup-l09",
+      "working_directory": "/fixture/lookup/l09",
+      "run_id": "run-lookup-l09",
+      "node_id": "agent",
+      "task_question": "Read the archived benchmark report without loading the whole artifact.",
+      "expected_answer_facts": ["The archived benchmark report begins with the synthetic bounded artifact marker."],
+      "initial_query": "Read the archived benchmark report",
+      "initial_required_ids": [],
+      "initial_allowed_ids": [],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": false,
+      "lookup_actions": [
+        {
+          "tool": "history.search",
+          "query": "bounded benchmark",
+          "limit": 1,
+          "expected_source_ids": ["step-l09-artifact"],
+          "expected_source_kind": "run_step",
+          "expected_state": "historical",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "history.get",
+          "reference_source_id": "step-l09-artifact",
+          "expected_source_ids": ["step-l09-artifact"],
+          "expected_source_kind": "run_step",
+          "expected_state": "historical",
+          "expected_body_contains": ["artifact-l09", "bounded benchmark"]
+        }
+      ],
+      "expected_recovered_ids": ["step-l09-artifact"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "history_records": [
+        {
+          "kind": "run_step",
+          "alias": "step-l09-artifact",
+          "node_id": "report",
+          "output_text": "artifact-l09: bounded benchmark report.\n",
+          "artifact": true,
+          "artifact_unit": "artifact-l09: bounded benchmark report. é界\n",
+          "artifact_repeat": 1700,
+          "storage_id": "550e8400-e29b-41d4-a716-446655440002",
+          "receipt_state": "saved"
+        }
+      ]
+    },
+    {
+      "id": "l10",
+      "category": "shared_budget_and_calls",
+      "split": "validation",
+      "workflow_id": "wf-lookup-l10",
+      "working_directory": "/fixture/lookup/l10",
+      "run_id": "run-lookup-l10",
+      "node_id": "agent",
+      "task_question": "Which four budget markers are recorded?",
+      "expected_answer_facts": ["The four synthetic budget markers are alpha, beta, gamma, and delta."],
+      "initial_query": "budget markers",
+      "initial_required_ids": ["m-l10-alpha", "m-l10-beta", "m-l10-gamma", "m-l10-delta"],
+      "initial_allowed_ids": ["m-l10-alpha", "m-l10-beta", "m-l10-gamma", "m-l10-delta"],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": true,
+      "automatic_retrieval_enabled": true,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "budget alpha",
+          "limit": 1,
+          "expected_source_ids": ["m-l10-alpha"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "memory.get",
+          "reference_source_id": "m-l10-alpha",
+          "expected_source_ids": ["m-l10-alpha"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["alpha"]
+        },
+        {
+          "tool": "memory.search",
+          "query": "budget beta",
+          "limit": 1,
+          "expected_source_ids": ["m-l10-beta"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "memory.get",
+          "reference_source_id": "m-l10-beta",
+          "expected_source_ids": ["m-l10-beta"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["beta"]
+        },
+        {
+          "tool": "memory.search",
+          "query": "budget gamma",
+          "limit": 1,
+          "expected_source_ids": ["m-l10-gamma"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "memory.get",
+          "reference_source_id": "m-l10-gamma",
+          "expected_source_ids": ["m-l10-gamma"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["gamma"]
+        },
+        {
+          "tool": "memory.search",
+          "query": "budget delta",
+          "limit": 1,
+          "expected_source_ids": ["m-l10-delta"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "memory.get",
+          "reference_source_id": "m-l10-delta",
+          "expected_source_ids": ["m-l10-delta"],
+          "expected_source_kind": "memory",
+          "expected_state": "current",
+          "expected_body_contains": ["delta"]
+        }
+      ],
+      "expected_recovered_ids": ["m-l10-alpha", "m-l10-beta", "m-l10-gamma", "m-l10-delta"],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": false,
+      "budget_expectation": {
+        "calls_used": 8,
+        "returned_bytes_at_most": 16000,
+        "probe_ninth_call": true
+      },
+      "memories": [
+        {
+          "id": "m-l10-alpha",
+          "title": "Budget alpha",
+          "body": "Budget marker alpha is recorded.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        },
+        {
+          "id": "m-l10-beta",
+          "title": "Budget beta",
+          "body": "Budget marker beta is recorded.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        },
+        {
+          "id": "m-l10-gamma",
+          "title": "Budget gamma",
+          "body": "Budget marker gamma is recorded.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        },
+        {
+          "id": "m-l10-delta",
+          "title": "Budget delta",
+          "body": "Budget marker delta is recorded.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "pinned": false,
+          "status": "active",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "l11",
+      "category": "no_evidence",
+      "split": "validation",
+      "workflow_id": "wf-lookup-l11",
+      "working_directory": "/fixture/lookup/l11",
+      "run_id": "run-lookup-l11",
+      "node_id": "agent",
+      "task_question": "Is an unrecorded migration result available?",
+      "expected_answer_facts": ["No migration result is recorded."],
+      "initial_query": "unrecorded migration result",
+      "initial_required_ids": [],
+      "initial_allowed_ids": [],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": false,
+      "automatic_retrieval_enabled": false,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "unrecorded migration result",
+          "limit": 8,
+          "expected_source_ids": [],
+          "expected_source_kind": "memory",
+          "expected_state": "permission_denied",
+          "expected_error": "invalid_scope",
+          "expected_body_contains": []
+        },
+        {
+          "tool": "history.search",
+          "query": "unrecorded migration result",
+          "limit": 8,
+          "expected_source_ids": [],
+          "expected_source_kind": "run_step",
+          "expected_state": "permission_denied",
+          "expected_error": "invalid_scope",
+          "expected_body_contains": []
+        }
+      ],
+      "expected_recovered_ids": [],
+      "lookup_forbidden_ids": [],
+      "expected_no_evidence": true
+    },
+    {
+      "id": "l12",
+      "category": "independent_permissions",
+      "split": "development",
+      "workflow_id": "wf-lookup-l12",
+      "working_directory": "/fixture/lookup/l12",
+      "run_id": "run-lookup-l12",
+      "node_id": "agent",
+      "task_question": "What private setting is configured?",
+      "expected_answer_facts": ["Automatic context may include the private setting while lookup calls remain disabled."],
+      "initial_query": "private setting",
+      "initial_required_ids": ["m-l12-setting"],
+      "initial_allowed_ids": ["m-l12-setting"],
+      "initial_forbidden_ids": [],
+      "lookup_enabled": false,
+      "automatic_retrieval_enabled": true,
+      "lookup_actions": [
+        {
+          "tool": "memory.search",
+          "query": "private setting",
+          "limit": 1,
+          "expected_source_ids": [],
+          "expected_source_kind": "memory",
+          "expected_state": "permission_denied",
+          "expected_error": "invalid_scope",
+          "expected_body_contains": []
+        }
+      ],
+      "expected_recovered_ids": [],
+      "lookup_forbidden_ids": ["m-l12-setting"],
+      "expected_no_evidence": false,
+      "memories": [
+        {
+          "id": "m-l12-setting",
+          "title": "Private setting",
+          "body": "Private setting: retain the sealed archive.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "status": "active",
+          "pinned": false,
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

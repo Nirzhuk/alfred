@@ -9,6 +9,172 @@ Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED (reason)`, or
 
 ---
 
+## Track K — Share workflow templates by link
+
+Let a user publish a reviewed, reusable workflow template and send an HTTPS
+link. A small preview page opens Alfred, where the recipient chooses local
+accounts, resources, and paths before creating an editable copy. No account
+signup, public gallery, file exchange, or cloud execution is required.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 042 | Share workflow templates by link with guided local setup | P1 | L | Existing workflow/Connected Apps foundation; independent of 011 | IN PROGRESS — local review/UI passed; shared and packaged/release gates pending |
+
+Open [Plan 042](042-share-workflows-by-link.md) for the portable template
+contract, desktop publishing/import UI, small hosting service, deep-link
+lifecycle, revocation, and acceptance cases. Imported start settings remain
+disabled. Schedule nodes are planned in [Plan 043](043-schedule-node-on-canvas.md)
+and are not a dependency.
+
+---
+
+## Track L — Canvas schedules and follow-up tracking
+
+Manage existing schedules through a connected canvas node, and add persistent
+follow-up tracking for explicitly selected Slack threads. These are separate
+plans: the tracker has its own durable checking jobs and does not depend on a
+workflow remaining active or on the schedule-node UI.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 043 | Manage schedules through a connected canvas node | P1 | M | Existing scheduler and canvas | TODO |
+| 044 | Track follow-ups and prepare replies for review | P1 | XL | Existing Connected Apps; selected-thread reader and Inbox built in this plan | TODO |
+
+[Plan 043](043-schedule-node-on-canvas.md) preserves one canonical schedule,
+existing execution semantics, manual runs, and the global overview.
+[Plan 044](044-follow-up-tracker.md) defines selected-thread monitoring,
+responsibility states, bounded analysis, the first review Inbox, and explicit
+user-approved reply delivery. Public Slack distribution and broader providers
+remain separate from its initial private/local Slack support.
+
+---
+
+## Track M — Reliable agent memory
+
+Turn the [8 September memory audit](../docs/memory-audit-2026-09-08.md) into
+measurable retrieval and learning improvements. These plans retain SQLite,
+existing memory scopes, user-controlled pins/selections, and approval of learned
+claims. Plans 025–028 remain DONE as historical v1 implementations; the policies
+below are the selected next version, not a reason to repeat those migrations.
+
+Written with the improve skill against `85f0d64` and the dirty working tree on
+2026-09-08. The original planning baseline was reviewed by three read-only
+subagents covering retrieval/context, curation/provider boundaries, and
+output/tool integration. The implementation checkpoints below now record local
+code, fixture, review, and UI evidence as it landed. Live provider validation is
+still excluded unless a status explicitly records an authorized runtime gate;
+historical planning prose and checkpoints remain labeled rather than treated as
+current acceptance.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| [045](045-memory-quality-evaluation.md) | Establish a reproducible memory quality baseline | P1 | M | Existing 025–028 | DONE (verified 2026-09-15: `bun run check` 548 frontend + 1,072 Rust tests, 0 failures) |
+| [046](046-restricted-memory-curator.md) | Restrict the memory curator to structured suggestions | P1 | L | Existing review and provider contracts | BLOCKED — live activation only; contract/conformance accepted; full check green 2026-09-15 |
+| [047](047-task-aware-memory-recall.md) | Retrieve task-relevant memory and abstain on unrelated work | P1 | L | 045 | DONE (high review/UI accepted; full check green 2026-09-15) |
+| [048](048-shared-memory-context-budget.md) | Bound every memory contribution to an agent prompt | P1 | L | 047 | DONE (high review/UI accepted; composition report frozen; full check green 2026-09-15) |
+| [049](049-evidence-backed-memory-curation.md) | Ground learned claims in verifiable source evidence | P1 | L | 046 contract/conformance milestone, 048 | DONE (high review/UI accepted; full check green 2026-09-15) |
+| [050](050-memory-corrections-and-validity.md) | Correct stale or duplicate claims with version and validity checks | P1 | L | 047, 049 | DONE (high review/UI/evaluation accepted; full check green 2026-09-15) |
+| [051](051-backend-output-persistence.md) | Persist saved outputs once from the executing run | P1 | L | 048 | DONE (local implementation and recovery repairs accepted; full check green 2026-09-15) |
+| [052](052-agent-memory-lookup-tools.md) | Add bounded on-demand memory and history reads | P2 | L | 050, 051; verified provider tool transport for activation | BLOCKED — live activation only; implementation reviewed and fixed; full check green 2026-09-15 |
+
+### Execution order
+
+1. Start **045 and 046**. The synthetic baseline is independent of the
+   restricted-provider execution contract. They can be developed in separate
+   worktrees with distinct file ownership.
+2. Land **047**, then **048**. Query-source tracking and ranking versions must
+   stabilize before changing final prompt assembly and explicit-memory traces.
+3. Land **049**, then **050**. Preserve source evidence before using it to
+   suggest corrections, compare versions, or assign validity dates.
+4. Land **051**. It may be prepared after 048, but serialize its runner/schema
+   integration with 049/050. Saved output is execution state with its own retry
+   identity, and ordinary recall eligibility is already owned by 047.
+5. Execute **052** as the later capability extension. Its bounded service,
+   fake-native boundary, UI, and evaluator can be verified locally; callable
+   tools remain blocked until the exact release/runtime gates and an authorized
+   declaration-to-result path pass.
+
+Read-only research, fixture design, and review can run in parallel. Never let
+two executors edit `runner/mod.rs`, `schema.sql`, `migrate.rs`, shared memory DTOs,
+or the library store concurrently in the same checkout. One integration owner
+rebases and verifies those files between plans. Do not resolve migration
+conflicts by renumbering or discarding already-applied schema markers blindly.
+
+The first restricted curator and on-demand tool route both require a verified
+provider capability. Preserve existing runtime release/account/billing gates.
+An unavailable provider must not trigger a switch to a normal coding CLI or
+another billing product. The 046 contract/conformance milestone can unblock
+049's offline implementation; it does not enable live review. Record outstanding
+activation gates explicitly and do not mark a user-facing capability DONE on
+fake-provider evidence alone.
+
+### Shared contracts and integration ownership
+
+- **045** owns versioned synthetic cases, honest v1 results, fixed clocks, and
+  separate development/validation metrics. Later plans add gates without
+  relabeling cases to hide misses.
+- **047** owns Automatic versus Review retrieval purpose, the ten-type
+  eligibility policy, bounded task/event query origins, and ranking versions.
+- **048** owns structured prompt/memory origins, final inclusion/exclusion,
+  bounded artifact excerpts, a 12,000-byte total memory allowance, and explicit
+  use/omission traces. This is a memory-byte limit, not a provider token limit.
+- **049** owns evidence identity, versioned review inputs, legacy provenance,
+  approved-evidence retention, and source-deletion semantics. **050** owns
+  target/candidate revision checks and operation-specific correction rules.
+- **051** owns execution-time Output settings, run/node save receipts,
+  artifact recovery, and retries that never rerun the agent. It preserves
+  manual/curated-memory creation and the user's existing save preferences.
+- **052** owns scoped read-only tool contracts and provider capability gating.
+  It reuses 047/048/049/051 rather than exposing unrestricted frontend History
+  commands or granting broad shell access.
+
+Plans 042–044 are integration constraints, not prerequisites. Sharing excludes
+runtime memory/evidence/receipts; schedule canvas nodes remain outside executable
+graphs; follow-up tracking keeps its own evidence and delivery lifecycle.
+Coordinate overlapping runtime and migration edits without folding those
+features into this track.
+
+### Verification and deferred choices
+
+Each plan includes focused test commands, migration cases where applicable,
+source boundaries, and done criteria. Run `bun run check` before any integrated
+implementation is marked DONE. Reconcile the existing dirty tree first;
+historical green test results are context, not a substitute for new verification.
+The audit's Rust runs passed 64 and 12 tests with overlapping filters, and five
+Bun files passed 39 tests; those are historical audit checkpoints. The final
+2026-09-15 `bun run check` passed 548 frontend tests, the frontend build, and
+1,072 Rust tests with 0 failures, superseding the earlier 1,068-pass/3-fail
+checkpoint. The native startup evidence below is scoped and does not satisfy
+provider/lookup transport or visual acceptance gates.
+
+A separate isolated native Tauri startup smoke passed exit 0 on the
+`uniqueQA` debug bundle: Boot 1 seeded 65 Pending, one current-time `Saving`,
+Failed, and Deleted receipts; Boot 2 recovered 66 Saved receipts and verified
+inline/large bodies plus canonical artifact/manifest digest, state, and length,
+while Failed/Deleted stayed unchanged. This is backend startup evidence only,
+not WKWebView visual interaction, provider activation, or lookup transport.
+
+The reviewer/tool plans require explicit bounded live verification only for
+activation; ordinary test suites use synthetic data and no provider calls.
+Report retrieval metrics separately from actual downstream answer quality.
+
+Considered and deferred or rejected:
+
+- **Wholesale memory-store replacement:** rejected for this track. Existing
+  scope, lifecycle, transaction, and history support can carry these changes.
+- **Embeddings/vector infrastructure:** deferred until the fixed evaluation
+  shows remaining semantic misses worth the model, storage, privacy, and latency
+  costs. Plan 047 makes no unrestricted semantic-search claim.
+- **Automatic approval or deletion of old memories:** rejected. Corrections
+  remain reviewable; no uniform expiry removes stable preferences.
+- **Broad agent-private/team memory or cloud sync:** deferred. The selected
+  work uses the current local-user/workspace/workflow identities.
+- **General agent/provider/scheduler redesign:** outside this audit. Only the
+  memory-related execution seams and documented integration constraints were
+  reviewed for this track.
+
+---
+
 ## Track A — Paid official release
 
 The previous licensing, freemium, updater, signing, and Homebrew drafts have
@@ -148,7 +314,9 @@ improvement drafts were merged into these canonical files and the duplicate
 - Deferred: cloud execution of workflows/agents, workflow sync/collaboration,
   full mailbox/document indexing, arbitrary provider plugin code, and cloud
   provider-token custody.
-- Deferred: Slack DMs/history/admin APIs, Gmail attachments/bulk mail, Microsoft
+- Deferred: Slack DMs, broad channel-history search/indexing, and admin APIs;
+  selected-thread follow-up reads are planned in [Plan 044](044-follow-up-tracker.md).
+  Also deferred: Gmail attachments/bulk mail, Microsoft
   application mailbox permissions, and tenant-wide Drive/SharePoint crawling.
 - Deferred: Telegram/WhatsApp inbound events, delivery tracking, dynamic
   recipients, broadcasts, media, and managed messaging accounts.

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SearchInput } from "../../../../components/search-input";
 import * as api from "../../api";
 import { memoryReviewFailureCopy } from "../../../settings/memory-review";
 import {
@@ -7,6 +8,7 @@ import {
 import type {
   HistorySearchHit,
   MemoryReviewJob,
+  OutputPersistenceEvent,
   RunHistoryDetail,
   RunHistoryItem,
 } from "../../types";
@@ -19,10 +21,19 @@ import {
   isCurrentHistoryGeneration,
   literalHistorySnippet,
   memoryUseReasonLabel,
+  memoryRecallSummary,
   openHistoryMemory,
   openHistorySuggestions,
   type HistoryScope,
 } from "./history-format";
+import {
+  mergeOutputReceiptIntoHistory,
+  mergeRefreshedOutputHistory,
+  outputReceiptKey,
+  retryOutputReceiptAndRefresh,
+  type RetryOutputPersistenceRequest,
+} from "./output-receipt";
+import { OutputReceipts } from "./output-receipts";
 
 const PAGE_SIZE = 25;
 
@@ -44,6 +55,22 @@ export function HistoryPage({
   const [scope, setScope] = useState<HistoryScope>(
     activeWorkflowId ? "current" : "all",
   );
+
+  useEffect(() => {
+    const receiveReceipt = (event: Event) => {
+      const payload = (event as CustomEvent<OutputPersistenceEvent>).detail;
+      if (!payload?.receipt) return;
+      setDetail((current) =>
+        mergeOutputReceiptIntoHistory(current, payload.receipt),
+      );
+    };
+    window.addEventListener("alfred:output-persistence-receipt", receiveReceipt);
+    return () =>
+      window.removeEventListener(
+        "alfred:output-persistence-receipt",
+        receiveReceipt,
+      );
+  }, []);
   const [runs, setRuns] = useState<RunHistoryItem[]>([]);
   const [hits, setHits] = useState<HistorySearchHit[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(
@@ -56,6 +83,13 @@ export function HistoryPage({
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(false);
+  const [outputReceiptError, setOutputReceiptError] = useState<string | null>(
+    null,
+  );
+  const [retryingReceiptKeys, setRetryingReceiptKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const retryingReceiptKeysRef = useRef(new Set<string>());
   const requestGeneration = useRef(0);
   const detailGeneration = useRef(0);
 
@@ -185,12 +219,14 @@ export function HistoryPage({
       setLoadingDetail(false);
       setDetail(null);
       setReviewJob(null);
+      setOutputReceiptError(null);
       return;
     }
     const generation = ++detailGeneration.current;
     let cancelled = false;
     setLoadingDetail(true);
     setError(false);
+    setOutputReceiptError(null);
     void api
       .getRunHistory(selectedRunId)
       .then((next) => {
@@ -227,6 +263,56 @@ export function HistoryPage({
     onSelectedRunIdChange?.(runId);
   };
 
+  const retryOutputReceipt = async (
+    request: RetryOutputPersistenceRequest,
+  ) => {
+    const key = outputReceiptKey(request);
+    if (retryingReceiptKeysRef.current.has(key)) return;
+    const nextRetrying = new Set(retryingReceiptKeysRef.current);
+    nextRetrying.add(key);
+    retryingReceiptKeysRef.current = nextRetrying;
+    setRetryingReceiptKeys(nextRetrying);
+    setOutputReceiptError(null);
+    const generation = detailGeneration.current;
+    try {
+      const result = await retryOutputReceiptAndRefresh(request, {
+        retry: api.retryOutputPersistence,
+        onReceipt: (receipt) => {
+          if (generation !== detailGeneration.current) return;
+          setDetail((current) =>
+            mergeOutputReceiptIntoHistory(current, receipt),
+          );
+        },
+        refresh: api.getRunHistory,
+      });
+      if (generation !== detailGeneration.current) return;
+      const refreshedDetail = result.refreshedDetail;
+      if (refreshedDetail) {
+        setDetail((current) =>
+          mergeRefreshedOutputHistory(current, refreshedDetail),
+        );
+      }
+      if (!result.saved && result.receipt.state !== "deleted") {
+        setOutputReceiptError(
+          "This retry did not save the output. Its latest status is shown above.",
+        );
+      } else if (result.refreshFailed) {
+        setOutputReceiptError(
+          "Output was saved, but History couldn’t refresh. Reload History to see the latest details.",
+        );
+      }
+    } catch {
+      if (generation === detailGeneration.current) {
+        setOutputReceiptError("Output couldn’t be saved. Try again.");
+      }
+    } finally {
+      const remaining = new Set(retryingReceiptKeysRef.current);
+      remaining.delete(key);
+      retryingReceiptKeysRef.current = remaining;
+      setRetryingReceiptKeys(remaining);
+    }
+  };
+
   const groupedHits = useMemo(
     () => ({
       runSteps: hits.filter((hit) => hit.kind === "run_step"),
@@ -236,29 +322,28 @@ export function HistoryPage({
   );
 
   return (
-    <section className="history-page" aria-labelledby="history-title">
-      <header className="history-page-header">
+    <section className="settings-page history-page" aria-labelledby="history-title">
+      <header className="settings-page-header">
         <div>
-          <p className="history-kicker">Private local data</p>
+          <p className="settings-kicker">Private local data</p>
           <h1 id="history-title">History</h1>
-          <p>Browse persisted runs or search run steps and saved memories.</p>
+          <p className="settings-page-lead">Browse past runs, steps, and saved memories.</p>
         </div>
         <button type="button" className="ghost" onClick={onClose}>
           Back to canvas
         </button>
       </header>
 
-      <div className="history-page-body">
+      <div className="settings-page-body history-page-body">
         <div className="history-toolbar">
-          <label className="history-search">
-            <span className="sr-only">Search history</span>
-            <input
-              type="search"
-              value={query}
-              placeholder="Search prompts, outputs, and memories"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+          <SearchInput
+            aria-label="Search history"
+            containerClassName="history-search"
+            value={query}
+            placeholder="Search prompts, outputs, and memories"
+            onChange={(event) => setQuery(event.target.value)}
+            onClear={() => setQuery("")}
+          />
           <div className="history-scope" role="group" aria-label="History scope">
             {activeWorkflowId ? (
               <button
@@ -291,6 +376,9 @@ export function HistoryPage({
           <RunDetail
             detail={detail}
             reviewJob={reviewJob}
+            outputReceiptError={outputReceiptError}
+            retryingReceiptKeys={retryingReceiptKeys}
+            onRetryOutput={retryOutputReceipt}
             onBack={() => {
               setSelectedRunId(null);
               onSelectedRunIdChange?.(null);
@@ -469,13 +557,40 @@ function SearchHitContent({ hit }: { hit: HistorySearchHit }) {
 function RunDetail({
   detail,
   reviewJob,
+  outputReceiptError,
+  retryingReceiptKeys,
+  onRetryOutput,
   onBack,
 }: {
   detail: RunHistoryDetail;
   reviewJob: MemoryReviewJob | null;
+  outputReceiptError: string | null;
+  retryingReceiptKeys: ReadonlySet<string>;
+  onRetryOutput: (request: RetryOutputPersistenceRequest) => Promise<void>;
   onBack: () => void;
 }) {
   const memoryUses = detail.memoryUses ?? [];
+  const contextSummaries = detail.memoryContextSummaries ?? [];
+  const omittedCounts = contextSummaries.reduce(
+    (counts, summary) => ({
+      selected: counts.selected + summary.explicitOmittedCount,
+      pinned: counts.pinned + summary.pinnedOmittedCount,
+      recalled: counts.recalled + summary.automaticOmittedCount,
+      unavailable: counts.unavailable + summary.unavailableCount,
+      repeated: counts.repeated + summary.repeatedCount,
+    }),
+    { selected: 0, pinned: 0, recalled: 0, unavailable: 0, repeated: 0 },
+  );
+  const omittedContextReasons = [
+    omittedCounts.selected > 0 ? `${omittedCounts.selected} selected for size` : null,
+    omittedCounts.pinned > 0 ? `${omittedCounts.pinned} pinned for size` : null,
+    omittedCounts.recalled > 0
+      ? `${omittedCounts.recalled} recalled for size or trace availability`
+      : null,
+    omittedCounts.unavailable > 0 ? `${omittedCounts.unavailable} unavailable` : null,
+    omittedCounts.repeated > 0 ? `${omittedCounts.repeated} repeated` : null,
+  ].filter((reason): reason is string => reason !== null);
+  const recallSummary = memoryRecallSummary(detail.steps);
   return (
     <article className="history-detail">
       <button type="button" className="ghost history-detail-back" onClick={onBack}>
@@ -527,13 +642,68 @@ function RunDetail({
           ) : null}
         </section>
       ) : null}
+      <OutputReceipts
+        receipts={detail.outputReceipts ?? []}
+        retryingReceiptKeys={retryingReceiptKeys}
+        onRetry={onRetryOutput}
+        onOpenMemory={(memoryId) =>
+          openHistoryMemory(memoryId, detail.run.workflowId)
+        }
+      />
+      {outputReceiptError ? (
+        <p className="history-message is-error" role="alert">
+          {outputReceiptError}
+        </p>
+      ) : null}
       <section className="history-memory-context" aria-labelledby="history-memory-title">
         <div className="history-section-heading">
           <h3 id="history-memory-title">Memory context</h3>
           <span>{memoryUses.length}</span>
         </div>
+        {contextSummaries.map((summary) => {
+          const stepIndex = detail.steps.findIndex(
+            (step) => step.nodeId === summary.nodeId,
+          );
+          const stepLabel = stepIndex >= 0 ? `Step ${stepIndex + 1}` : summary.nodeId;
+          return (
+            <p className="history-memory-meta" key={summary.nodeId}>
+              {stepLabel}: {summary.memoryBytes.toLocaleString()} of{" "}
+              {summary.budgetBytes.toLocaleString()} memory bytes used
+            </p>
+          );
+        })}
+        {recallSummary.status === "unavailable" ? (
+          <p className="muted" role="alert">
+            Automatic memory recall was unavailable for one or more agent steps.
+          </p>
+        ) : recallSummary.status === "abstained" ? (
+          <p className="muted">
+            Automatic recall ran and found no relevant memories for one or more
+            agent steps.
+          </p>
+        ) : null}
+        {recallSummary.omittedCount > 0 ? (
+          <p className="muted">
+            {recallSummary.omittedCount} additional relevant memor
+            {recallSummary.omittedCount === 1 ? "y was" : "ies were"} omitted by
+            the context limit.
+          </p>
+        ) : null}
+        {omittedContextReasons.length > 0 ? (
+          <p className="muted">
+            Memory references omitted: {omittedContextReasons.join(", ")}.
+          </p>
+        ) : null}
+        {contextSummaries.some((summary) => !summary.traceAvailable) ? (
+          <p className="muted" role="alert">
+            Some selected or pinned memory could not be recorded in the audit
+            trace. Automatic memory was left out of those steps.
+          </p>
+        ) : null}
         {memoryUses.length === 0 ? (
-          <p className="muted">No pinned or recalled memory was recorded for this run.</p>
+          <p className="muted">
+            No selected, pinned, or recalled memory was recorded for this run.
+          </p>
         ) : (
           <div className="history-memory-groups">
             {detail.steps.map((step, index) => {
@@ -552,7 +722,12 @@ function RunDetail({
                         <button
                           type="button"
                           className="history-memory-link"
-                          onClick={() => openHistoryMemory(memoryUse.memoryId)}
+                          onClick={() =>
+                            openHistoryMemory(
+                              memoryUse.memoryId,
+                              detail.run.workflowId,
+                            )
+                          }
                         >
                           {memoryUse.memoryTitle || "[deleted memory]"}
                         </button>
@@ -562,6 +737,7 @@ function RunDetail({
                         <span className="history-memory-meta">
                           {memoryUse.memoryId} · {memoryUse.scopeType} · {memoryUse.memoryType}
                           {" · "}rank {memoryUse.rank} · score {memoryUse.score.toFixed(2)}
+                          {" · "}policy {memoryUse.rankingVersion}
                           {" · "}{memoryUse.renderedBytes.toLocaleString()} bytes
                           {" · "}{formatHistoryWhen(memoryUse.createdAt)}
                         </span>

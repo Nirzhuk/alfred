@@ -53,6 +53,7 @@ and replace its usages with `<Icon name="…" />`.
 
 | Location (file → local icon) | Meaning | Phosphor name |
 | --- | --- | --- |
+| `identity-node.tsx` | Agent identity | `fingerprint` |
 | `sidebar-nav.tsx` → `NewWorkflowIcon` | New workflow (doc + pencil) | `note-pencil` |
 | `sidebar-nav.tsx` → `ActivityIcon` | Run activity bars | `chart-bar` |
 | `sidebar-nav.tsx` → `MemoriesIcon` | Memories notebook | `note` |

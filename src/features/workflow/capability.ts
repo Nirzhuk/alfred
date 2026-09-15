@@ -7,6 +7,7 @@ import {
   type EntitlementInput,
   type LicenseStatus,
 } from "../licensing";
+import { holdsFreeScheduleSlot } from "./schedule-slot";
 
 /**
  * The workflow feature's one door into the entitlement resolver (Plan 008
@@ -36,4 +37,21 @@ export function useWorkflowCapability(capability: Capability): CapabilityDecisio
   const status = useLicenseStore((state) => state.status);
   const hasLoaded = useLicenseStore((state) => state.hasLoaded);
   return resolveCapability(inputFor(hasLoaded ? status : null), capability);
+}
+
+/**
+ * Schedule authoring gate with the one-free-schedule rule. A locked build
+ * still edits the slot holder (oldest schedule, or a first creation when
+ * nothing is saved); every other workflow stays locked delete-only.
+ */
+export function useScheduleGate(
+  workflowId: string,
+  schedules: { workflowId: string; createdAt?: string | null }[],
+): CapabilityDecision {
+  const base = useWorkflowCapability("schedules");
+  if (base.available) return base;
+  if (holdsFreeScheduleSlot(workflowId, schedules)) {
+    return { available: true, reason: null };
+  }
+  return base;
 }

@@ -1,0 +1,24 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Summarize notes",
+  "description": "Summarize a selected notes folder and prepare an update.",
+  "graph": {
+    "nodes": [
+      { "id": "input", "type": "input", "data": { "label": "Notes", "prompt": "Summarize the selected notes." }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent", "type": "agent", "data": { "label": "Agent", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 220, "y": 0 } },
+      { "id": "output", "type": "chooseOutput", "data": { "label": "Update", "saveToMemory": false, "pinMemory": false, "asFinalResult": true, "htmlReport": false, "includeFilesChanged": false }, "position": { "x": 440, "y": 0 } }
+    ],
+    "edges": [
+      { "id": "input-agent", "source": "input", "target": "agent" },
+      { "id": "agent-output", "source": "agent", "target": "output" }
+    ]
+  },
+  "parameters": [],
+  "requirements": [
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" },
+    { "kind": "harness", "name": "cli", "provider": "claude_code" }
+  ],
+  "starts": []
+}

@@ -1,0 +1,18 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Input script",
+  "description": "A portable input script.",
+  "graph": {
+    "nodes": [
+      { "id": "input", "type": "input", "data": { "label": "Input", "prompt": "Use the script.", "script": { "source": "file", "path": "", "body": "", "interpreter": "bash", "message": "Run this script:", "run": false } }, "position": { "x": 0, "y": 0 } }
+    ],
+    "edges": []
+  },
+  "parameters": [
+    { "key": "input.script.path", "label": "Script file", "kind": "file", "required": true, "target": { "kind": "node", "nodeId": "input", "field": "script.path" } }
+  ],
+  "requirements": [ { "kind": "interpreter", "name": "bash" } ],
+  "starts": []
+}

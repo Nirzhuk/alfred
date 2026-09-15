@@ -3,28 +3,47 @@
 //! Emits `run://event` so the UI can show a live activity panel and highlight
 //! the active node.
 
+mod identity;
+pub(crate) mod memory_context;
+pub(crate) mod output;
+pub(crate) mod lookup_trace;
+mod retrieval_query;
+
+use memory_context::{
+    apply_prompt_template, compose_agent_memory_at, live_memory_exclusions, AgentMemoryComposition,
+    AutomaticMemoryCandidate, PromptPart, PromptValue, TextOrigin, AGENT_MEMORY_MAX_BYTES,
+};
+use retrieval_query::TaskQueryState;
+
 use crate::agents::active::{self, RunControl};
 use crate::agents::process::{
     find_bin, prefer_stdout, run_cmd, run_cmd_with_stdin, run_cmd_with_stdin_env,
 };
+use crate::agents::review::try_enqueue_review;
+use crate::agents::review::{
+    claude_cli::ClaudeCliReviewAgent, register_review_drain, RestrictedReviewAgent,
+    RestrictedReviewRequest, RestrictedReviewResponse, ReviewAvailability, ReviewError,
+    ReviewExecutionIdentity, UnavailableReviewCapability, REVIEW_CONTRACT_VERSION,
+    REVIEW_READY_QUEUE_LIMIT,
+};
 use crate::agents::{
-    adapter_for, auth_required, execute_target, AgentActivity, AgentActivityKind,
-    AgentActivityState, AgentAuthRequired, AgentError, AgentExecutionTarget, AgentHarness,
-    AgentProvider, AgentRequest, AgentRequestMetadata, AgentResponse, AgentRunHooks,
-    OpaqueAgentAccountRef, SafeAgentRunMetadata,
+    auth_required, execute_target, AgentActivity, AgentActivityKind, AgentActivityState,
+    AgentAuthRequired, AgentError, AgentExecutionTarget, AgentHarness, AgentProvider, AgentRequest,
+    AgentRequestMetadata, AgentRunHooks, OpaqueAgentAccountRef, SafeAgentRunMetadata,
 };
 use crate::db::{
-    build_review_digest, build_review_prompt, candidate_existing_memory_context,
-    parse_reviewer_output, validate_candidate_suggestion, CandidateReviewContext, Db,
-    FormattedMemoryContext, MemoryContext, MemoryRetrievalRequest, RetrievalReason,
-    RetrievedMemoryUse, REVIEW_DIGEST_MAX_BYTES, REVIEW_ERROR_AUTH_REQUIRED, REVIEW_ERROR_INTERNAL,
-    REVIEW_ERROR_INVALID_RESPONSE, REVIEW_ERROR_PROVIDER_UNAVAILABLE, REVIEW_ERROR_TIMEOUT,
+    build_review_prompt, discover_review_targets_at, parse_reviewer_output, Db, EvidenceOrigin,
+    EvidenceSourceInput, MemoryContext, MemoryRetrievalRequest, OutputDisposition,
+    OutputReceiptKey, OutputReceiptSeed, RunMemoryContextSummaryInput, REVIEW_ERROR_AUTH_REQUIRED,
+    REVIEW_ERROR_INTERNAL, REVIEW_ERROR_INVALID_RESPONSE, REVIEW_ERROR_PROVIDER_UNAVAILABLE,
+    REVIEW_ERROR_TIMEOUT,
 };
 use crate::integrations::actions::{
     ActionCancellation, ActionDescriptor, ActionErrorCode, ActionRequest, ActionResult,
 };
 use crate::integrations::IntegrationsState;
 use chrono::Utc;
+use identity::{format_identity, with_upstream_identities};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -32,6 +51,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
 use uuid::Uuid;
@@ -302,6 +322,134 @@ fn load_run_payload(db: &Db, run_id: &str) -> Result<Option<(String, String)>, R
     }))
 }
 
+fn capture_evidence(db: &Db, inputs: Vec<EvidenceSourceInput>) -> Result<(), RunnerError> {
+    if inputs.is_empty() {
+        return Ok(());
+    }
+    db.capture_run_evidence_sources(inputs)
+        .map(|_| ())
+        .map_err(|error| RunnerError::Message(error.to_string()))
+}
+
+/// Project the typed pre-composition value into original-source categories.
+/// Workflow-authored task text remains workflow configuration; host metadata
+/// and observations are captured only at their dedicated production sites.
+fn typed_prompt_sources(
+    run_id: &str,
+    node_id: &str,
+    value: &PromptValue,
+) -> Vec<EvidenceSourceInput> {
+    let observed_at = Utc::now();
+    let inputs = value
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            PromptPart::Text {
+                text,
+                origin: TextOrigin::AuthoredTask | TextOrigin::AuthoredTemplate,
+            } => Some(EvidenceSourceInput {
+                run_id: run_id.into(),
+                step_id: None,
+                node_id: Some(node_id.into()),
+                origin: EvidenceOrigin::ConfiguredWorkflowInstruction,
+                producer_identity: None,
+                source_label: Some("workflow instruction".into()),
+                observed_at,
+                text: text.clone(),
+                omission_reason: None,
+            }),
+            PromptPart::Text {
+                text,
+                origin: TextOrigin::GeneratedOutput,
+            } => Some(EvidenceSourceInput {
+                run_id: run_id.into(),
+                step_id: None,
+                node_id: Some(node_id.into()),
+                origin: EvidenceOrigin::ModelOutput,
+                producer_identity: None,
+                source_label: Some("upstream model output".into()),
+                observed_at,
+                text: text.clone(),
+                omission_reason: None,
+            }),
+            PromptPart::MemoryRef { id } => Some(EvidenceSourceInput {
+                run_id: run_id.into(),
+                step_id: None,
+                node_id: Some(node_id.into()),
+                origin: EvidenceOrigin::PriorMemory,
+                producer_identity: None,
+                source_label: Some("linked memory reference".into()),
+                observed_at,
+                text: format!("Memory reference: {id}"),
+                omission_reason: None,
+            }),
+            PromptPart::Text {
+                origin: TextOrigin::ExternalObservation | TextOrigin::HostMetadata,
+                ..
+            } => None,
+        })
+        .collect();
+    inputs
+}
+
+fn prior_memory_sources(
+    run_id: &str,
+    node_id: &str,
+    references: &[(String, String, String)],
+) -> Vec<EvidenceSourceInput> {
+    let observed_at = Utc::now();
+    references
+        .iter()
+        .map(|(memory_id, reason, ranking_version)| EvidenceSourceInput {
+            run_id: run_id.into(),
+            step_id: None,
+            node_id: Some(node_id.into()),
+            origin: EvidenceOrigin::PriorMemory,
+            producer_identity: None,
+            source_label: Some(format!("{reason} memory reference")),
+            observed_at,
+            text: format!(
+                "Memory reference: {memory_id}\nUse: {reason}\nRanking version: {ranking_version}"
+            ),
+            omission_reason: None,
+        })
+        .collect()
+}
+
+fn capture_original_trigger_source(db: &Db, run_id: &str) -> Result<(), RunnerError> {
+    let source = db
+        .with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT payload_json, trigger_kind FROM runs WHERE id = ?1",
+                    [run_id],
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?)
+        })
+        .map_err(|error| RunnerError::Message(error.to_string()))?;
+    let Some((Some(text), trigger_kind)) = source else {
+        return Ok(());
+    };
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    capture_evidence(
+        db,
+        vec![EvidenceSourceInput {
+            run_id: run_id.into(),
+            step_id: None,
+            node_id: None,
+            origin: EvidenceOrigin::ExternalTriggerData,
+            producer_identity: Some(trigger_kind.clone()),
+            source_label: Some(format!("{trigger_kind} trigger payload")),
+            observed_at: Utc::now(),
+            text,
+            omission_reason: None,
+        }],
+    )
+}
+
 /// Read `skillNames: string[]`, falling back to legacy `skillName: string`.
 fn parse_skill_names(data: &Value) -> Vec<String> {
     if let Some(arr) = data.get("skillNames").and_then(|v| v.as_array()) {
@@ -354,7 +502,12 @@ fn with_html_report_instruction(prompt: &str) -> String {
     }
 }
 
-fn compose_agent_prompt(base: &str, pinned: &str, retrieved: &str, trigger: &str) -> String {
+pub(crate) fn compose_agent_prompt(
+    base: &str,
+    pinned: &str,
+    retrieved: &str,
+    trigger: &str,
+) -> String {
     let mut context = String::new();
     context.push_str(pinned);
     context.push_str(retrieved);
@@ -375,6 +528,12 @@ struct PreparedAgentPrompt {
     recalled_count: usize,
     recalled_bytes: usize,
     recall_unavailable: bool,
+    recall_abstained: bool,
+    recall_omitted_count: usize,
+    memory_bytes: usize,
+    memory_omitted_count: usize,
+    trace_available: bool,
+    memory_references: Vec<(String, String, String)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -384,21 +543,28 @@ fn prepare_agent_prompt(
     working_directory: Option<&str>,
     run_id: &str,
     node_id: &str,
-    base_prompt: &str,
-    pinned: &FormattedMemoryContext,
+    base_prompt: &PromptValue,
+    query_text: &str,
     trigger: &str,
-    excluded_ids: &[String],
     retrieval_enabled: bool,
 ) -> PreparedAgentPrompt {
     let mut recall_unavailable = false;
+    let memory_context = MemoryContext {
+        workflow_id: workflow_id.to_owned(),
+        working_directory: working_directory.map(str::to_owned),
+    };
+    let exclusions = live_memory_exclusions(db, base_prompt, &memory_context);
+    let memory_db_unavailable = exclusions.is_err();
+    let excluded_ids = exclusions.unwrap_or_default();
     let retrieval = if retrieval_enabled {
         let result = db.retrieve_memories(&MemoryRetrievalRequest {
             workflow_id,
             working_directory,
             run_id,
             node_id,
-            query_text: base_prompt,
-            exclude_ids: excluded_ids,
+            query_text,
+            exclude_ids: &excluded_ids,
+            purpose: crate::db::RetrievalPurpose::Automatic,
         });
         if result.error_code.is_some() {
             recall_unavailable = true;
@@ -407,64 +573,191 @@ fn prepare_agent_prompt(
     } else {
         Default::default()
     };
-    // Retained for local precision/omission measurement; never emitted with
-    // memory text or the search query in the live activity log.
-    let _omitted_count = retrieval.omitted_count;
-
-    let pinned_uses = pinned
-        .included_items
+    let automatic = retrieval
+        .items
         .iter()
-        .enumerate()
-        .map(|(index, item)| RetrievedMemoryUse {
-            memory_id: item.id.clone(),
-            rank: index as i64 + 1,
-            score: 0.0,
-            reason: RetrievalReason::Pinned,
-            rendered_bytes: item.rendered_bytes,
-        })
+        .cloned()
+        .map(|use_record| AutomaticMemoryCandidate { use_record })
         .collect::<Vec<_>>();
-    let mut final_uses = pinned_uses.clone();
-    if !recall_unavailable {
-        final_uses.extend(retrieval.items.iter().cloned());
+    let composed = compose_agent_memory_at(
+        db,
+        base_prompt,
+        &memory_context,
+        &automatic,
+        retrieval.items.len() + retrieval.omitted_count,
+        recall_unavailable,
+        !trigger.is_empty(),
+        Utc::now(),
+    );
+    let composition_failed = composed.is_err();
+    let mut composition = composed.unwrap_or_else(|_| {
+        recall_unavailable = true;
+        AgentMemoryComposition::without_memory(base_prompt, automatic.len(), !trigger.is_empty())
+    });
+    if memory_db_unavailable {
+        recall_unavailable = true;
     }
 
-    let mut retrieved_markdown = if recall_unavailable {
-        String::new()
-    } else {
-        retrieval.markdown.clone()
-    };
-    let mut recalled_count = if recall_unavailable {
-        0
-    } else {
-        retrieval.items.len()
-    };
-    let mut recalled_bytes = if recall_unavailable {
-        0
-    } else {
-        retrieval.rendered_bytes
-    };
-
-    if db
-        .insert_run_memory_uses(run_id, node_id, &final_uses)
-        .is_err()
-    {
-        // Recalled context is never injected without its audit trace. Preserve
-        // Plan 026 pinned behavior and make a best-effort pinned-only trace.
+    let initial_trace_succeeded = !composition_failed
+        && db
+            .insert_run_memory_uses(run_id, node_id, &composition.uses)
+            .is_ok();
+    let trace_available = initial_trace_succeeded;
+    if !initial_trace_succeeded {
         if retrieval_enabled {
             recall_unavailable = true;
         }
-        retrieved_markdown.clear();
-        recalled_count = 0;
-        recalled_bytes = 0;
-        let _ = db.insert_run_memory_uses(run_id, node_id, &pinned_uses);
+        composition.drop_automatic_for_trace_failure();
+        let _ = db.insert_run_memory_uses(run_id, node_id, &composition.uses);
     }
+    let prefix = composition.prefix();
+    let prompt = compose_agent_prompt(&composition.context, &prefix, "", trigger);
+    let recalled_count = composition.automatic_count;
+    let recalled_bytes = composition.automatic_bytes;
+    let memory_omitted_count = composition.omissions.total();
+    let memory_references = composition
+        .uses
+        .iter()
+        .map(|memory_use| {
+            (
+                memory_use.memory_id.clone(),
+                memory_use.reason.as_str().to_owned(),
+                memory_use.ranking_version.to_owned(),
+            )
+        })
+        .collect();
+    let _ = db.upsert_run_memory_context_summary(
+        run_id,
+        node_id,
+        &RunMemoryContextSummaryInput {
+            budget_bytes: AGENT_MEMORY_MAX_BYTES,
+            memory_bytes: composition.memory_bytes,
+            included_count: composition.uses.len(),
+            explicit_omitted_count: composition.omissions.explicit_budget,
+            pinned_omitted_count: composition.omissions.pinned_budget,
+            automatic_omitted_count: composition.omissions.automatic_budget
+                + composition.omissions.trace_failure,
+            unavailable_count: composition.omissions.unavailable,
+            repeated_count: composition.omissions.repeated,
+            trace_available,
+        },
+    );
 
     PreparedAgentPrompt {
-        prompt: compose_agent_prompt(base_prompt, &pinned.markdown, &retrieved_markdown, trigger),
+        prompt,
         recalled_count,
         recalled_bytes,
         recall_unavailable,
+        recall_abstained: retrieval.abstained,
+        recall_omitted_count: composition.omissions.automatic_budget
+            + composition.omissions.trace_failure,
+        memory_bytes: composition.memory_bytes,
+        memory_omitted_count,
+        trace_available,
+        memory_references,
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn with_composed_agent_prompt<T>(
+    db: &Db,
+    workflow_id: &str,
+    working_directory: Option<&str>,
+    run_id: &str,
+    node_id: &str,
+    base_prompt: &PromptValue,
+    query_text: &str,
+    trigger: &str,
+    retrieval_enabled: bool,
+    nodes: &[Value],
+    edges: &[Value],
+    html_report: bool,
+    before_dispatch: impl FnOnce(&PreparedAgentPrompt, &str) -> Result<(), String>,
+    dispatch: impl FnOnce(String) -> T,
+) -> Result<T, String> {
+    let prepared = prepare_agent_prompt(
+        db,
+        workflow_id,
+        working_directory,
+        run_id,
+        node_id,
+        base_prompt,
+        query_text,
+        trigger,
+        retrieval_enabled,
+    );
+    let prompt = with_upstream_identities(&prepared.prompt, node_id, nodes, edges);
+    let prompt = if html_report {
+        with_html_report_instruction(&prompt)
+    } else {
+        prompt
+    };
+    before_dispatch(&prepared, &prompt)?;
+    Ok(dispatch(prompt))
+}
+
+fn persisted_step_input(
+    prompt: &str,
+    memory_recall_status: Option<&str>,
+    memory_recall_omitted_count: usize,
+) -> Value {
+    let mut input = serde_json::json!({ "prompt": prompt });
+    if let Some(status) = memory_recall_status {
+        input["memoryRecallStatus"] = Value::String(status.to_owned());
+        input["memoryRecallOmittedCount"] = serde_json::json!(memory_recall_omitted_count);
+    }
+    input
+}
+
+fn complete_prompt_values(
+    db: &Db,
+    memory_context: &MemoryContext,
+    context: &PromptValue,
+    output: &PromptValue,
+) -> Result<(String, String), String> {
+    let context = context
+        .render_complete(db, memory_context)
+        .map_err(|error| error.to_string())?;
+    let output = output
+        .render_complete(db, memory_context)
+        .map_err(|error| error.to_string())?;
+    Ok((context, output))
+}
+
+fn apply_memory_selection(
+    context: &mut PromptValue,
+    last_output: &mut PromptValue,
+    memory_ids: Vec<String>,
+) -> Option<String> {
+    let selected = PromptValue::memories(memory_ids);
+    if selected.is_empty() {
+        return None;
+    }
+    if !context.is_empty() {
+        context.append_text(TextOrigin::AuthoredTemplate, "\n\n");
+    }
+    context.append(&selected);
+    *last_output = selected;
+    Some(last_output.render_reference_summary())
+}
+
+fn apply_template_transition(
+    context: &mut PromptValue,
+    last_output: &mut PromptValue,
+    template: &str,
+    mode: &str,
+    cwd: &str,
+) -> String {
+    let rendered = apply_prompt_template(template, context, last_output, cwd);
+    let summary = rendered.render_reference_summary();
+    if mode == "replace" || context.is_empty() {
+        *context = rendered.clone();
+    } else {
+        context.append_text(TextOrigin::AuthoredTemplate, "\n\n");
+        context.append(&rendered);
+    }
+    *last_output = rendered;
+    summary
 }
 
 fn escape_html(text: &str) -> String {
@@ -531,6 +824,88 @@ fn append_files_changed(body: &str, files: &[Value], html_report: bool) -> Strin
     } else {
         format!("{body}\n\n{}", lines.join("\n"))
     }
+}
+
+fn append_files_changed_value(
+    value: &PromptValue,
+    files: &[Value],
+    html_report: bool,
+) -> PromptValue {
+    if files.is_empty() {
+        return value.clone();
+    }
+    if !html_report {
+        let section = append_files_changed("", files, false);
+        let mut result = value.clone();
+        if !result.is_empty() {
+            result.append_text(TextOrigin::HostMetadata, "\n\n");
+        }
+        result.append_text(TextOrigin::HostMetadata, section);
+        return result;
+    }
+
+    let section = append_files_changed("", files, true);
+    let section_start = section.find("<section").unwrap_or(0);
+    let section_end = section
+        .rfind("</section>")
+        .map(|index| index + 10)
+        .unwrap_or(section.len());
+    let section = &section[section_start..section_end];
+    let mut result = value.clone();
+    for index in (0..result.parts.len()).rev() {
+        let PromptPart::Text { text, origin } = &result.parts[index] else {
+            continue;
+        };
+        let lowercase = text.to_ascii_lowercase();
+        let insertion = lowercase
+            .rfind("</body>")
+            .or_else(|| lowercase.rfind("</html>"));
+        let Some(insertion) = insertion else { continue };
+        let before = PromptPart::Text {
+            text: text[..insertion].to_owned(),
+            origin: *origin,
+        };
+        let metadata = PromptPart::Text {
+            text: section.to_owned(),
+            origin: TextOrigin::HostMetadata,
+        };
+        let after = PromptPart::Text {
+            text: text[insertion..].to_owned(),
+            origin: *origin,
+        };
+        result
+            .parts
+            .splice(index..=index, [before, metadata, after]);
+        return result;
+    }
+
+    if result.is_empty() {
+        return PromptValue::text(
+            TextOrigin::HostMetadata,
+            append_files_changed("", files, true),
+        );
+    }
+    result.append_text(TextOrigin::HostMetadata, format!("\n{section}"));
+    result
+}
+
+fn project_output_value(
+    db: &Db,
+    memory_context: &MemoryContext,
+    last_output: &PromptValue,
+    files: &[Value],
+    include_files: bool,
+    html_report: bool,
+) -> Result<(PromptValue, String), RunnerError> {
+    let value = if include_files && !files.is_empty() {
+        append_files_changed_value(last_output, files, html_report)
+    } else {
+        last_output.clone()
+    };
+    let rendered = value
+        .render_complete(db, memory_context)
+        .map_err(|error| RunnerError::Message(error.to_string()))?;
+    Ok((value, rendered))
 }
 
 /// Find the closest upstream agent for every Output requesting an HTML report.
@@ -625,8 +1000,13 @@ fn insert_step(
     input: &Value,
     output: &Value,
     error: Option<&str>,
-) -> Result<(), RunnerError> {
-    let id = Uuid::new_v4().to_string();
+    mut evidence_inputs: Vec<EvidenceSourceInput>,
+    output_disposition: Option<&OutputDisposition>,
+) -> Result<String, RunnerError> {
+    let step_id = Uuid::new_v4().to_string();
+    for source in &mut evidence_inputs {
+        source.step_id = Some(step_id.clone());
+    }
     let created_at = Utc::now().to_rfc3339();
     let input_json = serde_json::to_string(input).unwrap_or_else(|_| "{}".into());
     let output_json = serde_json::to_string(output).unwrap_or_else(|_| "{}".into());
@@ -643,7 +1023,7 @@ fn insert_step(
              (id, run_id, node_id, agent_provider, skill_name, status, input_json, output_json, error, started_at, finished_at, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
             rusqlite::params![
-                id,
+                &step_id,
                 run_id,
                 node_id,
                 agent_provider,
@@ -655,9 +1035,21 @@ fn insert_step(
                 created_at
             ],
         )?;
+        let mut lookup_evidence =
+            crate::db::lookup_trace_evidence_inputs_conn(&transaction, run_id, node_id)?;
+        for source in &mut lookup_evidence {
+            source.step_id = Some(step_id.clone());
+        }
+        evidence_inputs.extend(lookup_evidence);
+        crate::db::lookup_trace::associate_lookup_traces_with_step_conn(
+            &transaction,
+            run_id,
+            node_id,
+            &step_id,
+        )?;
         crate::db::index_run_step(
             &transaction,
-            &id,
+            &step_id,
             run_id,
             &workflow_id,
             node_id,
@@ -665,8 +1057,25 @@ fn insert_step(
             output,
             error,
         )?;
+        crate::db::capture_run_evidence_sources_conn(&transaction, evidence_inputs)?;
+        if let Some(disposition) = output_disposition {
+            let output_body = output
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let key = OutputReceiptKey::new(run_id, node_id)
+                .map_err(|error| crate::db::DbError::Other(error.to_string()))?;
+            let seed = OutputReceiptSeed::new(
+                key,
+                step_id.clone(),
+                disposition.clone(),
+                output_body,
+            )
+            .map_err(|error| crate::db::DbError::Other(error.to_string()))?;
+            crate::db::insert_output_receipt(&transaction, &seed, &created_at)?;
+        }
         transaction.commit()?;
-        Ok(())
+        Ok(step_id)
     })
     .map_err(|e| RunnerError::Message(e.to_string()))
 }
@@ -757,22 +1166,28 @@ pub fn execute_run(
 
     let order = topological_order(&nodes, &edges);
     let html_report_agents = nearest_html_report_agents(&nodes, &edges);
-    let mut context_prompt = String::new();
-    let mut last_output = String::new();
+    let mut context_prompt = PromptValue::default();
+    let mut last_output = PromptValue::default();
+    let mut task_query_state = TaskQueryState::default();
     let mut final_output: Option<String> = None;
     let mut last_files_changed: Vec<Value> = Vec::new();
-    let formatted_memory = db
-        .format_pinned_context(&MemoryContext {
-            workflow_id: workflow_id.into(),
-            working_directory: working_directory.clone(),
-        })
+    let prompt_memory_context = MemoryContext {
+        workflow_id: workflow_id.into(),
+        working_directory: working_directory.clone(),
+    };
+    let pinned_count = db
+        .list_memories_for_context(&prompt_memory_context, false)
+        .map(|values| values.into_iter().filter(|item| item.memory.pinned).count())
         .unwrap_or_default();
-    let pinned_count = formatted_memory.included_ids.len();
-    let mut automatic_memory_exclusions = formatted_memory.included_ids.clone();
+
+    // Capture the full original payload before the prompt projection truncates
+    // or formats it. The source record applies its own stricter byte budget.
+    capture_original_trigger_source(db, run_id)?;
 
     // Trigger payload remains its own trust block and is composed after memory.
     let trigger_context = match load_run_payload(db, run_id)? {
         Some((payload, trigger_kind)) => {
+            task_query_state.set_normalized_event(&payload, trigger_kind == "app");
             emit(
                 app,
                 RunEvent {
@@ -861,6 +1276,8 @@ pub fn execute_run(
             .unwrap_or("unknown")
             .to_string();
         let data = node.get("data").cloned().unwrap_or(Value::Null);
+        let output_disposition = matches!(node_type.as_str(), "chooseOutput" | "output")
+            .then(|| OutputDisposition::capture(&data));
         let label = data
             .get("label")
             .and_then(|v| v.as_str())
@@ -890,7 +1307,10 @@ pub fn execute_run(
         let mut step_agent_provider: Option<String> = None;
         let mut step_agent_skill: Option<String> = None;
         let mut step_agent_metadata: Option<SafeAgentRunMetadata> = None;
-        let mut persisted_input_prompt = context_prompt.clone();
+        let mut step_evidence_inputs = Vec::new();
+        let mut persisted_input_prompt = context_prompt.render_reference_summary();
+        let mut step_memory_recall_status: Option<&'static str> = None;
+        let mut step_memory_recall_omitted_count = 0usize;
         let step_result = match node_type.as_str() {
             "prompt" | "input" => {
                 let prompt = data
@@ -898,12 +1318,24 @@ pub fn execute_run(
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                task_query_state.replace_with_authored_input(&prompt);
                 let attachments_block = format_attachments_context(&data);
+                let mut combined_value =
+                    PromptValue::text(TextOrigin::AuthoredTask, prompt.clone());
+                step_evidence_inputs.extend(typed_prompt_sources(
+                    run_id,
+                    &node_id,
+                    &combined_value,
+                ));
                 let mut combined = if attachments_block.is_empty() {
                     prompt.clone()
                 } else if prompt.trim().is_empty() {
+                    combined_value =
+                        PromptValue::text(TextOrigin::HostMetadata, attachments_block.clone());
                     attachments_block.clone()
                 } else {
+                    combined_value.append_text(TextOrigin::HostMetadata, "\n\n");
+                    combined_value.append_text(TextOrigin::HostMetadata, attachments_block.clone());
                     format!("{prompt}\n\n{attachments_block}")
                 };
 
@@ -913,6 +1345,15 @@ pub fn execute_run(
                 if let Some(script) = data.get("script").filter(|v| v.is_object()) {
                     let block = format_script_instruction(script);
                     if !block.is_empty() {
+                        step_evidence_inputs.extend(typed_prompt_sources(
+                            run_id,
+                            &node_id,
+                            &PromptValue::text(TextOrigin::AuthoredTemplate, block.clone()),
+                        ));
+                        if !combined_value.is_empty() {
+                            combined_value.append_text(TextOrigin::AuthoredTemplate, "\n\n");
+                        }
+                        combined_value.append_text(TextOrigin::AuthoredTemplate, block.clone());
                         combined = if combined.trim().is_empty() {
                             block
                         } else {
@@ -920,10 +1361,13 @@ pub fn execute_run(
                         };
                     }
                     if script.get("run").and_then(Value::as_bool).unwrap_or(false) {
+                        let complete_last_output = last_output
+                            .render_complete(db, &prompt_memory_context)
+                            .map_err(|error| RunnerError::Message(error.to_string()))?;
                         let (text, note) = match run_script(
                             script,
                             &combined,
-                            &last_output,
+                            &complete_last_output,
                             working_directory.as_deref(),
                             control,
                             None,
@@ -934,7 +1378,22 @@ pub fn execute_run(
                             ),
                             Err(e) => (format!("(script failed: {e})"), Some(e)),
                         };
+                        step_evidence_inputs.push(EvidenceSourceInput {
+                            run_id: run_id.into(),
+                            step_id: None,
+                            node_id: Some(node_id.clone()),
+                            origin: EvidenceOrigin::HostRecordedObservation,
+                            producer_identity: Some("local_script".into()),
+                            source_label: Some("input script result".into()),
+                            observed_at: Utc::now(),
+                            text: text.clone(),
+                            omission_reason: None,
+                        });
                         combined = format!("{combined}\n\n## Script output\n\n```\n{text}\n```");
+                        combined_value.append_text(
+                            TextOrigin::ExternalObservation,
+                            format!("\n\n## Script output\n\n```\n{text}\n```"),
+                        );
                         if let Some(note) = note {
                             emit(
                                 app,
@@ -958,7 +1417,7 @@ pub fn execute_run(
                     }
                 }
 
-                context_prompt = combined.clone();
+                context_prompt = combined_value;
                 let attach_count = data
                     .get("attachments")
                     .and_then(|v| v.as_array())
@@ -992,6 +1451,15 @@ pub fn execute_run(
                 )?;
                 Ok((combined, None::<String>, None::<String>, None::<Value>))
             }
+            "identity" => {
+                let identity = format_identity(&data);
+                let output = if identity.is_empty() {
+                    "Identity is empty; no instructions added".to_string()
+                } else {
+                    identity
+                };
+                Ok((output, None, None, None))
+            }
             "memory" => {
                 let memory_ids: Vec<String> = data
                     .get("memoryIds")
@@ -1002,25 +1470,16 @@ pub fn execute_run(
                             .collect()
                     })
                     .unwrap_or_default();
-                for memory_id in &memory_ids {
-                    if !automatic_memory_exclusions.contains(memory_id) {
-                        automatic_memory_exclusions.push(memory_id.clone());
-                    }
-                }
-
-                let text = db
-                    .format_memories_context(&memory_ids)
-                    .map_err(|e| RunnerError::Message(e.to_string()))?;
-
-                if text.is_empty() {
+                let text = apply_memory_selection(
+                    &mut context_prompt,
+                    &mut last_output,
+                    memory_ids.clone(),
+                );
+                if text.is_none() {
                     let msg = "No memories selected — skipped".to_string();
                     Ok((msg, None::<String>, None::<String>, None::<Value>))
                 } else {
-                    context_prompt = if context_prompt.is_empty() {
-                        text.clone()
-                    } else {
-                        format!("{context_prompt}\n\n{text}")
-                    };
+                    let text = text.expect("non-empty selection has a summary");
                     emit(
                         app,
                         RunEvent {
@@ -1110,64 +1569,7 @@ pub fn execute_run(
                     } else {
                         context_prompt.clone()
                     };
-                    let prepared = prepare_agent_prompt(
-                        db,
-                        workflow_id,
-                        working_directory.as_deref(),
-                        run_id,
-                        &node_id,
-                        &base_prompt,
-                        &formatted_memory,
-                        &trigger_context,
-                        &automatic_memory_exclusions,
-                        workflow.memory_retrieval_enabled,
-                    );
-                    if workflow.memory_retrieval_enabled {
-                        let message = if prepared.recall_unavailable {
-                            "Memory recall unavailable; continuing without recalled context"
-                                .to_string()
-                        } else {
-                            format!(
-                                "Recalled {} memories ({} context bytes)",
-                                prepared.recalled_count, prepared.recalled_bytes
-                            )
-                        };
-                        emit(
-                            app,
-                            RunEvent {
-                                run_id: run_id.into(),
-                                workflow_id: workflow_id.into(),
-                                kind: "step_log".into(),
-                                node_id: Some(node_id.clone()),
-                                node_type: Some(node_type.clone()),
-                                node_label: Some(label.clone()),
-                                status: Some("running".into()),
-                                message,
-                                output: None,
-                                stats: None,
-                                activity: None,
-                                auth_required: None,
-                                at: Utc::now().to_rfc3339(),
-                            },
-                        )
-                        .map_err(|error| error.to_string())?;
-                    }
-                    let prompt = prepared.prompt;
-                    let prompt = if html_report_agents.contains(&node_id) {
-                        with_html_report_instruction(&prompt)
-                    } else {
-                        prompt
-                    };
-                    persisted_input_prompt = prompt.clone();
-                    let request = AgentRequest {
-                        prompt,
-                        model: resolved_model.clone(),
-                        skill: None,
-                        skill_name: None,
-                        skill_names: skill_names.clone(),
-                        working_directory: working_directory.clone(),
-                        extra: Value::Null,
-                    };
+                    let query_text = task_query_state.query_text(context_prompt.is_empty());
                     let target = AgentExecutionTarget {
                         provider,
                         harness,
@@ -1182,37 +1584,6 @@ pub fn execute_run(
                         .as_deref()
                         .map(|value| format!(" · `{value}`"))
                         .unwrap_or_default();
-
-                    emit(
-                        app,
-                        RunEvent {
-                            run_id: run_id.into(),
-                            workflow_id: workflow_id.into(),
-                            kind: "step_log".into(),
-                            node_id: Some(node_id.clone()),
-                            node_type: Some(node_type.clone()),
-                            node_label: Some(label.clone()),
-                            status: Some("running".into()),
-                            message: format!(
-                                "Running {} via {}{model_label}{}",
-                                provider.label(),
-                                match harness {
-                                    AgentHarness::Cli => "CLI",
-                                    AgentHarness::Alfred => "Alfred",
-                                },
-                                skill_label
-                                    .as_deref()
-                                    .map(|value| format!(" · {value}"))
-                                    .unwrap_or_default()
-                            ),
-                            output: None,
-                            stats: step_agent_metadata.as_ref().map(safe_metadata_value),
-                            activity: None,
-                            auth_required: None,
-                            at: Utc::now().to_rfc3339(),
-                        },
-                    )
-                    .map_err(|error| error.to_string())?;
 
                     let on_activity = |activity: &AgentActivity| {
                         let safe_activity = safe_activity_for_run_event(activity, harness);
@@ -1240,19 +1611,128 @@ pub fn execute_run(
                     // router; the CLI path is untouched and never falls back.
                     let native_router =
                         app.try_state::<crate::agents::native::NativeExecutionRouter>();
-                    match execute_target(
-                        &target,
-                        request,
-                        AgentRunHooks {
-                            control: Some(control),
-                            on_activity: Some(&on_activity),
+                    let response = with_composed_agent_prompt(
+                        db,
+                        workflow_id,
+                        working_directory.as_deref(),
+                        run_id,
+                        &node_id,
+                        &base_prompt,
+                        &query_text,
+                        &trigger_context,
+                        workflow.memory_retrieval_enabled,
+                        &nodes,
+                        &edges,
+                        html_report_agents.contains(&node_id),
+                        |prepared, prompt| {
+                            step_evidence_inputs.extend(prior_memory_sources(
+                                run_id,
+                                &node_id,
+                                &prepared.memory_references,
+                            ));
+                            if workflow.memory_retrieval_enabled {
+                                step_memory_recall_status = Some(if prepared.recall_unavailable {
+                                    "unavailable"
+                                } else if prepared.recall_abstained {
+                                    "abstained"
+                                } else {
+                                    "included"
+                                });
+                                step_memory_recall_omitted_count = prepared.recall_omitted_count;
+                                let message = if prepared.recall_unavailable {
+                                    "Memory recall unavailable; continuing without recalled context"
+                                        .to_string()
+                                } else if prepared.recall_abstained {
+                                    "No relevant memories found for this task".to_string()
+                                } else {
+                                    format!(
+                                        "Recalled {} memories ({} context bytes)",
+                                        prepared.recalled_count, prepared.recalled_bytes
+                                    )
+                                };
+                                emit(
+                                    app,
+                                    RunEvent {
+                                        run_id: run_id.into(),
+                                        workflow_id: workflow_id.into(),
+                                        kind: "step_log".into(),
+                                        node_id: Some(node_id.clone()),
+                                        node_type: Some(node_type.clone()),
+                                        node_label: Some(label.clone()),
+                                        status: Some("running".into()),
+                                        message,
+                                        output: None,
+                                        stats: None,
+                                        activity: None,
+                                        auth_required: None,
+                                        at: Utc::now().to_rfc3339(),
+                                    },
+                                )
+                                .map_err(|error| error.to_string())?;
+                            }
+                            persisted_input_prompt = prompt.to_owned();
+                            emit(
+                                app,
+                                RunEvent {
+                                    run_id: run_id.into(),
+                                    workflow_id: workflow_id.into(),
+                                    kind: "step_log".into(),
+                                    node_id: Some(node_id.clone()),
+                                    node_type: Some(node_type.clone()),
+                                    node_label: Some(label.clone()),
+                                    status: Some("running".into()),
+                                    message: format!(
+                                        "Running {} via {}{model_label}{}",
+                                        provider.label(),
+                                        match harness {
+                                            AgentHarness::Cli => "CLI",
+                                            AgentHarness::Alfred => "Alfred",
+                                        },
+                                        skill_label
+                                            .as_deref()
+                                            .map(|value| format!(" · {value}"))
+                                            .unwrap_or_default()
+                                    ),
+                                    output: None,
+                                    stats: step_agent_metadata.as_ref().map(safe_metadata_value),
+                                    activity: None,
+                                    auth_required: None,
+                                    at: Utc::now().to_rfc3339(),
+                                },
+                            )
+                            .map_err(|error| error.to_string())?;
+                            Ok(())
                         },
-                        native_router
-                            .as_ref()
-                            .map(|router| router.inner() as &dyn crate::agents::AgentNativeRuntime),
-                    ) {
+                        |prompt| {
+                            let request = AgentRequest {
+                                prompt,
+                                model: resolved_model.clone(),
+                                skill: None,
+                                skill_name: None,
+                                skill_names: skill_names.clone(),
+                                working_directory: working_directory.clone(),
+                                extra: Value::Null,
+                            };
+                            execute_target(
+                                &target,
+                                request,
+                                AgentRunHooks {
+                                    control: Some(control),
+                                    on_activity: Some(&on_activity),
+                                },
+                                native_router.as_ref().map(|router| {
+                                    router.inner() as &dyn crate::agents::AgentNativeRuntime
+                                }),
+                            )
+                        },
+                    )?;
+                    match response {
                         Ok(response) => {
-                            last_output = response.output.clone();
+                            last_output = PromptValue::text(
+                                TextOrigin::GeneratedOutput,
+                                response.output.clone(),
+                            );
+                            task_query_state.clear_last_output();
                             last_files_changed.clear();
                             let mut metadata = SafeAgentRunMetadata::from_untrusted(
                                 provider,
@@ -1320,74 +1800,8 @@ pub fn execute_run(
                     } else {
                         context_prompt.clone()
                     };
-                    let prepared = prepare_agent_prompt(
-                        db,
-                        workflow_id,
-                        working_directory.as_deref(),
-                        run_id,
-                        &node_id,
-                        &base_prompt,
-                        &formatted_memory,
-                        &trigger_context,
-                        &automatic_memory_exclusions,
-                        workflow.memory_retrieval_enabled,
-                    );
-                    if workflow.memory_retrieval_enabled {
-                        let message = if prepared.recall_unavailable {
-                            "Memory recall unavailable; continuing without recalled context"
-                                .to_string()
-                        } else {
-                            format!(
-                                "Recalled {} memories ({} context bytes)",
-                                prepared.recalled_count, prepared.recalled_bytes
-                            )
-                        };
-                        emit(
-                            app,
-                            RunEvent {
-                                run_id: run_id.into(),
-                                workflow_id: workflow_id.into(),
-                                kind: "step_log".into(),
-                                node_id: Some(node_id.clone()),
-                                node_type: Some(node_type.clone()),
-                                node_label: Some(label.clone()),
-                                status: Some("running".into()),
-                                message,
-                                output: None,
-                                stats: None,
-                                activity: None,
-                                auth_required: None,
-                                at: Utc::now().to_rfc3339(),
-                            },
-                        )?;
-                    }
-                    let prompt = prepared.prompt;
-                    let prompt = if html_report_agents.contains(&node_id) {
-                        with_html_report_instruction(&prompt)
-                    } else {
-                        prompt
-                    };
-                    persisted_input_prompt = prompt.clone();
+                    let query_text = task_query_state.query_text(context_prompt.is_empty());
                     let git_before = working_directory.as_deref().map(git_status_snapshot);
-
-                    emit(
-                        app,
-                        RunEvent {
-                            run_id: run_id.into(),
-                            workflow_id: workflow_id.into(),
-                            kind: "step_log".into(),
-                            node_id: Some(node_id.clone()),
-                            node_type: Some(node_type.clone()),
-                            node_label: Some(label.clone()),
-                            status: Some("running".into()),
-                            message: format!("Running custom agent · `{command}`"),
-                            output: None,
-                            stats: None,
-                            activity: None,
-                            auth_required: None,
-                            at: Utc::now().to_rfc3339(),
-                        },
-                    )?;
 
                     let line_sequence = AtomicUsize::new(0);
                     let on_line = |line: &str| {
@@ -1419,16 +1833,104 @@ pub fn execute_run(
                         );
                     };
 
-                    match run_custom_agent(
-                        &command,
-                        prompt_mode,
-                        &prompt,
+                    let response = with_composed_agent_prompt(
+                        db,
+                        workflow_id,
                         working_directory.as_deref(),
-                        control,
-                        Some(&on_line),
-                    ) {
+                        run_id,
+                        &node_id,
+                        &base_prompt,
+                        &query_text,
+                        &trigger_context,
+                        workflow.memory_retrieval_enabled,
+                        &nodes,
+                        &edges,
+                        html_report_agents.contains(&node_id),
+                        |prepared, prompt| {
+                            step_evidence_inputs.extend(prior_memory_sources(
+                                run_id,
+                                &node_id,
+                                &prepared.memory_references,
+                            ));
+                            if workflow.memory_retrieval_enabled {
+                                step_memory_recall_status = Some(if prepared.recall_unavailable {
+                                    "unavailable"
+                                } else if prepared.recall_abstained {
+                                    "abstained"
+                                } else {
+                                    "included"
+                                });
+                                step_memory_recall_omitted_count = prepared.recall_omitted_count;
+                                let message = if prepared.recall_unavailable {
+                                    "Memory recall unavailable; continuing without recalled context"
+                                        .to_string()
+                                } else if prepared.recall_abstained {
+                                    "No relevant memories found for this task".to_string()
+                                } else {
+                                    format!(
+                                        "Recalled {} memories ({} context bytes)",
+                                        prepared.recalled_count, prepared.recalled_bytes
+                                    )
+                                };
+                                emit(
+                                    app,
+                                    RunEvent {
+                                        run_id: run_id.into(),
+                                        workflow_id: workflow_id.into(),
+                                        kind: "step_log".into(),
+                                        node_id: Some(node_id.clone()),
+                                        node_type: Some(node_type.clone()),
+                                        node_label: Some(label.clone()),
+                                        status: Some("running".into()),
+                                        message,
+                                        output: None,
+                                        stats: None,
+                                        activity: None,
+                                        auth_required: None,
+                                        at: Utc::now().to_rfc3339(),
+                                    },
+                                )
+                                .map_err(|error| error.to_string())?;
+                            }
+                            persisted_input_prompt = prompt.to_owned();
+                            emit(
+                                app,
+                                RunEvent {
+                                    run_id: run_id.into(),
+                                    workflow_id: workflow_id.into(),
+                                    kind: "step_log".into(),
+                                    node_id: Some(node_id.clone()),
+                                    node_type: Some(node_type.clone()),
+                                    node_label: Some(label.clone()),
+                                    status: Some("running".into()),
+                                    message: format!("Running custom agent · `{command}`"),
+                                    output: None,
+                                    stats: None,
+                                    activity: None,
+                                    auth_required: None,
+                                    at: Utc::now().to_rfc3339(),
+                                },
+                            )
+                            .map_err(|error| error.to_string())?;
+                            Ok(())
+                        },
+                        |prompt| {
+                            run_custom_agent(
+                                &command,
+                                prompt_mode,
+                                &prompt,
+                                working_directory.as_deref(),
+                                control,
+                                Some(&on_line),
+                            )
+                        },
+                    )
+                    .map_err(RunnerError::Message)?;
+                    match response {
                         Ok(text) => {
-                            last_output = text.clone();
+                            last_output =
+                                PromptValue::text(TextOrigin::GeneratedOutput, text.clone());
+                            task_query_state.clear_last_output();
                             last_files_changed.clear();
                             let mut metadata = serde_json::json!({
                                 "provider": "custom",
@@ -1466,12 +1968,16 @@ pub fn execute_run(
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
-                let mut body = last_output.clone();
-                if include_files && !last_files_changed.is_empty() {
-                    body = append_files_changed(&body, &last_files_changed, html_report);
-                }
+                let (body_value, body) = project_output_value(
+                    db,
+                    &prompt_memory_context,
+                    &last_output,
+                    &last_files_changed,
+                    include_files,
+                    html_report,
+                )?;
 
-                last_output = body.clone();
+                last_output = body_value;
                 if as_final {
                     final_output = Some(body.clone());
                 }
@@ -1479,18 +1985,29 @@ pub fn execute_run(
             }
             "template" => {
                 let template = data.get("template").and_then(|v| v.as_str()).unwrap_or("");
+                step_evidence_inputs.extend(typed_prompt_sources(
+                    run_id,
+                    &node_id,
+                    &PromptValue::text(TextOrigin::AuthoredTemplate, template),
+                ));
                 let mode = data
                     .get("mode")
                     .and_then(|v| v.as_str())
                     .unwrap_or("append");
                 let cwd = working_directory.as_deref().unwrap_or("");
-                let rendered = apply_template(template, &context_prompt, &last_output, cwd);
-                context_prompt = if mode == "replace" || context_prompt.is_empty() {
-                    rendered.clone()
-                } else {
-                    format!("{context_prompt}\n\n{rendered}")
-                };
-                last_output = rendered.clone();
+                let rendered_context_was_empty = context_prompt.is_empty();
+                let rendered = apply_template_transition(
+                    &mut context_prompt,
+                    &mut last_output,
+                    template,
+                    mode,
+                    cwd,
+                );
+                task_query_state.apply_authored_template(
+                    template,
+                    mode,
+                    rendered_context_was_empty,
+                );
                 Ok((rendered, None, None, None))
             }
             "fileInject" => {
@@ -1512,12 +2029,12 @@ pub fn execute_run(
                         sections.push(format!("### File\n`{path}`\n{}", read_file_brief(path)));
                     }
                     let text = sections.join("\n\n");
-                    context_prompt = if context_prompt.is_empty() {
-                        text.clone()
-                    } else {
-                        format!("{context_prompt}\n\n{text}")
-                    };
-                    last_output = text.clone();
+                    if !context_prompt.is_empty() {
+                        context_prompt.append_text(TextOrigin::ExternalObservation, "\n\n");
+                    }
+                    context_prompt.append_text(TextOrigin::ExternalObservation, text.clone());
+                    last_output = PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                    task_query_state.clear_last_output();
                     Ok((text, None, None, None))
                 }
             }
@@ -1530,12 +2047,13 @@ pub fn execute_run(
                     None => Err("No working directory set on this workflow".into()),
                     Some(cwd) => {
                         let text = format_git_status_context(cwd, include_diff);
-                        context_prompt = if context_prompt.is_empty() {
-                            text.clone()
-                        } else {
-                            format!("{context_prompt}\n\n{text}")
-                        };
-                        last_output = text.clone();
+                        if !context_prompt.is_empty() {
+                            context_prompt.append_text(TextOrigin::ExternalObservation, "\n\n");
+                        }
+                        context_prompt.append_text(TextOrigin::ExternalObservation, text.clone());
+                        last_output =
+                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                        task_query_state.clear_last_output();
                         Ok((text, None, None, None))
                     }
                 }
@@ -1563,15 +2081,16 @@ pub fn execute_run(
                                 format!("{output}\n(exit {code})")
                             };
                             if append {
-                                context_prompt = if context_prompt.is_empty() {
+                                let block = if context_prompt.is_empty() {
                                     text.clone()
                                 } else {
-                                    format!(
-                                        "{context_prompt}\n\n## Shell output\n\n```\n{text}\n```"
-                                    )
+                                    format!("\n\n## Shell output\n\n```\n{text}\n```")
                                 };
+                                context_prompt.append_text(TextOrigin::ExternalObservation, block);
                             }
-                            last_output = text.clone();
+                            last_output =
+                                PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                            task_query_state.clear_last_output();
                             if code == 0 {
                                 Ok((text, None, None, None))
                             } else {
@@ -1618,10 +2137,16 @@ pub fn execute_run(
                     );
                 };
 
+                let complete_context = context_prompt
+                    .render_complete(db, &prompt_memory_context)
+                    .map_err(|error| RunnerError::Message(error.to_string()))?;
+                let complete_last_output = last_output
+                    .render_complete(db, &prompt_memory_context)
+                    .map_err(|error| RunnerError::Message(error.to_string()))?;
                 match run_script(
                     &data,
-                    &context_prompt,
-                    &last_output,
+                    &complete_context,
+                    &complete_last_output,
                     working_directory.as_deref(),
                     control,
                     Some(&on_line),
@@ -1633,13 +2158,16 @@ pub fn execute_run(
                             format!("{output}\n(exit {code})")
                         };
                         if append {
-                            context_prompt = if context_prompt.is_empty() {
+                            let block = if context_prompt.is_empty() {
                                 text.clone()
                             } else {
-                                format!("{context_prompt}\n\n## Script output\n\n```\n{text}\n```")
+                                format!("\n\n## Script output\n\n```\n{text}\n```")
                             };
+                            context_prompt.append_text(TextOrigin::ExternalObservation, block);
                         }
-                        last_output = text.clone();
+                        last_output =
+                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                        task_query_state.clear_last_output();
                         if code == 0 {
                             Ok((text, None, None, None))
                         } else {
@@ -1667,35 +2195,46 @@ pub fn execute_run(
                         Err(error) => Err(error),
                         Ok(descriptor) => {
                             let cwd = working_directory.as_deref().unwrap_or("");
-                            match prepare_action_request(
-                                &data,
-                                &descriptor,
+                            let action_result = with_prepared_action(
+                                db,
+                                &prompt_memory_context,
                                 &context_prompt,
                                 &last_output,
+                                &data,
+                                &descriptor,
                                 cwd,
-                            ) {
+                                |request| {
+                                    tauri::async_runtime::block_on(integrations.execute_action(
+                                        db,
+                                        request,
+                                        ActionCancellation::new(control.cancel.clone()),
+                                    ))
+                                },
+                            );
+                            match action_result {
                                 Err(error) => Err(error),
-                                Ok(request) => {
-                                    let result = tauri::async_runtime::block_on(
-                                        integrations.execute_action(
-                                            db,
-                                            request,
-                                            ActionCancellation::new(control.cancel.clone()),
-                                        ),
-                                    );
-                                    match result {
+                                Ok(result) => match result {
                                     Ok(result) => {
                                         let text = action_result_text(&result);
                                         let context_result = action_result_context(
                                             &text,
                                             descriptor.output_is_untrusted,
                                         );
-                                        context_prompt = if context_prompt.is_empty() {
-                                            context_result
-                                        } else {
-                                            format!("{context_prompt}\n\n{context_result}")
-                                        };
-                                        last_output = text.clone();
+                                        if !context_prompt.is_empty() {
+                                            context_prompt.append_text(
+                                                TextOrigin::ExternalObservation,
+                                                "\n\n",
+                                            );
+                                        }
+                                        context_prompt.append_text(
+                                            TextOrigin::ExternalObservation,
+                                            context_result,
+                                        );
+                                        last_output = PromptValue::text(
+                                            TextOrigin::ExternalObservation,
+                                            text.clone(),
+                                        );
+                                        task_query_state.clear_last_output();
                                         let metadata = serde_json::json!({
                                             "appAction": {
                                                 "providerId": provider_id,
@@ -1717,8 +2256,7 @@ pub fn execute_run(
                                         error.code.as_str(),
                                         error.message
                                     )),
-                                }
-                                }
+                                },
                             }
                         }
                     },
@@ -1737,16 +2275,23 @@ pub fn execute_run(
                     let cwd = working_directory.as_deref().unwrap_or("");
                     let body_tpl = data.get("body").and_then(|v| v.as_str()).unwrap_or("");
                     let headers = data.get("headers").and_then(|v| v.as_str()).unwrap_or("");
-                    let body = apply_template(body_tpl, &context_prompt, &last_output, cwd);
-                    let url_r = apply_template(url, &context_prompt, &last_output, cwd);
+                    let body = apply_prompt_template(body_tpl, &context_prompt, &last_output, cwd)
+                        .render_complete(db, &prompt_memory_context)
+                        .map_err(|error| RunnerError::Message(error.to_string()))?;
+                    let url_r = apply_prompt_template(url, &context_prompt, &last_output, cwd)
+                        .render_complete(db, &prompt_memory_context)
+                        .map_err(|error| RunnerError::Message(error.to_string()))?;
                     match run_http_request(method, &url_r, headers, &body) {
                         Ok(text) => {
-                            context_prompt = if context_prompt.is_empty() {
+                            let block = if context_prompt.is_empty() {
                                 text.clone()
                             } else {
-                                format!("{context_prompt}\n\n## HTTP response\n\n```\n{text}\n```")
+                                format!("\n\n## HTTP response\n\n```\n{text}\n```")
                             };
-                            last_output = text.clone();
+                            context_prompt.append_text(TextOrigin::ExternalObservation, block);
+                            last_output =
+                                PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                            task_query_state.clear_last_output();
                             Ok((text, None, None, None))
                         }
                         Err(e) => Err(e),
@@ -1755,20 +2300,25 @@ pub fn execute_run(
             }
             "notify" => {
                 let cwd = working_directory.as_deref().unwrap_or("");
-                let title = apply_template(
+                let title = apply_prompt_template(
                     data.get("title")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Alfred"),
                     &context_prompt,
                     &last_output,
                     cwd,
-                );
-                let body = apply_template(
+                )
+                .render_complete(db, &prompt_memory_context)
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
+                let body_value = apply_prompt_template(
                     data.get("body").and_then(|v| v.as_str()).unwrap_or(""),
                     &context_prompt,
                     &last_output,
                     cwd,
                 );
+                let body = body_value
+                    .render_complete(db, &prompt_memory_context)
+                    .map_err(|error| RunnerError::Message(error.to_string()))?;
                 let desktop = data
                     .get("desktop")
                     .and_then(|v| v.as_bool())
@@ -1795,14 +2345,16 @@ pub fn execute_run(
                     } else {
                         notes.push("webhook".to_string());
                         let msg = format!("Notified via {}", notes.join(" + "));
-                        last_output = body.clone();
+                        last_output = body_value.clone();
+                        task_query_state.clear_last_output();
                         Ok((msg, None, None, None))
                     }
                 } else if notes.is_empty() {
                     Ok(("Notify skipped — nothing enabled".into(), None, None, None))
                 } else {
                     let msg = format!("Notified via {}", notes.join(" + "));
-                    last_output = body.clone();
+                    last_output = body_value;
+                    task_query_state.clear_last_output();
                     Ok((msg, None, None, None))
                 }
             }
@@ -1820,12 +2372,17 @@ pub fn execute_run(
                         .get("content")
                         .and_then(|v| v.as_str())
                         .unwrap_or("{{output}}");
-                    let content = apply_template(content_tpl, &context_prompt, &last_output, cwd);
+                    let content_value =
+                        apply_prompt_template(content_tpl, &context_prompt, &last_output, cwd);
+                    let content = content_value
+                        .render_complete(db, &prompt_memory_context)
+                        .map_err(|error| RunnerError::Message(error.to_string()))?;
                     let path = resolve_path(path_raw, working_directory.as_deref());
                     match write_text_file(&path, &content) {
                         Ok(()) => {
                             let msg = format!("Wrote {} bytes to `{path}`", content.len());
-                            last_output = content;
+                            last_output = content_value;
+                            task_query_state.clear_last_output();
                             Ok((msg, None, None, None))
                         }
                         Err(e) => Err(e),
@@ -1835,18 +2392,22 @@ pub fn execute_run(
             "gitHost" => {
                 let action = data.get("action").and_then(|v| v.as_str()).unwrap_or("pr");
                 let cwd = working_directory.as_deref().unwrap_or("");
-                let title = apply_template(
+                let title = apply_prompt_template(
                     data.get("title").and_then(|v| v.as_str()).unwrap_or(""),
                     &context_prompt,
                     &last_output,
                     cwd,
-                );
-                let body = apply_template(
+                )
+                .render_complete(db, &prompt_memory_context)
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
+                let body = apply_prompt_template(
                     data.get("body").and_then(|v| v.as_str()).unwrap_or(""),
                     &context_prompt,
                     &last_output,
                     cwd,
-                );
+                )
+                .render_complete(db, &prompt_memory_context)
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
                 let base = data.get("base").and_then(|v| v.as_str()).unwrap_or("");
                 let repo = data.get("repo").and_then(|v| v.as_str()).unwrap_or("");
                 let head = data.get("head").and_then(|v| v.as_str()).unwrap_or("");
@@ -1862,7 +2423,9 @@ pub fn execute_run(
                     working_directory.as_deref(),
                 ) {
                     Ok(text) => {
-                        last_output = text.clone();
+                        last_output =
+                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                        task_query_state.clear_last_output();
                         Ok((text, None, None, None))
                     }
                     Err(e) => Err(e),
@@ -1876,7 +2439,32 @@ pub fn execute_run(
 
         match step_result {
             Ok((output, provider, skill, metadata)) => {
-                let input = serde_json::json!({ "prompt": persisted_input_prompt });
+                let evidence_origin = match node_type.as_str() {
+                    "agent" | "customAgent" => Some(EvidenceOrigin::ModelOutput),
+                    "fileInject" | "gitStatus" | "shell" | "script" | "appAction" | "http"
+                    | "notify" | "writeFile" | "gitHost" => {
+                        Some(EvidenceOrigin::HostRecordedObservation)
+                    }
+                    _ => None,
+                };
+                if let Some(origin) = evidence_origin {
+                    step_evidence_inputs.push(EvidenceSourceInput {
+                        run_id: run_id.into(),
+                        step_id: None,
+                        node_id: Some(node_id.clone()),
+                        origin,
+                        producer_identity: provider.clone(),
+                        source_label: Some(format!("{label} result")),
+                        observed_at: Utc::now(),
+                        text: output.clone(),
+                        omission_reason: None,
+                    });
+                }
+                let input = persisted_step_input(
+                    &persisted_input_prompt,
+                    step_memory_recall_status,
+                    step_memory_recall_omitted_count,
+                );
                 let output_json = match &metadata {
                     Some(stats) => serde_json::json!({ "text": output, "stats": stats }),
                     None => serde_json::json!({ "text": output }),
@@ -1891,7 +2479,12 @@ pub fn execute_run(
                     &input,
                     &output_json,
                     None,
+                    step_evidence_inputs,
+                    output_disposition.as_ref(),
                 )?;
+                if output_disposition.is_some() {
+                    output::persist_completed_output(app, db, run_id, &node_id);
+                }
                 emit(
                     app,
                     RunEvent {
@@ -1912,7 +2505,11 @@ pub fn execute_run(
                 )?;
             }
             Err(err) if err == "__cancelled__" => {
-                let input = serde_json::json!({ "prompt": persisted_input_prompt });
+                let input = persisted_step_input(
+                    &persisted_input_prompt,
+                    step_memory_recall_status,
+                    step_memory_recall_omitted_count,
+                );
                 let metadata = step_agent_metadata.as_ref().map(safe_metadata_value);
                 let output = metadata
                     .as_ref()
@@ -1928,6 +2525,8 @@ pub fn execute_run(
                     &input,
                     &output,
                     Some("Cancelled by user"),
+                    step_evidence_inputs,
+                    None,
                 )?;
                 set_run_status(db, run_id, "cancelled", Some("Cancelled by user"))?;
                 emit(
@@ -1951,7 +2550,11 @@ pub fn execute_run(
                 return Ok(());
             }
             Err(err) => {
-                let input = serde_json::json!({ "prompt": persisted_input_prompt });
+                let input = persisted_step_input(
+                    &persisted_input_prompt,
+                    step_memory_recall_status,
+                    step_memory_recall_omitted_count,
+                );
                 let metadata = step_agent_metadata.as_ref().map(safe_metadata_value);
                 let output = metadata
                     .as_ref()
@@ -1967,6 +2570,8 @@ pub fn execute_run(
                     &input,
                     &output,
                     Some(&err),
+                    step_evidence_inputs,
+                    None,
                 )?;
                 set_run_status(db, run_id, "failed", Some(&err))?;
                 emit(
@@ -2011,7 +2616,12 @@ pub fn execute_run(
     }
 
     set_run_status(db, run_id, "completed", None)?;
-    let completed_output = final_output.unwrap_or(last_output);
+    let completed_output = match final_output {
+        Some(output) => output,
+        None => last_output
+            .render_complete(db, &prompt_memory_context)
+            .unwrap_or_default(),
+    };
     emit(
         app,
         RunEvent {
@@ -2126,29 +2736,25 @@ fn topological_order(nodes: &[Value], edges: &[Value]) -> Vec<Value> {
 pub trait ReviewAgent: Send + Sync {
     fn run_review(
         &self,
-        provider: AgentProvider,
-        request: AgentRequest,
-    ) -> Result<AgentResponse, AgentError>;
+        request: RestrictedReviewRequest,
+    ) -> Result<RestrictedReviewResponse, ReviewError>;
 }
 
-/// Production reviewer: delegates to the provider's `AgentAdapter` with no
-/// live activity hook and no workflow cancellation token — a background
-/// review neither streams activity nor participates in run cancellation.
-struct AdapterReviewAgent;
+/// Production reviewer. This is intentionally a separate provider boundary;
+/// it cannot reach `adapter_for` or inherit workflow permissions.
+struct RestrictedMemoryReviewAgent {
+    claude: ClaudeCliReviewAgent,
+}
 
-impl ReviewAgent for AdapterReviewAgent {
+impl ReviewAgent for RestrictedMemoryReviewAgent {
     fn run_review(
         &self,
-        provider: AgentProvider,
-        request: AgentRequest,
-    ) -> Result<AgentResponse, AgentError> {
-        adapter_for(provider).run(
-            request,
-            AgentRunHooks {
-                control: None,
-                on_activity: None,
-            },
-        )
+        request: RestrictedReviewRequest,
+    ) -> Result<RestrictedReviewResponse, ReviewError> {
+        match request.identity.provider {
+            AgentProvider::ClaudeCode => self.claude.run_review(request),
+            _ => Err(ReviewError::InvalidRequest),
+        }
     }
 }
 
@@ -2160,10 +2766,15 @@ pub(crate) struct MemoryReviewContext {
     pub notify_candidates_changed: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
 }
 
-fn production_review_context(app: &AppHandle) -> MemoryReviewContext {
+fn production_review_context(
+    app: &AppHandle,
+    capability: ReviewAvailability,
+) -> MemoryReviewContext {
     let handle = app.clone();
     MemoryReviewContext {
-        agent: std::sync::Arc::new(AdapterReviewAgent),
+        agent: std::sync::Arc::new(RestrictedMemoryReviewAgent {
+            claude: ClaudeCliReviewAgent::from_capability(capability),
+        }),
         notify_candidates_changed: std::sync::Arc::new(move |workflow_id| {
             emit_candidates_changed(&handle, workflow_id);
         }),
@@ -2188,17 +2799,45 @@ fn emit_candidates_changed(app: &AppHandle, workflow_id: &str) {
 /// run, and spawns the blocking background task — never blocking the run
 /// lifecycle. Review failure never changes run status or output.
 pub(crate) fn schedule_memory_review(app: &AppHandle, db: &Db, run_id: &str, workflow_id: &str) {
-    let ctx = production_review_context(app);
-    if !schedule_memory_review_with(db, run_id, workflow_id) {
+    let Some((provider, model)) = eligible_review_settings(db, run_id, workflow_id) else {
+        return;
+    };
+    let capability = discover_review_capability(provider);
+    let (product, mode, version, contract) = capability_identity_metadata(&capability);
+    let _ = db.ensure_memory_review_job_with_identity(
+        run_id,
+        workflow_id,
+        provider.as_str(),
+        product.as_deref(),
+        mode.as_deref(),
+        version.as_deref(),
+        contract.as_deref(),
+        model.as_deref(),
+    );
+    if !capability.is_supported() {
+        let _ = db.skip_memory_review(
+            run_id,
+            crate::db::REVIEW_ERROR_RESTRICTED_REVIEW_UNAVAILABLE,
+        );
+        return;
+    }
+    let ctx = production_review_context(app, capability);
+    let Some(permit) = try_enqueue_review() else {
+        register_durable_review_drain(app);
+        return;
+    };
+    if !reserve_review_run(run_id) {
+        drop(permit);
         return;
     }
     let handle = app.clone();
     let run_id = run_id.to_string();
     tauri::async_runtime::spawn_blocking(move || {
+        let _reservation = ReviewReservationGuard(run_id.clone());
         let Some(db) = handle.try_state::<Db>() else {
             return;
         };
-        execute_memory_review(db.inner(), &ctx, &run_id);
+        execute_memory_review_queued(db.inner(), &ctx, &run_id, permit);
     });
 }
 
@@ -2206,20 +2845,313 @@ pub(crate) fn schedule_memory_review(app: &AppHandle, db: &Db, run_id: &str, wor
 /// `Db::retry_memory_review` validated the settings. The atomic claim inside
 /// keeps one invocation at a time.
 pub(crate) fn spawn_retry_memory_review(app: &AppHandle, run_id: &str) {
-    let ctx = production_review_context(app);
+    let Some(db) = app.try_state::<Db>() else {
+        return;
+    };
+    let Some(capability) = production_review_capability_for_job(db.inner(), run_id) else {
+        let _ = db.skip_memory_review(
+            run_id,
+            crate::db::REVIEW_ERROR_RESTRICTED_REVIEW_UNAVAILABLE,
+        );
+        return;
+    };
+    let ctx = production_review_context(app, capability);
+    let Some(permit) = try_enqueue_review() else {
+        register_durable_review_drain(app);
+        return;
+    };
+    if !reserve_review_run(run_id) {
+        drop(permit);
+        return;
+    }
     let handle = app.clone();
     let run_id = run_id.to_string();
     tauri::async_runtime::spawn_blocking(move || {
+        let _reservation = ReviewReservationGuard(run_id.clone());
         let Some(db) = handle.try_state::<Db>() else {
             return;
         };
-        execute_memory_review(db.inner(), &ctx, &run_id);
+        execute_memory_review_queued(db.inner(), &ctx, &run_id, permit);
     });
+}
+
+/// Keep overflow in SQLite and wake one bounded dispatcher when a permit is
+/// released. Only one callback is retained by the queue, regardless of how
+/// many completed runs arrive while it is saturated.
+fn register_durable_review_drain(app: &AppHandle) {
+    let handle = app.clone();
+    register_review_drain(move || request_review_dispatch(&handle));
+}
+
+#[derive(Clone)]
+struct ReviewDispatcherState {
+    running: bool,
+    requested: bool,
+}
+
+static REVIEW_DISPATCHER: OnceLock<Mutex<ReviewDispatcherState>> = OnceLock::new();
+
+fn review_dispatcher_state() -> &'static Mutex<ReviewDispatcherState> {
+    REVIEW_DISPATCHER.get_or_init(|| {
+        Mutex::new(ReviewDispatcherState {
+            running: false,
+            requested: false,
+        })
+    })
+}
+
+fn request_review_dispatch(app: &AppHandle) {
+    let start = request_review_dispatch_state();
+    if start {
+        let handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || drain_pending_memory_reviews(&handle));
+    }
+}
+
+fn request_review_dispatch_state() -> bool {
+    review_dispatcher_state()
+        .lock()
+        .map(|mut state| {
+            if state.running {
+                state.requested = true;
+                false
+            } else {
+                state.running = true;
+                state.requested = false;
+                true
+            }
+        })
+        .unwrap_or(false)
+}
+
+// A pending SQLite row is durable, but it must not be submitted to the
+// in-process queue more than once while completion/retry callbacks race. The
+// reservation is released by the worker guard on every exit path; it is
+// process-local so a restart can recover every row from SQLite.
+static REVIEW_RESERVATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn reserve_review_run(run_id: &str) -> bool {
+    REVIEW_RESERVATIONS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map(|mut reservations| reservations.insert(run_id.to_owned()))
+        .unwrap_or(false)
+}
+
+fn release_review_run(run_id: &str) {
+    if let Ok(mut reservations) = REVIEW_RESERVATIONS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+    {
+        reservations.remove(run_id);
+    }
+}
+
+fn review_run_is_reserved(run_id: &str) -> bool {
+    REVIEW_RESERVATIONS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map(|reservations| reservations.contains(run_id))
+        .unwrap_or(true)
+}
+
+struct ReviewReservationGuard(String);
+
+impl Drop for ReviewReservationGuard {
+    fn drop(&mut self) {
+        release_review_run(&self.0);
+    }
+}
+
+/// Dispatch at most the number of ready slots currently allowed. Capability
+/// checks happen again for recovered rows, and unsupported rows are classified
+/// without ever spawning a provider process.
+pub(crate) fn recover_pending_memory_reviews(app: &AppHandle) {
+    request_review_dispatch(app);
+}
+
+fn drain_pending_memory_reviews(app: &AppHandle) {
+    let Some(db) = app.try_state::<Db>() else {
+        if let Ok(mut state) = review_dispatcher_state().lock() {
+            state.running = false;
+            state.requested = false;
+        }
+        return;
+    };
+    loop {
+        let has_pending = dispatch_pending_memory_reviews_core(
+            db.inner(),
+            REVIEW_READY_QUEUE_LIMIT as i64,
+            production_review_capability_for_job,
+            || try_enqueue_review(),
+            {
+                let app = app.clone();
+                move |run_id, capability, permit| {
+                    let handle = app.clone();
+                    let ctx = production_review_context(&app, capability);
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let _reservation = ReviewReservationGuard(run_id.clone());
+                        let Some(db) = handle.try_state::<Db>() else {
+                            return;
+                        };
+                        execute_memory_review_queued(db.inner(), &ctx, &run_id, permit);
+                    });
+                }
+            },
+        );
+        let continue_now =
+            finish_review_dispatch_cycle(has_pending, || register_durable_review_drain(app));
+        if !continue_now {
+            break;
+        }
+    }
+}
+
+fn finish_review_dispatch_cycle(has_pending: bool, register: impl FnOnce()) -> bool {
+    if has_pending {
+        register();
+    }
+    review_dispatcher_state()
+        .lock()
+        .map(|mut state| {
+            if state.requested {
+                state.requested = false;
+                true
+            } else {
+                state.running = false;
+                false
+            }
+        })
+        .unwrap_or(false)
+}
+
+/// Shared durable dispatcher core. Production supplies the real capability
+/// probe and blocking launch closure; tests supply exact synthetic identities
+/// and a fake launch closure, so eventuality and reservation behavior exercise
+/// the same pending-row selection path without an AppHandle or provider.
+fn dispatch_pending_memory_reviews_core<P, C, S, L>(
+    db: &Db,
+    limit: i64,
+    mut capability: C,
+    mut slot: S,
+    mut launch: L,
+) -> bool
+where
+    C: FnMut(&Db, &str) -> Option<ReviewAvailability>,
+    S: FnMut() -> Option<P>,
+    L: FnMut(String, ReviewAvailability, P),
+{
+    // Include every possible in-memory reservation plus the ready batch so a
+    // reserved prefix cannot hide an unreserved durable row behind it.
+    let scan_limit = limit
+        .saturating_add(REVIEW_READY_QUEUE_LIMIT as i64)
+        .saturating_add(1);
+    let pending = match db.list_pending_memory_review_ids(scan_limit) {
+        Ok(rows) => rows,
+        Err(_) => return false,
+    };
+    for (run_id, _workflow_id) in pending {
+        if review_run_is_reserved(&run_id) {
+            continue;
+        }
+        let Some(capability) = capability(db, &run_id) else {
+            if db
+                .skip_memory_review(
+                    &run_id,
+                    crate::db::REVIEW_ERROR_RESTRICTED_REVIEW_UNAVAILABLE,
+                )
+                .is_err()
+            {
+                // A classification write failure cannot make progress. Stop
+                // this owner cycle so an immediate queue callback cannot spin
+                // forever over the same durable pending row.
+                return false;
+            }
+            continue;
+        };
+        let Some(permit) = slot() else {
+            return true;
+        };
+        if !reserve_review_run(&run_id) {
+            drop(permit);
+            continue;
+        }
+        launch(run_id, capability, permit);
+    }
+    db.list_pending_memory_review_ids(scan_limit)
+        .map(|rows| {
+            rows.iter()
+                .any(|(run_id, _)| !review_run_is_reserved(run_id))
+        })
+        .unwrap_or(false)
+}
+
+fn discover_review_capability(provider: AgentProvider) -> ReviewAvailability {
+    if provider == AgentProvider::ClaudeCode {
+        return crate::agents::review::claude_cli::installed_capability();
+    }
+    ReviewAvailability::Unavailable(UnavailableReviewCapability {
+        provider,
+        product: provider.as_str().to_string(),
+        runtime_version: None,
+        execution_mode: "restricted_print".into(),
+        restriction_contract_version: REVIEW_CONTRACT_VERSION.into(),
+        reason: "provider_not_supported_for_restricted_review".into(),
+    })
+}
+
+fn capability_identity_metadata(
+    capability: &ReviewAvailability,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    match capability {
+        ReviewAvailability::Supported(value) => (
+            Some(value.identity.product.clone()),
+            Some(value.identity.execution_mode.clone()),
+            Some(value.identity.runtime_version.clone()),
+            Some(value.identity.restriction_contract_version.clone()),
+        ),
+        ReviewAvailability::Unavailable(value) => (
+            Some(value.product.clone()),
+            Some(value.execution_mode.clone()),
+            value.runtime_version.clone(),
+            Some(value.restriction_contract_version.clone()),
+        ),
+    }
+}
+
+fn production_review_capability_for_job(db: &Db, run_id: &str) -> Option<ReviewAvailability> {
+    let Some(job) = db.get_memory_review_job(run_id).ok().flatten() else {
+        return None;
+    };
+    if job.provider != AgentProvider::ClaudeCode.as_str()
+        || job.provider_product.as_deref() != Some("claude_code")
+        || job.execution_mode.as_deref() != Some("restricted_print")
+        || job.capability_version.is_none()
+        || job.restriction_contract_version.as_deref() != Some(REVIEW_CONTRACT_VERSION)
+    {
+        return None;
+    }
+    let capability = discover_review_capability(AgentProvider::ClaudeCode);
+    let ReviewAvailability::Supported(value) = &capability else {
+        return None;
+    };
+    (job.capability_version.as_deref() == Some(value.identity.runtime_version.as_str())
+        && job.provider_product.as_deref() == Some(value.identity.product.as_str())
+        && job.execution_mode.as_deref() == Some(value.identity.execution_mode.as_str())
+        && job.restriction_contract_version.as_deref()
+            == Some(value.identity.restriction_contract_version.as_str()))
+    .then_some(capability)
 }
 
 /// Eligibility gate + job enqueue. Returns whether a background task should
 /// be spawned for this run. Disabled or unconfigured paths create no job and
 /// make zero adapter calls; failed/cancelled runs are never reviewed.
+#[cfg(test)]
 pub(crate) fn schedule_memory_review_with(db: &Db, run_id: &str, workflow_id: &str) -> bool {
     let Some((provider, model)) = eligible_review_settings(db, run_id, workflow_id) else {
         return false;
@@ -2227,8 +3159,39 @@ pub(crate) fn schedule_memory_review_with(db: &Db, run_id: &str, workflow_id: &s
     // One row per run (`ON CONFLICT DO NOTHING`); an existing pending job
     // from a manual retry stays authoritative and is claimed by whichever
     // task wins the atomic claim inside the spawned execution.
-    let _ = db.ensure_memory_review_job(run_id, workflow_id, provider.as_str(), model.as_deref());
+    let (product, mode, version, contract) = persisted_review_identity(provider);
+    let _ = db.ensure_memory_review_job_with_identity(
+        run_id,
+        workflow_id,
+        provider.as_str(),
+        Some(&product),
+        Some(&mode),
+        version.as_deref(),
+        Some(&contract),
+        model.as_deref(),
+    );
     true
+}
+
+#[cfg(test)]
+fn persisted_review_identity(provider: AgentProvider) -> (String, String, Option<String>, String) {
+    // Enqueue records the selected contract identity without probing or
+    // spawning a provider. Production verifies the exact executable again
+    // immediately before launch; injected lifecycle tests use this fixture.
+    if provider == AgentProvider::ClaudeCode {
+        return (
+            "claude_code".into(),
+            "restricted_print".into(),
+            Some("2.1.263".into()),
+            REVIEW_CONTRACT_VERSION.into(),
+        );
+    }
+    (
+        provider.as_str().to_string(),
+        "restricted_print".into(),
+        None,
+        REVIEW_CONTRACT_VERSION.into(),
+    )
 }
 
 /// Global + workflow settings gate for reviewing one completed run:
@@ -2284,6 +3247,16 @@ pub(crate) fn execute_memory_review(db: &Db, ctx: &MemoryReviewContext, run_id: 
     }
 }
 
+fn execute_memory_review_queued(
+    db: &Db,
+    ctx: &MemoryReviewContext,
+    run_id: &str,
+    mut permit: crate::agents::review::ReviewQueuePermit,
+) {
+    permit.wait_for_turn();
+    execute_memory_review(db, ctx, run_id);
+}
+
 fn run_memory_review_job(
     db: &Db,
     ctx: &MemoryReviewContext,
@@ -2295,46 +3268,45 @@ fn run_memory_review_job(
         .map_err(|_| REVIEW_ERROR_INTERNAL)?
         .ok_or(REVIEW_ERROR_INTERNAL)?;
     let provider = AgentProvider::from_str(&job.provider).ok_or(REVIEW_ERROR_INTERNAL)?;
-    let detail = db
-        .get_run_history(run_id)
-        .map_err(|_| REVIEW_ERROR_INTERNAL)?
-        .ok_or(REVIEW_ERROR_INTERNAL)?;
     let context = db
         .memory_context(&job.workflow_id)
         .map_err(|_| REVIEW_ERROR_INTERNAL)?;
 
-    // Bounded digest of canonical steps + existing-memory context, both later
-    // framed as untrusted data by the prompt contract.
-    let digest = build_review_digest(&detail, REVIEW_DIGEST_MAX_BYTES);
-    let retrieval = candidate_existing_memory_context(
+    let evidence_envelope = db
+        .build_run_evidence_envelope(run_id)
+        .map_err(|_| REVIEW_ERROR_INTERNAL)?;
+    let review_clock = Utc::now();
+    let discovery = discover_review_targets_at(
         db,
-        &MemoryRetrievalRequest {
-            workflow_id: &job.workflow_id,
-            working_directory: context.working_directory.as_deref(),
-            run_id,
-            node_id: "memory-review",
-            query_text: &digest,
-            exclude_ids: &[],
-        },
+        &job.workflow_id,
+        context.working_directory.as_deref(),
+        run_id,
+        &evidence_envelope,
+        review_clock,
     );
-    let visible_ids: HashSet<String> = retrieval
-        .items
-        .iter()
-        .map(|item| item.memory_id.clone())
-        .collect();
-
     // ---- Invoke the provider once. NO database mutex is held here. ----
-    let prompt = build_review_prompt(&digest, &retrieval.markdown);
-    let request = AgentRequest {
-        prompt,
-        model: job.model.clone(),
-        skill: None,
-        skill_name: None,
-        skill_names: Vec::new(),
-        working_directory: context.working_directory.clone(),
-        extra: Value::Null,
+    let prompt = build_review_prompt(&evidence_envelope, &discovery.markdown);
+    let identity = match (
+        provider,
+        job.provider_product.as_deref(),
+        job.execution_mode.as_deref(),
+        job.capability_version.as_deref(),
+        job.restriction_contract_version.as_deref(),
+    ) {
+        (AgentProvider::ClaudeCode, Some(product), Some(mode), Some(version), Some(contract)) => {
+            ReviewExecutionIdentity {
+                provider,
+                product: product.to_string(),
+                runtime_version: version.to_string(),
+                execution_mode: mode.to_string(),
+                restriction_contract_version: contract.to_string(),
+            }
+        }
+        _ => return Err(crate::db::REVIEW_ERROR_RESTRICTED_REVIEW_UNAVAILABLE),
     };
-    let response = ctx.agent.run_review(provider, request).map_err(|error| {
+    let request = RestrictedReviewRequest::new(identity, job.model.clone(), prompt)
+        .map_err(|_| REVIEW_ERROR_INVALID_RESPONSE)?;
+    let response = ctx.agent.run_review(request).map_err(|error| {
         log::debug!("memory review failed with a provider error");
         stable_review_error_code(provider, &error)
     })?;
@@ -2342,58 +3314,43 @@ fn run_memory_review_job(
     // ---- Strict parse + central validation; no repair call ever happens. ----
     let suggestions =
         parse_reviewer_output(&response.output).map_err(|_| REVIEW_ERROR_INVALID_RESPONSE)?;
-    let review_ctx = CandidateReviewContext {
-        workflow_id: &job.workflow_id,
-        working_directory: context.working_directory.as_deref(),
-        visible_memory_ids: &visible_ids,
-        skip_target_visibility: false,
-        exclude_pending_id: None,
-    };
-    let mut validated = Vec::new();
-    for suggestion in &suggestions {
-        // Individually invalid candidates are omitted, never repaired; only
-        // the aggregate count reaches debug logs, without any body text.
-        if let Ok(candidate) = validate_candidate_suggestion(db, &review_ctx, suggestion) {
-            validated.push(candidate);
-        }
-    }
     let cap = db
         .get_memory_review_settings()
         .map(|settings| settings.max_candidates as usize)
-        .unwrap_or(validated.len());
-    validated.truncate(cap);
+        .unwrap_or(suggestions.len());
 
     // ---- Final writes in ONE transaction, then notify the queue. ----
-    db.finalize_review_success(run_id, &job.workflow_id, &validated)
-        .map_err(|_| REVIEW_ERROR_INTERNAL)?;
+    db.create_reviewed_candidates_at(
+        run_id,
+        &job.workflow_id,
+        context.working_directory.as_deref(),
+        &evidence_envelope,
+        &discovery.targets,
+        &suggestions,
+        review_clock,
+        cap,
+    )
+    .map_err(|_| REVIEW_ERROR_INTERNAL)?;
     (ctx.notify_candidates_changed)(&job.workflow_id);
     Ok(())
 }
 
-/// Map an adapter failure onto a stable review error code. Raw provider
-/// error text is classified locally and never persisted.
-fn stable_review_error_code(provider: AgentProvider, error: &AgentError) -> &'static str {
+/// Map a restricted review failure onto a stable review error code. Raw
+/// provider diagnostics are never persisted.
+fn stable_review_error_code(provider: AgentProvider, error: &ReviewError) -> &'static str {
     match error {
-        AgentError::Cancelled => REVIEW_ERROR_INTERNAL,
-        AgentError::Message(message) => {
-            if auth_required(provider, message).is_some() {
-                REVIEW_ERROR_AUTH_REQUIRED
-            } else if message.contains("timed out") {
-                REVIEW_ERROR_TIMEOUT
-            } else if message.contains("CLI not found") || message.contains("failed to spawn") {
-                REVIEW_ERROR_PROVIDER_UNAVAILABLE
-            } else {
-                REVIEW_ERROR_INTERNAL
-            }
+        ReviewError::Authentication => REVIEW_ERROR_AUTH_REQUIRED,
+        ReviewError::Timeout => REVIEW_ERROR_TIMEOUT,
+        ReviewError::Unavailable(_) | ReviewError::Process => REVIEW_ERROR_PROVIDER_UNAVAILABLE,
+        ReviewError::Cancelled
+        | ReviewError::InputTooLarge { .. }
+        | ReviewError::ResponseTooLarge { .. }
+        | ReviewError::ToolRequest
+        | ReviewError::InvalidRequest
+        | ReviewError::Internal => {
+            let _ = provider;
+            REVIEW_ERROR_INTERNAL
         }
-        // Harness-track variants are Alfred-side configuration or runtime
-        // problems: the selected reviewer cannot run, or the request is
-        // malformed locally. Neither is a raw provider failure.
-        AgentError::NativeRuntimeUnavailable => REVIEW_ERROR_PROVIDER_UNAVAILABLE,
-        AgentError::InvalidHarness
-        | AgentError::InvalidAccountRef
-        | AgentError::InvalidRequestMetadata
-        | AgentError::InvalidModel => REVIEW_ERROR_INTERNAL,
     }
 }
 
@@ -2404,6 +3361,105 @@ mod tests {
         ActionArtifact, ActionFieldDescriptor, ActionFieldKind, ActionOption,
     };
     use serde_json::json;
+
+    #[test]
+    fn runner_source_projection_preserves_typed_origins_and_omits_host_metadata() {
+        let db = Db::open_in_memory().unwrap();
+        let workflow = db
+            .create_workflow(crate::db::CreateWorkflowInput {
+                name: "Runner evidence".into(),
+                description: String::new(),
+                working_directory: "/synthetic/runner-evidence".into(),
+                folder_id: None,
+                graph: json!({"nodes": [], "edges": []}),
+            })
+            .unwrap();
+        db.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO runs
+                 (id, workflow_id, trigger_kind, status, payload_json, created_at)
+                 VALUES ('run-origin', ?1, 'webhook', 'running', ?2, '2026-09-09T10:00:00Z')",
+                rusqlite::params![
+                    workflow.id,
+                    format!(
+                        "original payload {}",
+                        "z".repeat(crate::db::EVIDENCE_SOURCE_MAX_BYTES)
+                    )
+                ],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        capture_original_trigger_source(&db, "run-origin").unwrap();
+        let mut value = PromptValue::text(
+            TextOrigin::AuthoredTask,
+            "I prefer hidden workflow instructions",
+        );
+        value.append_text(TextOrigin::AuthoredTemplate, "Configured template text");
+        value.append_text(TextOrigin::GeneratedOutput, "Upstream model result");
+        value.parts.push(PromptPart::MemoryRef {
+            id: "memory-safe-id".into(),
+        });
+        value.append_text(
+            TextOrigin::ExternalObservation,
+            "uncaptured observation body",
+        );
+        value.append_text(TextOrigin::HostMetadata, "/private/working/directory");
+        let step_id = insert_step(
+            &db,
+            "run-origin",
+            "agent",
+            None,
+            None,
+            "completed",
+            &json!({"prompt": "safe reference summary"}),
+            &json!({"text": "Upstream model result"}),
+            None,
+            typed_prompt_sources("run-origin", "agent", &value),
+            None,
+        )
+        .unwrap();
+
+        let sources = db.list_run_evidence_sources("run-origin").unwrap();
+        assert_eq!(sources.len(), 5);
+        assert!(sources.iter().any(|source| {
+            source.origin == EvidenceOrigin::ExternalTriggerData
+                && matches!(
+                    source.capture_state,
+                    crate::db::SourceCaptureState::Truncated { .. }
+                )
+        }));
+        assert_eq!(
+            sources
+                .iter()
+                .filter(|source| source.origin == EvidenceOrigin::ConfiguredWorkflowInstruction)
+                .count(),
+            2
+        );
+        assert!(!sources
+            .iter()
+            .any(|source| source.origin == EvidenceOrigin::AuthoredTask));
+        assert!(sources
+            .iter()
+            .filter(|source| source.origin != EvidenceOrigin::ExternalTriggerData)
+            .all(|source| source.step_id.as_deref() == Some(step_id.as_str())));
+        assert!(sources.iter().any(|source| {
+            source.origin == EvidenceOrigin::ModelOutput
+                && source.normalized_text == "Upstream model result"
+        }));
+        let memory_reference = sources
+            .iter()
+            .find(|source| source.origin == EvidenceOrigin::PriorMemory)
+            .unwrap();
+        assert_eq!(
+            memory_reference.normalized_text,
+            "Memory reference: memory-safe-id"
+        );
+        let serialized = serde_json::to_string(&sources).unwrap();
+        assert!(!serialized.contains("uncaptured observation body"));
+        assert!(!serialized.contains("/private/working/directory"));
+    }
 
     #[test]
     fn script_extension_maps_interpreters() {
@@ -2639,6 +3695,82 @@ mod tests {
     }
 
     #[test]
+    fn output_file_metadata_preserves_typed_memory_references() {
+        let value = PromptValue {
+            parts: vec![
+                PromptPart::Text {
+                    text: "<!doctype html><html><body>".into(),
+                    origin: TextOrigin::GeneratedOutput,
+                },
+                PromptPart::MemoryRef {
+                    id: "memory-1".into(),
+                },
+                PromptPart::Text {
+                    text: "</body></html>".into(),
+                    origin: TextOrigin::GeneratedOutput,
+                },
+            ],
+        };
+        let files = vec![json!({ "status": "modified", "path": "src/report.ts" })];
+        let result = append_files_changed_value(&value, &files, true);
+        assert_eq!(result.memory_ids(), vec!["memory-1"]);
+        assert!(result.parts.iter().any(|part| matches!(
+            part,
+            PromptPart::Text {
+                text,
+                origin: TextOrigin::HostMetadata
+            } if text.contains("Files changed")
+        )));
+        let diagnostic = result.render_reference_summary();
+        assert!(diagnostic.find("Files changed").unwrap() < diagnostic.find("</body>").unwrap());
+    }
+
+    #[test]
+    fn app_action_boundary_is_not_called_when_full_memory_projection_fails() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_conn(|conn| {
+            conn.execute_batch("DROP TABLE memories;")?;
+            Ok(())
+        })
+        .unwrap();
+        let context = MemoryContext {
+            workflow_id: "workflow".into(),
+            working_directory: None,
+        };
+        let value = PromptValue::memories(["memory-1".into()]);
+        let descriptor = ActionDescriptor {
+            provider_id: "provider".into(),
+            action_id: "action".into(),
+            label: "Action".into(),
+            description: String::new(),
+            fields: vec![],
+            required_scopes: vec![],
+            output_schema_version: 1,
+            output_is_untrusted: true,
+        };
+        let data = json!({
+            "providerId": "provider",
+            "actionId": "action",
+            "connectionId": "connection",
+            "input": {}
+        });
+        let called = std::cell::Cell::new(false);
+        let error = with_prepared_action(
+            &db,
+            &context,
+            &value,
+            &PromptValue::default(),
+            &data,
+            &descriptor,
+            "",
+            |_| called.set(true),
+        )
+        .unwrap_err();
+        assert!(!error.is_empty());
+        assert!(!called.get());
+    }
+
+    #[test]
     fn app_action_interpolates_only_declared_fields_and_feeds_later_steps() {
         let descriptor = ActionDescriptor {
             provider_id: "slack".into(),
@@ -2707,7 +3839,7 @@ mod tests {
 
     mod memory {
         use super::*;
-        use crate::db::{CreateWorkflowInput, FormattedMemoryItem};
+        use crate::db::{artifact_read_counts, reset_artifact_read_counts, CreateWorkflowInput};
 
         fn fixture() -> (Db, String) {
             let db = Db::open_in_memory().expect("open database");
@@ -2748,39 +3880,26 @@ mod tests {
             .expect("insert memory");
         }
 
-        fn pinned(id: &str, markdown: &str) -> FormattedMemoryContext {
-            FormattedMemoryContext {
-                markdown: markdown.into(),
-                included_ids: vec![id.into()],
-                included_items: vec![FormattedMemoryItem {
-                    id: id.into(),
-                    rendered_bytes: markdown.len(),
-                }],
-                omitted_count: 0,
-                bytes: markdown.len(),
-            }
-        }
-
         #[test]
-        fn disabled_composition_is_byte_for_byte_compatible() {
+        fn disabled_recall_keeps_pins_trigger_and_authored_prompt() {
             let (db, workflow_id) = fixture();
             insert_memory(&db, &workflow_id, "pin", "Pinned body", true);
-            let pinned = pinned("pin", "## Pinned durable memory\n\nPinned body\n\n");
             let trigger = "### Trigger payload\n\n```json\n{}\n```\n\n";
+            let base = PromptValue::text(TextOrigin::AuthoredTask, "Base prompt");
             let prepared = prepare_agent_prompt(
                 &db,
                 &workflow_id,
                 Some("/projects/alfred"),
                 "run",
                 "agent",
+                &base,
                 "Base prompt",
-                &pinned,
                 trigger,
-                &["pin".into()],
                 false,
             );
-            let previous = format!("{}{trigger}\n---\n\nBase prompt", pinned.markdown);
-            assert_eq!(prepared.prompt, previous);
+            assert!(prepared.prompt.contains("Pinned body"));
+            assert!(prepared.prompt.contains(trigger));
+            assert!(prepared.prompt.ends_with("\n---\n\nBase prompt"));
             assert_eq!(prepared.recalled_count, 0);
             assert!(!prepared.recall_unavailable);
         }
@@ -2790,17 +3909,16 @@ mod tests {
             let (db, workflow_id) = fixture();
             insert_memory(&db, &workflow_id, "recalled", "release facts", false);
             let trigger = "### Connected app event (untrusted external data)\n\nExternal body\n\n";
-            let empty = FormattedMemoryContext::default();
+            let base = PromptValue::text(TextOrigin::AuthoredTask, "release");
             let agent = prepare_agent_prompt(
                 &db,
                 &workflow_id,
                 Some("/projects/alfred"),
                 "run",
                 "agent-node",
+                &base,
                 "release",
-                &empty,
                 trigger,
-                &[],
                 true,
             );
             let custom = prepare_agent_prompt(
@@ -2809,26 +3927,34 @@ mod tests {
                 Some("/projects/alfred"),
                 "run",
                 "custom-node",
+                &base,
                 "release",
-                &empty,
                 trigger,
-                &[],
                 true,
             );
             assert_eq!(agent.prompt, custom.prompt);
             assert_eq!(agent.recalled_count, 1);
             assert_eq!(agent.recalled_bytes, custom.recalled_bytes);
-            let traced: i64 = db
+            let traced: Vec<(String, String)> = db
                 .with_conn(|conn| {
-                    Ok(conn.query_row(
-                        "SELECT COUNT(*) FROM run_memory_uses
-                         WHERE run_id = 'run' AND memory_id = 'recalled'",
-                        [],
-                        |row| row.get(0),
-                    )?)
+                    let mut statement = conn.prepare(
+                        "SELECT node_id, ranking_version FROM run_memory_uses
+                         WHERE run_id = 'run' AND memory_id = 'recalled'
+                         ORDER BY node_id",
+                    )?;
+                    let rows = statement
+                        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(rows)
                 })
                 .unwrap();
-            assert_eq!(traced, 2);
+            assert_eq!(
+                traced,
+                vec![
+                    ("agent-node".into(), "lexical_v2".into()),
+                    ("custom-node".into(), "lexical_v2".into())
+                ]
+            );
         }
 
         #[test]
@@ -2837,32 +3963,64 @@ mod tests {
             insert_memory(&db, &workflow_id, "pin", "release pinned", true);
             insert_memory(&db, &workflow_id, "manual", "release manual", false);
             insert_memory(&db, &workflow_id, "recalled", "release recalled", false);
-            let pinned = pinned("pin", "## Pinned durable memory\n\nrelease pinned\n\n");
-            let exclusions = vec!["pin".into(), "manual".into()];
+            let mut base = PromptValue::text(TextOrigin::AuthoredTask, "release\n\n");
+            base.append(&PromptValue::memories(["manual".into()]));
             let prepared = prepare_agent_prompt(
                 &db,
                 &workflow_id,
                 Some("/projects/alfred"),
                 "run",
                 "agent",
+                &base,
                 "release",
-                &pinned,
                 "",
-                &exclusions,
                 true,
             );
             assert_eq!(prepared.prompt.matches("release pinned").count(), 1);
-            assert!(!prepared.prompt.contains("release manual"));
+            assert_eq!(prepared.prompt.matches("release manual").count(), 1);
             assert_eq!(prepared.prompt.matches("release recalled").count(), 1);
+            assert_eq!(
+                prepared.memory_references,
+                vec![
+                    ("manual".into(), "explicit".into(), "explicit_v1".into()),
+                    ("pin".into(), "pinned".into(), "pinned_v1".into()),
+                    ("recalled".into(), "lexical".into(), "lexical_v2".into()),
+                ]
+            );
+            let step_id = insert_step(
+                &db,
+                "run",
+                "agent",
+                Some("claude_code"),
+                None,
+                "completed",
+                &json!({"prompt": "body-free persisted summary"}),
+                &json!({"text": "synthetic agent result"}),
+                None,
+                prior_memory_sources("run", "agent", &prepared.memory_references),
+                None,
+            )
+            .unwrap();
+            let reference_sources = db.list_run_evidence_sources("run").unwrap();
+            assert_eq!(reference_sources.len(), 3);
+            assert!(reference_sources.iter().all(|source| {
+                source.origin == EvidenceOrigin::PriorMemory
+                    && source.step_id.as_deref() == Some(step_id.as_str())
+                    && !source.normalized_text.contains("body")
+            }));
             let uses = db
                 .with_conn(|conn| {
                     let mut statement = conn.prepare(
-                        "SELECT memory_id, reason FROM run_memory_uses
+                        "SELECT memory_id, reason, ranking_version FROM run_memory_uses
                          WHERE run_id = 'run' AND node_id = 'agent' ORDER BY reason, memory_id",
                     )?;
                     let rows = statement
                         .query_map([], |row| {
-                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                            ))
                         })?
                         .collect::<Result<Vec<_>, _>>()?;
                     Ok(rows)
@@ -2871,9 +4029,34 @@ mod tests {
             assert_eq!(
                 uses,
                 vec![
-                    ("recalled".into(), "lexical".into()),
-                    ("pin".into(), "pinned".into())
+                    ("manual".into(), "explicit".into(), "explicit_v1".into()),
+                    ("recalled".into(), "lexical".into(), "lexical_v2".into()),
+                    ("pin".into(), "pinned".into(), "pinned_v1".into())
                 ]
+            );
+        }
+
+        #[test]
+        fn persisted_recall_status_keeps_abstention_and_omissions_separate() {
+            assert_eq!(
+                persisted_step_input("task", Some("abstained"), 0),
+                json!({
+                    "prompt": "task",
+                    "memoryRecallStatus": "abstained",
+                    "memoryRecallOmittedCount": 0
+                })
+            );
+            assert_eq!(
+                persisted_step_input("task", Some("included"), 3),
+                json!({
+                    "prompt": "task",
+                    "memoryRecallStatus": "included",
+                    "memoryRecallOmittedCount": 3
+                })
+            );
+            assert_eq!(
+                persisted_step_input("task", None, 0),
+                json!({ "prompt": "task" })
             );
         }
 
@@ -2907,16 +4090,16 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+            let base = PromptValue::text(TextOrigin::AuthoredTask, "release");
             let prepared = prepare_agent_prompt(
                 &db,
                 &workflow_id,
                 Some("/projects/alfred"),
                 "run",
                 "agent",
+                &base,
                 "release",
-                &FormattedMemoryContext::default(),
                 "### Trigger payload\n\n{}\n\n",
-                &[],
                 true,
             );
             assert!(prepared.recall_unavailable);
@@ -2924,6 +4107,87 @@ mod tests {
             assert!(!prepared.prompt.contains("secret fixture"));
             assert!(prepared.prompt.contains("### Trigger payload"));
             assert!(prepared.prompt.ends_with("\n---\n\nrelease"));
+        }
+
+        #[test]
+        fn memory_database_failure_fails_closed_without_panicking() {
+            let (db, workflow_id) = fixture();
+            db.with_conn(|conn| {
+                conn.execute_batch("DROP TABLE memories;")?;
+                Ok(())
+            })
+            .unwrap();
+            let mut base = PromptValue::text(TextOrigin::AuthoredTask, "keep this task");
+            base.append(&PromptValue::memories(["unavailable".into()]));
+            let prepared = prepare_agent_prompt(
+                &db,
+                &workflow_id,
+                Some("/projects/alfred"),
+                "run",
+                "agent",
+                &base,
+                "task",
+                "",
+                true,
+            );
+            assert!(prepared.recall_unavailable);
+            assert!(!prepared.trace_available);
+            assert_eq!(prepared.recalled_count, 0);
+            assert!(prepared.prompt.ends_with("\n---\n\nkeep this task"));
+            assert!(!prepared.prompt.contains("ID: unavailable"));
+        }
+
+        #[test]
+        fn trace_failure_keeps_bounded_selected_and_pinned_but_drops_automatic() {
+            let (db, workflow_id) = fixture();
+            insert_memory(&db, &workflow_id, "selected", "selected body", false);
+            insert_memory(&db, &workflow_id, "pin", "pinned body", true);
+            insert_memory(&db, &workflow_id, "auto", "release automatic body", false);
+            db.with_conn(|conn| {
+                conn.execute_batch(
+                    "CREATE TRIGGER reject_memory_trace
+                     BEFORE INSERT ON run_memory_uses
+                     BEGIN SELECT RAISE(ABORT, 'trace unavailable'); END;",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            let mut base = PromptValue::text(TextOrigin::AuthoredTask, "release\n\n");
+            base.append(&PromptValue::memories(["selected".into()]));
+            let prepared = prepare_agent_prompt(
+                &db,
+                &workflow_id,
+                Some("/projects/alfred"),
+                "run",
+                "agent",
+                &base,
+                "release",
+                "",
+                true,
+            );
+            assert!(!prepared.trace_available);
+            assert!(prepared.prompt.contains("selected body"));
+            assert!(prepared.prompt.contains("pinned body"));
+            assert!(!prepared.prompt.contains("automatic body"));
+            assert_eq!(prepared.recalled_count, 0);
+            assert_eq!(prepared.recall_omitted_count, 1);
+            assert!(prepared.memory_bytes <= AGENT_MEMORY_MAX_BYTES);
+            assert_eq!(prepared.memory_omitted_count, 1);
+            let summary: (i64, i64, i64) = db
+                .with_conn(|conn| {
+                    conn.query_row(
+                        "SELECT memory_bytes, automatic_omitted_count, trace_available
+                         FROM run_memory_context_summaries
+                         WHERE run_id = 'run' AND node_id = 'agent'",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .map_err(Into::into)
+                })
+                .unwrap();
+            assert_eq!(summary.0 as usize, prepared.memory_bytes);
+            assert_eq!(summary.1, 1);
+            assert_eq!(summary.2, 0);
         }
 
         #[test]
@@ -2942,22 +4206,205 @@ mod tests {
             assert!(automatic_memory_eligible("agent"));
             assert!(automatic_memory_eligible("customAgent"));
         }
+
+        #[test]
+        fn memory_template_agent_boundaries_and_output_use_production_io_paths() {
+            let (db, workflow_id) = fixture();
+            insert_memory(&db, &workflow_id, "artifact", "stored preview", false);
+            let artifact_root = db.artifact_root().join("artifacts").join(&workflow_id);
+            std::fs::create_dir_all(&artifact_root).unwrap();
+            let artifact_path = artifact_root.join(format!("{}.txt", uuid::Uuid::new_v4()));
+            let full_body = format!("{}FULL_UTILITY_TAIL", "界".repeat(100_000));
+            std::fs::write(&artifact_path, &full_body).unwrap();
+            db.with_conn(|conn| {
+                conn.execute(
+                    "UPDATE memories SET artifact_path = ?1 WHERE id = 'artifact'",
+                    rusqlite::params![artifact_path.to_string_lossy()],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+            reset_artifact_read_counts();
+            let mut context = PromptValue::default();
+            let mut output = PromptValue::default();
+            let selected =
+                apply_memory_selection(&mut context, &mut output, vec!["artifact".into()]).unwrap();
+            assert_eq!(selected, "[Memory reference: artifact]");
+            let template_output = apply_template_transition(
+                &mut context,
+                &mut output,
+                "{{context}}{{output}}",
+                "replace",
+                "/projects/alfred",
+            );
+            assert_eq!(
+                template_output
+                    .matches("[Memory reference: artifact]")
+                    .count(),
+                2
+            );
+            assert_eq!(artifact_read_counts(), (0, 0));
+
+            let mut dispatched = Vec::new();
+            for (node_id, node_type) in [("agent-flow", "agent"), ("custom-flow", "customAgent")] {
+                let prompt = with_composed_agent_prompt(
+                    &db,
+                    &workflow_id,
+                    Some("/projects/alfred"),
+                    "run",
+                    node_id,
+                    &context,
+                    "artifact",
+                    "",
+                    false,
+                    &[],
+                    &[],
+                    false,
+                    |prepared, prompt| {
+                        assert_eq!(prompt.matches("### Selected memory").count(), 1);
+                        assert!(!prompt.contains("FULL_UTILITY_TAIL"));
+                        assert_eq!(prepared.recalled_count, 0);
+                        Ok(())
+                    },
+                    |prompt| {
+                        dispatched.push((node_type, prompt.clone()));
+                        prompt
+                    },
+                )
+                .unwrap();
+                assert_eq!(prompt, dispatched.last().unwrap().1);
+            }
+            assert_eq!(dispatched.len(), 2);
+            assert_eq!(dispatched[0].0, "agent");
+            assert_eq!(dispatched[1].0, "customAgent");
+            assert_eq!(artifact_read_counts(), (0, 2));
+
+            let files = [json!({ "status": "modified", "path": "src/output.ts" })];
+            let (typed_output, rendered_output) = project_output_value(
+                &db,
+                &MemoryContext {
+                    workflow_id: workflow_id.clone(),
+                    working_directory: Some("/projects/alfred".into()),
+                },
+                &output,
+                &files,
+                true,
+                false,
+            )
+            .unwrap();
+            assert_eq!(typed_output.memory_ids(), vec!["artifact", "artifact"]);
+            assert_eq!(rendered_output.matches("FULL_UTILITY_TAIL").count(), 2);
+            assert!(rendered_output.contains("src/output.ts"));
+            assert_eq!(artifact_read_counts(), (2, 2));
+
+            output = typed_output;
+            let summary = apply_template_transition(
+                &mut context,
+                &mut output,
+                "Continue from {{output}}",
+                "replace",
+                "/projects/alfred",
+            );
+            assert_eq!(summary.matches("[Memory reference: artifact]").count(), 2);
+            let reentry = with_composed_agent_prompt(
+                &db,
+                &workflow_id,
+                Some("/projects/alfred"),
+                "run",
+                "output-reentry-agent",
+                &context,
+                "artifact",
+                "",
+                false,
+                &[],
+                &[],
+                false,
+                |_, prompt| {
+                    assert!(!prompt.contains("FULL_UTILITY_TAIL"));
+                    Ok(())
+                },
+                |prompt| prompt,
+            )
+            .unwrap();
+            assert!(!reentry.contains("FULL_UTILITY_TAIL"));
+            assert!(reentry.contains("src/output.ts"));
+            assert_eq!(artifact_read_counts(), (2, 3));
+            assert_eq!(std::fs::read_to_string(&artifact_path).unwrap(), full_body);
+            let _ = std::fs::remove_file(artifact_path);
+        }
+
+        #[test]
+        fn unavailable_memory_selection_reaches_agent_boundary_and_counts_omission() {
+            let (db, workflow_id) = fixture();
+            reset_artifact_read_counts();
+            let mut context = PromptValue::text(TextOrigin::AuthoredTask, "earlier context");
+            let mut output = PromptValue::text(TextOrigin::GeneratedOutput, "stale output");
+
+            let diagnostic =
+                apply_memory_selection(&mut context, &mut output, vec!["missing-memory".into()])
+                    .expect("a nonempty selection must not be skipped");
+            assert_eq!(diagnostic, "[Memory reference: missing-memory]");
+            assert_eq!(output.memory_ids(), vec!["missing-memory"]);
+            assert!(!diagnostic.contains("stale output"));
+
+            let dispatched = with_composed_agent_prompt(
+                &db,
+                &workflow_id,
+                Some("/projects/alfred"),
+                "run",
+                "unavailable-agent",
+                &context,
+                "missing-memory",
+                "",
+                false,
+                &[],
+                &[],
+                false,
+                |prepared, prompt| {
+                    assert_eq!(prepared.memory_omitted_count, 1);
+                    assert!(prompt.contains("1 unavailable"));
+                    Ok(())
+                },
+                |prompt| prompt,
+            )
+            .unwrap();
+            assert!(dispatched.contains("1 unavailable"));
+            assert_eq!(artifact_read_counts(), (0, 0));
+
+            let unavailable: i64 = db
+                .with_conn(|conn| {
+                    conn.query_row(
+                        "SELECT unavailable_count FROM run_memory_context_summaries
+                         WHERE run_id = 'run' AND node_id = 'unavailable-agent'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(Into::into)
+                })
+                .unwrap();
+            assert_eq!(unavailable, 1);
+        }
     }
 
     mod background_memory_review {
         use super::*;
+        use crate::agents::review::{ReviewExecutionIdentity, SupportedReviewCapability};
         use crate::db::UpdateMemoryReviewSettingsInput;
+        use crate::db::{CreateMemoryInput, CreateWorkflowInput, MemoryScopeType, MemoryType};
         use std::sync::mpsc;
+        static DISPATCHER_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         use std::time::{Duration, Instant};
 
         type ReviewBehavior =
-            std::sync::Arc<dyn Fn() -> Result<AgentResponse, AgentError> + Send + Sync>;
+            std::sync::Arc<dyn Fn() -> Result<RestrictedReviewResponse, ReviewError> + Send + Sync>;
 
         /// Records every (provider, model) invocation; optionally blocks on a
         /// gate so tests can observe the system while the provider call is in
         /// flight; returns whatever behavior is configured.
         struct FakeAgent {
             calls: std::sync::Mutex<Vec<(AgentProvider, Option<String>)>>,
+            prompts: std::sync::Mutex<Vec<String>>,
             behavior: std::sync::Mutex<ReviewBehavior>,
             gate: std::sync::Mutex<Option<mpsc::Receiver<()>>>,
         }
@@ -2966,18 +4413,22 @@ mod tests {
             fn ok_json(body: &str) -> Self {
                 let payload = body.to_string();
                 Self::behavior(move || {
-                    Ok(AgentResponse {
+                    Ok(RestrictedReviewResponse {
                         output: payload.clone(),
-                        metadata: Value::Null,
+                        usage: crate::agents::review::ReviewUsage {
+                            response_bytes: payload.len(),
+                            duration_ms: 0,
+                        },
                     })
                 })
             }
 
             fn behavior(
-                f: impl Fn() -> Result<AgentResponse, AgentError> + Send + Sync + 'static,
+                f: impl Fn() -> Result<RestrictedReviewResponse, ReviewError> + Send + Sync + 'static,
             ) -> Self {
                 Self {
                     calls: std::sync::Mutex::new(Vec::new()),
+                    prompts: std::sync::Mutex::new(Vec::new()),
                     behavior: std::sync::Mutex::new(std::sync::Arc::new(f)),
                     gate: std::sync::Mutex::new(None),
                 }
@@ -2989,32 +4440,82 @@ mod tests {
             }
 
             fn error(message: &str) -> Self {
-                let message = message.to_string();
-                Self::behavior(move || Err(AgentError::Message(message.clone())))
+                let message = message.to_ascii_lowercase();
+                Self::behavior(move || {
+                    if message.contains("authenticate") {
+                        Err(ReviewError::Authentication)
+                    } else if message.contains("timed out") {
+                        Err(ReviewError::Timeout)
+                    } else if message.contains("cli not found") {
+                        Err(ReviewError::Process)
+                    } else {
+                        Err(ReviewError::Internal)
+                    }
+                })
             }
         }
 
         impl ReviewAgent for FakeAgent {
             fn run_review(
                 &self,
-                provider: AgentProvider,
-                request: AgentRequest,
-            ) -> Result<AgentResponse, AgentError> {
+                request: RestrictedReviewRequest,
+            ) -> Result<RestrictedReviewResponse, ReviewError> {
                 self.calls
                     .lock()
                     .unwrap()
-                    .push((provider, request.model.clone()));
+                    .push((request.identity.provider, request.model.clone()));
+                self.prompts.lock().unwrap().push(request.prompt.clone());
                 if let Some(gate) = self.gate.lock().unwrap().take() {
                     // Hold the "provider call" open until the test releases it.
                     let _ = gate.recv_timeout(Duration::from_secs(10));
                 }
-                (self.behavior.lock().unwrap().clone())()
+                let mut response = (self.behavior.lock().unwrap().clone())()?;
+                if let Ok(mut output) = serde_json::from_str::<Value>(&response.output) {
+                    if let Some(candidates) =
+                        output.get_mut("candidates").and_then(Value::as_array_mut)
+                    {
+                        if let Some(catalog) = request
+                            .prompt
+                            .split("--- BEGIN EVIDENCE CATALOG (untrusted data) ---\n")
+                            .nth(1)
+                            .and_then(|tail| tail.split("\n--- END EVIDENCE CATALOG ---").next())
+                            .and_then(|json| {
+                                serde_json::from_str::<crate::db::EvidenceEnvelope>(json).ok()
+                            })
+                        {
+                            if let Some(fragment) = catalog.fragments.first() {
+                                let quote = "Uses Neovim daily";
+                                if let Some(byte_start) = fragment.text.find(quote) {
+                                    for candidate in candidates {
+                                        if let Some(map) = candidate.as_object_mut() {
+                                            map.entry("evidenceSubject")
+                                                .or_insert(json!("user_statement"));
+                                            map.entry("isInference").or_insert(json!(false));
+                                            map.entry("citations").or_insert_with(|| json!([{
+                                                "sourceId": fragment.source_id,
+                                                "fragmentId": fragment.fragment_id,
+                                                "fragmentDigest": fragment.digest,
+                                                "normalizationVersion": fragment.normalization_version,
+                                                "quote": quote,
+                                                "byteStart": byte_start,
+                                                "byteEnd": byte_start + quote.len(),
+                                            }]));
+                                        }
+                                    }
+                                    response.output = serde_json::to_string(&output).unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(response)
             }
         }
 
         struct Fixture {
             db: Db,
             workflow_id: String,
+            source_step_id: String,
         }
 
         fn fixture(run_status: &str) -> Fixture {
@@ -3037,6 +4538,46 @@ mod tests {
                 Ok(())
             })
             .expect("insert run");
+            let source_step_id = insert_step(
+                &db,
+                "run",
+                "input",
+                None,
+                None,
+                "completed",
+                &json!({"prompt": "Uses Neovim daily."}),
+                &json!({"text": "Uses Neovim daily."}),
+                None,
+                vec![
+                    crate::db::EvidenceSourceInput {
+                        run_id: "run".into(),
+                        step_id: None,
+                        node_id: Some("input".into()),
+                        origin: crate::db::EvidenceOrigin::AuthoredTask,
+                        producer_identity: None,
+                        source_label: Some("synthetic user input".into()),
+                        observed_at: Utc::now(),
+                        text: format!(
+                            "Uses Neovim daily. {}",
+                            "x".repeat(crate::db::EVIDENCE_SOURCE_MAX_BYTES)
+                        ),
+                        omission_reason: None,
+                    },
+                    crate::db::EvidenceSourceInput {
+                        run_id: "run".into(),
+                        step_id: None,
+                        node_id: Some("input".into()),
+                        origin: crate::db::EvidenceOrigin::AuthoredTask,
+                        producer_identity: None,
+                        source_label: Some("sensitive input".into()),
+                        observed_at: Utc::now(),
+                        text: "API_KEY=synthetic-secret".into(),
+                        omission_reason: None,
+                    },
+                ],
+                None,
+            )
+            .expect("persist producing step and review evidence");
             db.update_memory_review_settings(UpdateMemoryReviewSettingsInput {
                 enabled: true,
                 provider: Some("claude_code".into()),
@@ -3049,6 +4590,7 @@ mod tests {
             Fixture {
                 db,
                 workflow_id: workflow.id,
+                source_step_id,
             }
         }
 
@@ -3065,6 +4607,68 @@ mod tests {
         }
 
         const ONE_CREATE: &str = r#"{"candidates":[{"operation":"create","scopeType":"user","memoryType":"preference","title":"Editor","body":"Uses Neovim daily","confidence":0.7,"rationale":"stated twice"}]}"#;
+        const TWO_CREATE: &str = r#"{"candidates":[{"operation":"create","scopeType":"user","memoryType":"preference","title":"Editor","body":"Uses Neovim daily","confidence":0.7,"rationale":"stated twice"},{"operation":"create","scopeType":"user","memoryType":"preference","title":"Editor detail","body":"Uses Neovim daily for editing","confidence":0.6,"rationale":"same durable statement"}]}"#;
+
+        struct DispatchFixture {
+            db: Db,
+            workflow_id: String,
+            run_ids: Vec<String>,
+        }
+
+        fn dispatch_fixture(count: usize) -> DispatchFixture {
+            let db = Db::open_in_memory().expect("open dispatcher database");
+            let nonce = Uuid::new_v4().simple().to_string();
+            let workflow_id = format!("dispatch-workflow-{nonce}");
+            let run_ids: Vec<_> = (0..count)
+                .map(|index| format!("dispatch-run-{nonce}-{index:03}"))
+                .collect();
+            db.with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO workflows (id, name, description, graph_json, created_at, updated_at)
+                     VALUES (?1, 'Dispatch', '', '{}', 'now', 'now')",
+                    rusqlite::params![workflow_id],
+                )?;
+                for (index, run_id) in run_ids.iter().enumerate() {
+                    conn.execute(
+                        "INSERT INTO runs (id, workflow_id, status, created_at)
+                         VALUES (?1, ?2, 'completed', ?3)",
+                        rusqlite::params![run_id, workflow_id, format!("{index:03}")],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("insert dispatch runs");
+            for run_id in &run_ids {
+                db.ensure_memory_review_job_with_identity(
+                    run_id,
+                    &workflow_id,
+                    "claude_code",
+                    Some("claude_code"),
+                    Some("restricted_print"),
+                    Some("2.1.263"),
+                    Some(REVIEW_CONTRACT_VERSION),
+                    Some("sonnet"),
+                )
+                .expect("insert dispatch job");
+            }
+            DispatchFixture {
+                db,
+                workflow_id,
+                run_ids,
+            }
+        }
+
+        fn fake_supported_capability() -> ReviewAvailability {
+            ReviewAvailability::Supported(SupportedReviewCapability {
+                identity: ReviewExecutionIdentity {
+                    provider: AgentProvider::ClaudeCode,
+                    product: "claude_code".into(),
+                    runtime_version: "2.1.263".into(),
+                    execution_mode: "restricted_print".into(),
+                    restriction_contract_version: REVIEW_CONTRACT_VERSION.into(),
+                },
+            })
+        }
 
         fn job_status(db: &Db) -> Option<(String, Option<String>, i64)> {
             db.with_conn(|conn| {
@@ -3144,6 +4748,546 @@ mod tests {
         }
 
         #[test]
+        fn dispatcher_recovers_more_than_thirty_two_unsupported_rows() {
+            let fixture = dispatch_fixture(70);
+            let db = &fixture.db;
+            let mut launches = 0;
+            let mut rounds = 0;
+            loop {
+                rounds += 1;
+                let pending = dispatch_pending_memory_reviews_core(
+                    &db,
+                    REVIEW_READY_QUEUE_LIMIT as i64,
+                    |_, _| None,
+                    || Some(()),
+                    |_, _, ()| launches += 1,
+                );
+                if !pending {
+                    break;
+                }
+                assert!(rounds < 4, "dispatcher must rearm without incoming runs");
+            }
+            assert_eq!(launches, 0);
+            let remaining = db
+                .list_pending_memory_review_ids(100)
+                .expect("pending rows");
+            assert!(
+                remaining.is_empty(),
+                "all unsupported rows must be classified"
+            );
+            assert_eq!(
+                db.list_memory_reviews(&fixture.workflow_id, 100)
+                    .expect("review jobs")
+                    .iter()
+                    .filter(|job| job.status == crate::db::ReviewJobStatus::Skipped)
+                    .count(),
+                70
+            );
+        }
+
+        #[test]
+        fn dispatcher_stops_after_classification_write_failure() {
+            let fixture = dispatch_fixture(1);
+            let db = &fixture.db;
+            db.with_conn(|conn| {
+                conn.execute_batch(
+                    "CREATE TRIGGER reject_review_skip
+                     BEFORE UPDATE OF status ON memory_reviews
+                     WHEN NEW.status = 'skipped'
+                     BEGIN
+                       SELECT RAISE(ABORT, 'skip rejected');
+                     END;",
+                )?;
+                Ok(())
+            })
+            .expect("install rejecting trigger");
+
+            let mut launches = 0;
+            let pending = dispatch_pending_memory_reviews_core(
+                db,
+                REVIEW_READY_QUEUE_LIMIT as i64,
+                |_, _| None,
+                || Some(()),
+                |_, _, ()| launches += 1,
+            );
+
+            assert!(!pending, "failed classification must stop this drain");
+            assert_eq!(launches, 0);
+            assert_eq!(
+                db.list_pending_memory_review_ids(10)
+                    .expect("pending rows")
+                    .len(),
+                1,
+                "the failed write remains durable for a later recovery attempt"
+            );
+        }
+
+        #[test]
+        fn dispatcher_eventually_completes_more_than_thirty_two_supported_rows() {
+            let fixture = dispatch_fixture(33);
+            let db = &fixture.db;
+            let capability = fake_supported_capability();
+            let mut completed = Vec::new();
+            let mut rounds = 0;
+            loop {
+                rounds += 1;
+                let mut slots = 0;
+                let pending = dispatch_pending_memory_reviews_core(
+                    &db,
+                    REVIEW_READY_QUEUE_LIMIT as i64,
+                    |_, _| Some(capability.clone()),
+                    || {
+                        if slots < REVIEW_READY_QUEUE_LIMIT {
+                            slots += 1;
+                            Some(())
+                        } else {
+                            None
+                        }
+                    },
+                    |run_id, _, ()| {
+                        let _reservation = ReviewReservationGuard(run_id.clone());
+                        db.with_conn(|conn| {
+                            conn.execute(
+                                "UPDATE memory_reviews SET status = 'completed', finished_at = 'now'
+                                 WHERE run_id = ?1 AND status = 'pending'",
+                                rusqlite::params![run_id],
+                            )?;
+                            Ok(())
+                        })
+                        .expect("complete dispatched row");
+                        completed.push(run_id);
+                    },
+                );
+                if !pending {
+                    break;
+                }
+                assert!(rounds < 4, "dispatcher must drain without new runs");
+            }
+            assert_eq!(completed.len(), 33);
+            assert!(db
+                .list_pending_memory_review_ids(100)
+                .expect("pending rows")
+                .is_empty());
+        }
+
+        #[test]
+        fn dispatcher_handoff_survives_capacity_opening_during_registration() {
+            let _test_lock = DISPATCHER_TEST_LOCK
+                .get_or_init(|| Mutex::new(()))
+                .lock()
+                .expect("dispatcher test lock");
+            let fixture = dispatch_fixture(33);
+            let db = &fixture.db;
+            let capability = fake_supported_capability();
+            let mut launches = Vec::new();
+            // A full queue causes the first handoff to register durable work;
+            // opening capacity afterwards must re-enter the same core.
+            let first =
+                dispatch_pending_memory_review_ids_for_test(&db, &capability, &mut launches, false);
+            assert!(first, "full capacity must leave durable work");
+            finish_review_dispatch_cycle(first, || {
+                dispatch_rearmed_batches(&db, &capability, &mut launches, 0)
+            });
+            assert_eq!(launches.len(), 33);
+        }
+
+        fn dispatch_rearmed_batches(
+            db: &Db,
+            capability: &ReviewAvailability,
+            launches: &mut Vec<String>,
+            depth: usize,
+        ) {
+            assert!(depth < 4, "handoff must not recurse without progress");
+            let pending =
+                dispatch_pending_memory_review_ids_for_test(db, capability, launches, true);
+            finish_review_dispatch_cycle(pending, || {
+                dispatch_rearmed_batches(db, capability, launches, depth + 1)
+            });
+        }
+
+        #[test]
+        fn dispatcher_skips_reserved_rows_without_duplicate_submission() {
+            let fixture = dispatch_fixture(1);
+            let db = &fixture.db;
+            let run_id = &fixture.run_ids[0];
+            assert!(reserve_review_run(run_id));
+            let capability = fake_supported_capability();
+            let mut launches = 0;
+            let pending =
+                dispatch_pending_memory_review_ids_for_test(&db, &capability, &mut launches, true);
+            assert!(
+                !pending,
+                "reserved work is already owned and needs no wakeup"
+            );
+            assert_eq!(launches, 0);
+            release_review_run(run_id);
+            let pending =
+                dispatch_pending_memory_review_ids_for_test(&db, &capability, &mut launches, true);
+            assert!(!pending);
+            assert_eq!(launches, 1);
+        }
+
+        #[test]
+        fn dispatcher_does_not_rearm_for_reserved_active_and_ready_rows() {
+            let _test_lock = DISPATCHER_TEST_LOCK
+                .get_or_init(|| Mutex::new(()))
+                .lock()
+                .expect("dispatcher test lock");
+            let fixture = dispatch_fixture(33);
+            let db = &fixture.db;
+            let capability = fake_supported_capability();
+            // Hold one active fake plus 31 ready permits. Reserve the durable
+            // rows represented by those in-flight slots so the 33rd row can
+            // use the one spare slot without causing a busy rearm over work
+            // that is already owned by another dispatcher cycle.
+            let _held_reservations: Vec<_> = fixture.run_ids[..32]
+                .iter()
+                .map(|run_id| {
+                    assert!(reserve_review_run(run_id));
+                    ReviewReservationGuard(run_id.clone())
+                })
+                .collect();
+            let mut ready: Vec<_> = (0..REVIEW_READY_QUEUE_LIMIT)
+                .map(|_| try_enqueue_review().expect("fill production queue"))
+                .collect();
+            let mut active = ready.pop().expect("active permit");
+            active.wait_for_turn();
+            let mut launches = 0;
+            let pending = dispatch_pending_memory_reviews_core(
+                db,
+                REVIEW_READY_QUEUE_LIMIT as i64,
+                |_, _| Some(capability.clone()),
+                || try_enqueue_review(),
+                |run_id, _, permit| {
+                    let _reservation = ReviewReservationGuard(run_id.clone());
+                    db.with_conn(|conn| {
+                        conn.execute(
+                            "UPDATE memory_reviews SET status = 'completed', finished_at = 'now'
+                             WHERE run_id = ?1 AND status = 'pending'",
+                            rusqlite::params![run_id],
+                        )?;
+                        Ok(())
+                    })
+                    .expect("complete spare row");
+                    drop(permit);
+                    launches += 1;
+                },
+            );
+            assert!(!pending, "reserved rows must not request another drain");
+            assert_eq!(launches, 1);
+            drop(active);
+            drop(ready);
+        }
+
+        #[test]
+        fn dispatcher_callback_during_active_drain_is_recorded_and_drains_new_row() {
+            let _test_lock = DISPATCHER_TEST_LOCK
+                .get_or_init(|| Mutex::new(()))
+                .lock()
+                .expect("dispatcher test lock");
+            let fixture = dispatch_fixture(1);
+            let db = std::sync::Arc::new(fixture.db);
+            let capability = fake_supported_capability();
+            let mut permits: Vec<_> = (0..=REVIEW_READY_QUEUE_LIMIT)
+                .map(|_| try_enqueue_review().expect("fill production queue"))
+                .collect();
+            review_dispatcher_state()
+                .lock()
+                .expect("dispatcher state")
+                .clone_from(&ReviewDispatcherState {
+                    running: true,
+                    requested: false,
+                });
+
+            let (callback_tx, callback_rx) = std::sync::mpsc::channel();
+            register_review_drain(move || {
+                let starts_new_owner = request_review_dispatch_state();
+                callback_tx.send(starts_new_owner).expect("callback signal");
+            });
+            let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel::<()>();
+            let owner_db = db.clone();
+            let owner_capability = capability.clone();
+            let owner = std::thread::spawn(move || {
+                let mut gate = Some(gate_rx);
+                loop {
+                    let has_pending = dispatch_pending_memory_reviews_core(
+                        &owner_db,
+                        REVIEW_READY_QUEUE_LIMIT as i64,
+                        |_, _| {
+                            if let Some(gate) = gate.take() {
+                                entered_tx.send(()).expect("owner entered capability probe");
+                                let _ = gate.recv();
+                            }
+                            Some(owner_capability.clone())
+                        },
+                        || Some(()),
+                        |run_id, _, ()| {
+                            let _reservation = ReviewReservationGuard(run_id.clone());
+                            owner_db
+                                .with_conn(|conn| {
+                                    conn.execute(
+                                        "UPDATE memory_reviews SET status = 'completed', finished_at = 'now'
+                                         WHERE run_id = ?1 AND status = 'pending'",
+                                        rusqlite::params![run_id],
+                                    )?;
+                                    Ok(())
+                                })
+                                .expect("complete callback row");
+                        },
+                    );
+                    if !finish_review_dispatch_cycle(has_pending, || {}) {
+                        break;
+                    }
+                }
+            });
+
+            // Wait until the owner has selected the initial durable row and
+            // entered its capability probe. Releasing one production
+            // permit delivers the real ReviewQueue callback while running;
+            // the callback must request another owner cycle rather than being
+            // discarded by a guard.
+            entered_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("owner entered first capability probe");
+            drop(permits.pop());
+            assert_eq!(
+                callback_rx
+                    .recv_timeout(Duration::from_secs(1))
+                    .expect("callback delivered"),
+                false,
+                "active owner records a request instead of starting another owner"
+            );
+            // A new durable row arrives after the active batch selected its
+            // initial row. The recorded request must make the owner loop pick
+            // this row up after the current call completes.
+            db.with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO runs (id, workflow_id, status, created_at)
+                     VALUES ('callback-arrival-run', ?1, 'completed', 'callback')",
+                    rusqlite::params![fixture.workflow_id],
+                )?;
+                Ok(())
+            })
+            .expect("insert callback-arrival run");
+            db.ensure_memory_review_job_with_identity(
+                "callback-arrival-run",
+                &fixture.workflow_id,
+                "claude_code",
+                Some("claude_code"),
+                Some("restricted_print"),
+                Some("2.1.263"),
+                Some(REVIEW_CONTRACT_VERSION),
+                Some("sonnet"),
+            )
+            .expect("insert callback-arrival review");
+            drop(gate_tx);
+            owner.join().expect("dispatcher owner");
+            assert!(db
+                .list_pending_memory_review_ids(10)
+                .expect("pending rows")
+                .is_empty());
+            let reviews = db
+                .list_memory_reviews(&fixture.workflow_id, 10)
+                .expect("review rows");
+            assert_eq!(reviews.len(), 2);
+            assert!(reviews
+                .iter()
+                .all(|review| review.status == crate::db::ReviewJobStatus::Completed));
+            drop(permits);
+            review_dispatcher_state()
+                .lock()
+                .expect("dispatcher state")
+                .clone_from(&ReviewDispatcherState {
+                    running: false,
+                    requested: false,
+                });
+        }
+
+        fn dispatch_pending_memory_review_ids_for_test(
+            db: &Db,
+            capability: &ReviewAvailability,
+            launches: &mut impl DispatchLaunchCounter,
+            capacity_open: bool,
+        ) -> bool {
+            let mut slots = if capacity_open {
+                REVIEW_READY_QUEUE_LIMIT
+            } else {
+                0
+            };
+            dispatch_pending_memory_reviews_core(
+                db,
+                REVIEW_READY_QUEUE_LIMIT as i64,
+                |_, _| Some(capability.clone()),
+                || {
+                    if slots > 0 {
+                        slots -= 1;
+                        Some(())
+                    } else {
+                        None
+                    }
+                },
+                |run_id, _, ()| {
+                    let _reservation = ReviewReservationGuard(run_id.clone());
+                    db.with_conn(|conn| {
+                        conn.execute(
+                            "UPDATE memory_reviews SET status = 'completed', finished_at = 'now'
+                             WHERE run_id = ?1 AND status = 'pending'",
+                            rusqlite::params![run_id],
+                        )?;
+                        Ok(())
+                    })
+                    .expect("complete dispatched row");
+                    launches.record(run_id);
+                },
+            )
+        }
+
+        trait DispatchLaunchCounter {
+            fn record(&mut self, run_id: String);
+        }
+
+        impl DispatchLaunchCounter for Vec<String> {
+            fn record(&mut self, run_id: String) {
+                self.push(run_id);
+            }
+        }
+
+        impl DispatchLaunchCounter for i32 {
+            fn record(&mut self, _run_id: String) {
+                *self += 1;
+            }
+        }
+
+        #[test]
+        fn injected_reviewer_covers_accept_reject_and_invisible_target_evidence() {
+            // Accepted output travels through the same injected boundary and
+            // creates one pending candidate without invoking a CLI.
+            let accepted = fixture("completed");
+            let accepted_agent = std::sync::Arc::new(FakeAgent::ok_json(ONE_CREATE));
+            let (events_tx, _events) = mpsc::channel();
+            schedule_memory_review_with(&accepted.db, "run", &accepted.workflow_id);
+            execute_memory_review(&accepted.db, &ctx(accepted_agent.clone(), events_tx), "run");
+            assert_eq!(job_status(&accepted.db).unwrap().0, "completed");
+            assert_eq!(job_status(&accepted.db).unwrap().2, 1);
+            assert_eq!(accepted_agent.calls.lock().unwrap().len(), 1);
+
+            // Malformed provider output is rejected at the lifecycle boundary
+            // and persists only the stable invalid-response code.
+            let rejected = fixture("completed");
+            let rejected_agent = std::sync::Arc::new(FakeAgent::behavior(|| {
+                Ok(RestrictedReviewResponse {
+                    output: "Here are suggestions with unsupported prose".into(),
+                    usage: crate::agents::review::ReviewUsage {
+                        response_bytes: 43,
+                        duration_ms: 0,
+                    },
+                })
+            }));
+            let (events_tx, _events) = mpsc::channel();
+            schedule_memory_review_with(&rejected.db, "run", &rejected.workflow_id);
+            execute_memory_review(&rejected.db, &ctx(rejected_agent.clone(), events_tx), "run");
+            let (status, error, count) = job_status(&rejected.db).unwrap();
+            assert_eq!(status, "failed");
+            assert_eq!(error.as_deref(), Some(REVIEW_ERROR_INVALID_RESPONSE));
+            assert_eq!(count, 0);
+            assert_eq!(rejected_agent.calls.lock().unwrap().len(), 1);
+
+            // A suggestion that names a memory outside the reviewer's visible
+            // context is omitted by central validation. This keeps a fake
+            // reviewer from manufacturing circular evidence or authority.
+            let circular = fixture("completed");
+            let other_workflow = circular
+                .db
+                .create_workflow(CreateWorkflowInput {
+                    name: "Other workflow".into(),
+                    description: String::new(),
+                    working_directory: "/projects/other".into(),
+                    folder_id: None,
+                    graph: json!({ "nodes": [], "edges": [] }),
+                })
+                .unwrap();
+            circular
+                .db
+                .create_memory(CreateMemoryInput {
+                    workflow_id: other_workflow.id,
+                    title: "Private target".into(),
+                    body: "Evidence from another workflow".into(),
+                    run_id: None,
+                    node_id: None,
+                    kind: None,
+                    scope_type: Some(MemoryScopeType::Workflow),
+                    memory_type: Some(MemoryType::Fact),
+                    source: Some("manual".into()),
+                    pinned: Some(false),
+                    confidence: Some(0.9),
+                    salience: Some(50),
+                    status: None,
+                    supersedes_id: None,
+                    fact_key: None,
+                    observed_at: None,
+                    last_confirmed_at: None,
+                    valid_from: None,
+                    expires_at: None,
+                    id: Some("invisible-target".into()),
+                })
+                .unwrap();
+            let circular_output = r#"{"candidates":[{"operation":"supersede","targetMemoryId":"invisible-target","scopeType":"workflow","memoryType":"fact","title":"Replacement","body":"A replacement claim","confidence":0.8,"rationale":"circular evidence"}]}"#;
+            let circular_agent = std::sync::Arc::new(FakeAgent::ok_json(circular_output));
+            let (events_tx, _events) = mpsc::channel();
+            schedule_memory_review_with(&circular.db, "run", &circular.workflow_id);
+            execute_memory_review(&circular.db, &ctx(circular_agent.clone(), events_tx), "run");
+            let (status, error, count) = job_status(&circular.db).unwrap();
+            assert_eq!(status, "completed");
+            assert_eq!(error, None);
+            assert_eq!(count, 0);
+            assert_eq!(circular_agent.calls.lock().unwrap().len(), 1);
+
+            // A reviewer repeating an already visible claim is circular
+            // evidence rather than a new fact. The existing duplicate hash
+            // guard rejects it while the review job itself completes safely.
+            let duplicate = fixture("completed");
+            duplicate
+                .db
+                .create_memory(CreateMemoryInput {
+                    workflow_id: duplicate.workflow_id.clone(),
+                    title: "Existing claim".into(),
+                    body: "Uses Neovim daily".into(),
+                    run_id: None,
+                    node_id: None,
+                    kind: None,
+                    scope_type: Some(MemoryScopeType::User),
+                    memory_type: Some(MemoryType::Preference),
+                    source: Some("manual".into()),
+                    pinned: Some(false),
+                    confidence: Some(0.9),
+                    salience: Some(50),
+                    status: None,
+                    supersedes_id: None,
+                    fact_key: None,
+                    observed_at: None,
+                    last_confirmed_at: None,
+                    valid_from: None,
+                    expires_at: None,
+                    id: Some("existing-claim".into()),
+                })
+                .unwrap();
+            let duplicate_agent = std::sync::Arc::new(FakeAgent::ok_json(ONE_CREATE));
+            let (events_tx, _events) = mpsc::channel();
+            schedule_memory_review_with(&duplicate.db, "run", &duplicate.workflow_id);
+            execute_memory_review(
+                &duplicate.db,
+                &ctx(duplicate_agent.clone(), events_tx),
+                "run",
+            );
+            let (status, error, count) = job_status(&duplicate.db).unwrap();
+            assert_eq!(status, "completed");
+            assert_eq!(error, None);
+            assert_eq!(count, 0);
+            assert_eq!(duplicate_agent.calls.lock().unwrap().len(), 1);
+        }
+
+        #[test]
         fn completion_path_returns_before_slow_review_finishes() {
             let fx = fixture("completed");
             let (gate_tx, gate_rx) = mpsc::channel();
@@ -3202,9 +5346,47 @@ mod tests {
         #[test]
         fn success_passes_provider_and_model_once_inserts_candidates_and_notifies() {
             let fx = fixture("completed");
-            let agent = std::sync::Arc::new(FakeAgent::ok_json(ONE_CREATE));
+            let agent = std::sync::Arc::new(FakeAgent::ok_json(TWO_CREATE));
             let (events_tx, events) = mpsc::channel();
             let context = ctx(agent.clone(), events_tx);
+
+            let downstream_step_id = insert_step(
+                &fx.db,
+                "run",
+                "agent-downstream",
+                Some("claude_code"),
+                None,
+                "completed",
+                &json!({"prompt": "Forwarded: Uses Neovim daily."}),
+                &json!({"text": "Downstream acknowledgement"}),
+                None,
+                vec![crate::db::EvidenceSourceInput {
+                    run_id: "run".into(),
+                    step_id: None,
+                    node_id: Some("agent-downstream".into()),
+                    origin: crate::db::EvidenceOrigin::ModelOutput,
+                    producer_identity: Some("claude_code".into()),
+                    source_label: Some("downstream result".into()),
+                    observed_at: Utc::now(),
+                    text: "Downstream acknowledgement".into(),
+                    omission_reason: None,
+                }],
+                None,
+            )
+            .unwrap();
+            let captured = fx.db.list_run_evidence_sources("run").unwrap();
+            assert_eq!(
+                captured
+                    .iter()
+                    .filter(|source| source.normalized_text.contains("Uses Neovim daily"))
+                    .count(),
+                1,
+                "forwarded typed content must not be recaptured with a new lineage"
+            );
+            assert!(captured.iter().any(|source| {
+                source.origin == crate::db::EvidenceOrigin::ModelOutput
+                    && source.step_id.as_deref() == Some(downstream_step_id.as_str())
+            }));
 
             schedule_memory_review_with(&fx.db, "run", &fx.workflow_id);
             execute_memory_review(&fx.db, &context, "run");
@@ -3215,11 +5397,20 @@ mod tests {
                 calls,
                 vec![(AgentProvider::ClaudeCode, Some("sonnet".into()))]
             );
+            let prompts = agent.prompts.lock().unwrap();
+            assert_eq!(prompts.len(), 1);
+            assert!(prompts[0].contains("BEGIN EVIDENCE CATALOG"));
+            assert!(prompts[0].contains("\"captureState\":{\"state\":\"truncated\""));
+            assert!(prompts[0].contains("\"omittedSourceCount\":1"));
+            assert!(!prompts[0].contains("synthetic-secret"));
+            assert!(!prompts[0].contains("BEGIN RUN DIGEST"));
+            assert!(prompts[0].len() <= crate::agents::review::REVIEW_INPUT_MAX_BYTES);
+            drop(prompts);
 
             let (status, error_code, count) = job_status(&fx.db).unwrap();
             assert_eq!(status, "completed");
             assert_eq!(error_code, None);
-            assert_eq!(count, 1);
+            assert_eq!(count, 2);
             let candidates = fx
                 .db
                 .list_memory_candidates(crate::db::ListMemoryCandidatesInput {
@@ -3227,12 +5418,71 @@ mod tests {
                     status: None,
                 })
                 .unwrap();
-            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates.len(), 2);
             assert_eq!(candidates[0].review_run_id, "run");
 
             // candidates-changed carries the workflow id + pending count only.
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(event, fx.workflow_id);
+
+            // The same injected response must survive the real approval
+            // transaction, copy canonical evidence, and scrub it when source
+            // history is deleted without deleting the approved claim.
+            let editor_candidate = candidates
+                .iter()
+                .find(|candidate| candidate.title == "Editor")
+                .expect("injected editor candidate");
+            let approved = fx
+                .db
+                .approve_memory_candidate(&editor_candidate.id)
+                .unwrap();
+            assert_eq!(approved.status, crate::db::CandidateStatus::Approved);
+            let context = fx.db.memory_context(&fx.workflow_id).unwrap();
+            let memory = fx
+                .db
+                .list_memories_for_context(&context, false)
+                .unwrap()
+                .into_iter()
+                .find(|item| item.memory.title == "Editor")
+                .expect("approved canonical memory")
+                .memory;
+            assert_eq!(memory.provenance_state, "evidence_verified");
+            let evidence = fx.db.list_memory_evidence(&memory.id).unwrap();
+            assert_eq!(evidence.len(), 1);
+            assert_eq!(evidence[0].quote.as_deref(), Some("Uses Neovim daily"));
+            fx.db
+                .with_conn(|conn| {
+                    conn.execute(
+                        "DELETE FROM run_steps WHERE id = ?1",
+                        rusqlite::params![fx.source_step_id],
+                    )?;
+                    Ok(())
+                })
+                .unwrap();
+            let retained = fx.db.get_memory(&memory.id).unwrap().unwrap();
+            assert_eq!(retained.body, "Uses Neovim daily");
+            assert_eq!(retained.provenance_state, "source_removed");
+            let scrubbed = fx.db.list_memory_evidence(&memory.id).unwrap();
+            assert!(scrubbed[0].source_removed);
+            assert_eq!(scrubbed[0].quote, None);
+            assert_eq!(scrubbed[0].fragment_digest, None);
+            let pending = fx
+                .db
+                .list_memory_candidates(crate::db::ListMemoryCandidatesInput {
+                    workflow_id: fx.workflow_id.clone(),
+                    status: None,
+                })
+                .unwrap()
+                .into_iter()
+                .find(|candidate| candidate.title == "Editor detail")
+                .expect("second injected candidate remains inspectable");
+            assert_eq!(pending.status, crate::db::CandidateStatus::Blocked);
+            assert_eq!(pending.blocked_code.as_deref(), Some("source_removed"));
+            assert!(pending.rationale.is_empty());
+            assert!(pending
+                .evidence
+                .iter()
+                .all(|item| item.source_removed && item.quote.is_none()));
         }
 
         #[test]
@@ -3256,9 +5506,12 @@ mod tests {
                     crate::db::REVIEW_ERROR_INVALID_RESPONSE,
                     Box::new(|| {
                         FakeAgent::behavior(|| {
-                            Ok(AgentResponse {
+                            Ok(RestrictedReviewResponse {
                                 output: "Here are your suggestions!".into(),
-                                metadata: Value::Null,
+                                usage: crate::agents::review::ReviewUsage {
+                                    response_bytes: 28,
+                                    duration_ms: 0,
+                                },
                             })
                         })
                     }),
@@ -3292,9 +5545,12 @@ mod tests {
             let payload = ONE_CREATE.to_string();
             let agent = std::sync::Arc::new(FakeAgent::behavior(move || {
                 std::thread::sleep(Duration::from_millis(50));
-                Ok(AgentResponse {
+                Ok(RestrictedReviewResponse {
                     output: payload.clone(),
-                    metadata: Value::Null,
+                    usage: crate::agents::review::ReviewUsage {
+                        response_bytes: payload.len(),
+                        duration_ms: 0,
+                    },
                 })
             }));
             let (events_tx, _events) = mpsc::channel();
@@ -3343,9 +5599,12 @@ mod tests {
             let payload = ONE_CREATE.to_string();
             let succeeding: std::sync::Arc<FakeAgent> =
                 std::sync::Arc::new(FakeAgent::behavior(move || {
-                    Ok(AgentResponse {
+                    Ok(RestrictedReviewResponse {
                         output: payload.clone(),
-                        metadata: Value::Null,
+                        usage: crate::agents::review::ReviewUsage {
+                            response_bytes: payload.len(),
+                            duration_ms: 0,
+                        },
                     })
                 }));
             execute_memory_review(&fx.db, &ctx(succeeding.clone(), events_tx), "run");
@@ -3807,7 +6066,7 @@ fn apply_template(template: &str, context: &str, output: &str, cwd: &str) -> Str
         .replace("{{cwd}}", cwd)
 }
 
-fn prepare_action_request(
+pub(crate) fn prepare_action_request(
     data: &Value,
     descriptor: &ActionDescriptor,
     context: &str,
@@ -3857,6 +6116,21 @@ fn prepare_action_request(
         action_id: action_id.into(),
         input,
     })
+}
+
+fn with_prepared_action<T>(
+    db: &Db,
+    memory_context: &MemoryContext,
+    context: &PromptValue,
+    output: &PromptValue,
+    data: &Value,
+    descriptor: &ActionDescriptor,
+    cwd: &str,
+    execute: impl FnOnce(ActionRequest) -> T,
+) -> Result<T, String> {
+    let (context, output) = complete_prompt_values(db, memory_context, context, output)?;
+    let request = prepare_action_request(data, descriptor, &context, &output, cwd)?;
+    Ok(execute(request))
 }
 
 fn action_result_text(result: &ActionResult) -> String {

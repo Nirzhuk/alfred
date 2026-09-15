@@ -1,0 +1,11 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "2.0.0",
+  "title": "Incompatible template",
+  "description": "",
+  "graph": { "nodes": [{ "id": "input", "type": "input", "data": { "label": "Input", "prompt": "Ready" }, "position": { "x": 0, "y": 0 } }], "edges": [] },
+  "parameters": [],
+  "requirements": [],
+  "starts": []
+}

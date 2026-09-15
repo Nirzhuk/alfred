@@ -1,0 +1,20 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Cycle",
+  "description": "",
+  "graph": {
+    "nodes": [
+      { "id": "a", "type": "agent", "data": {}, "position": { "x": 0, "y": 0 } },
+      { "id": "b", "type": "agent", "data": {}, "position": { "x": 1, "y": 1 } }
+    ],
+    "edges": [
+      { "id": "a-b", "source": "a", "target": "b" },
+      { "id": "b-a", "source": "b", "target": "a" }
+    ]
+  },
+  "parameters": [],
+  "requirements": [],
+  "starts": []
+}

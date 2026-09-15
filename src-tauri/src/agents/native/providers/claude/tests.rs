@@ -308,6 +308,7 @@ fn request_with(
             patch: true,
             mcp: false,
             subagents: false,
+            memory_lookup: false,
         },
         session_mode: NativeSessionMode::Ephemeral,
         session_id: None,
@@ -638,6 +639,7 @@ fn only_alfred_owned_tools_are_advertised() {
         patch: true,
         mcp: true,
         subagents: true,
+        memory_lookup: false,
     })
     .iter()
     .map(|tool| tool["name"].as_str().unwrap_or_default().to_string())
@@ -651,9 +653,10 @@ fn only_alfred_owned_tools_are_advertised() {
 #[test]
 fn a_looping_model_is_stopped_by_the_tool_iteration_bound() {
     let turns = (0..super::wire::MAX_TOOL_ITERATIONS + 2)
-        .map(|_| {
+        .map(|iteration| {
+            let request_id = format!("toolu_{iteration}");
             sse(&tool_turn(
-                "toolu_1",
+                &request_id,
                 "alfred_read_file",
                 json!({"path": "."}),
             ))

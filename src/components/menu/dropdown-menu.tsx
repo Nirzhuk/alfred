@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type AriaRole,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type ReactNode,
@@ -105,6 +106,7 @@ export function DropdownMenuTrigger({
 
 type ContentProps = {
   className?: string;
+  role?: AriaRole;
   /** Horizontal alignment relative to the trigger. */
   align?: "start" | "end";
   /** Side of the trigger to open toward. */
@@ -117,6 +119,7 @@ type Coords = { top: number; left: number };
 
 export function DropdownMenuContent({
   className,
+  role = "menu",
   align = "end",
   side = "bottom",
   children,
@@ -200,6 +203,7 @@ export function DropdownMenuContent({
   return createPortal(
     <Menu
       ref={menuRef}
+      role={role}
       id={menuId}
       placement="fixed"
       className={className}

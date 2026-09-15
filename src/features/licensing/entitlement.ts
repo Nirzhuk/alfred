@@ -25,13 +25,33 @@ export function readBuildKind(
     : "source";
 }
 
+export function readLicenseGatingDisabled(
+  raw: string | undefined | null,
+): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
 const buildEnv = import.meta.env as {
   readonly ALFRED_POLAR_ENVIRONMENT?: string;
+  readonly ALFRED_DISABLE_LICENSE_GATING?: string;
 };
 
-export const appBuildKind: BuildKind = readBuildKind(
-  buildEnv.ALFRED_POLAR_ENVIRONMENT,
+/**
+ * Build-time kill-switch for self-compiled builds without Polar. Set
+ * `ALFRED_DISABLE_LICENSE_GATING=1` in `.env` to force every capability
+ * available, even when Polar values are present. Baked in by `vite.config.ts`
+ * from the same `.env` entry `build.rs` reads. Empty by default: official
+ * builds gate normally.
+ */
+export const appLicenseGatingDisabled: boolean = readLicenseGatingDisabled(
+  buildEnv.ALFRED_DISABLE_LICENSE_GATING,
 );
+
+export const appBuildKind: BuildKind = appLicenseGatingDisabled
+  ? "source"
+  : readBuildKind(buildEnv.ALFRED_POLAR_ENVIRONMENT);
 
 /**
  * The named pro capabilities a distribution build may lock. Owner-approved
@@ -103,6 +123,8 @@ const LOCKED_STATE_REASONS: Partial<
 export function resolveEntitlement(
   input: EntitlementInput,
 ): CapabilityDecision {
+  // Explicit self-compile opt-out: never lock, even if Polar values leaked in.
+  if (appLicenseGatingDisabled) return { available: true, reason: null };
   // A source build is never locked, whatever state lingers locally.
   if (input.buildKind === "source") return { available: true, reason: null };
 

@@ -15,8 +15,9 @@ pub mod native;
 pub mod omp;
 pub mod opencode;
 pub mod pi;
-pub mod publisher_trust;
 pub(crate) mod process;
+pub mod publisher_trust;
+pub mod review;
 pub mod runtime_package;
 pub mod usage;
 
@@ -227,6 +228,9 @@ impl AgentRequestMetadata {
             run_id: run_id.to_owned(),
             node_id: node_id.to_owned(),
         })
+    }
+    pub(crate) fn native_ids(&self) -> (&str, &str) {
+        (&self.run_id, &self.node_id)
     }
 }
 

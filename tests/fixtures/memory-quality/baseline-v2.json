@@ -1,0 +1,132 @@
+{
+  "baseline_fixture_version": "v1",
+  "baseline_policy_version": "lexical-plus-recent-v1",
+  "active_policy_version": "lexical_v2",
+  "baseline_recall": 0.975,
+  "active_recall": 0.875,
+  "recall_delta": -0.1,
+  "baseline_precision": 0.5,
+  "active_precision": 0.8780487804878049,
+  "precision_delta": 0.378048780488,
+  "development": {
+    "baseline": {
+      "cases": 30,
+      "required_count": 26,
+      "recovered_count": 26,
+      "returned_count": 47,
+      "allowed_returned_count": 26,
+      "recall": 1.0,
+      "precision": 0.5531914893617021
+    },
+    "active": {
+      "cases": 30,
+      "required_count": 26,
+      "recovered_count": 25,
+      "returned_count": 28,
+      "allowed_returned_count": 25,
+      "recall": 0.9615384615384616,
+      "precision": 0.8928571428571429
+    },
+    "recall_delta": -0.038461538462,
+    "precision_delta": 0.339665653495
+  },
+  "validation": {
+    "baseline": {
+      "cases": 20,
+      "required_count": 14,
+      "recovered_count": 13,
+      "returned_count": 33,
+      "allowed_returned_count": 14,
+      "recall": 0.9285714285714286,
+      "precision": 0.42424242424242425
+    },
+    "active": {
+      "cases": 20,
+      "required_count": 14,
+      "recovered_count": 10,
+      "returned_count": 13,
+      "allowed_returned_count": 11,
+      "recall": 0.7142857142857143,
+      "precision": 0.8461538461538461
+    },
+    "recall_delta": -0.214285714286,
+    "precision_delta": 0.421911421911
+  },
+  "supported_lexical": {
+    "baseline": {
+      "cases": 11,
+      "required_count": 11,
+      "recovered_count": 11,
+      "returned_count": 11,
+      "allowed_returned_count": 11,
+      "recall": 1.0,
+      "precision": 1.0
+    },
+    "active": {
+      "cases": 11,
+      "required_count": 11,
+      "recovered_count": 11,
+      "returned_count": 11,
+      "allowed_returned_count": 11,
+      "recall": 1.0,
+      "precision": 1.0
+    },
+    "recall_delta": 0.0,
+    "precision_delta": 0.0
+  },
+  "exact_identifier": {
+    "baseline": {
+      "cases": 5,
+      "required_count": 5,
+      "recovered_count": 5,
+      "returned_count": 5,
+      "allowed_returned_count": 5,
+      "recall": 1.0,
+      "precision": 1.0
+    },
+    "active": {
+      "cases": 5,
+      "required_count": 5,
+      "recovered_count": 5,
+      "returned_count": 5,
+      "allowed_returned_count": 5,
+      "recall": 1.0,
+      "precision": 1.0
+    },
+    "recall_delta": 0.0,
+    "precision_delta": 0.0
+  },
+  "eligible_supported": {
+    "baseline": {
+      "cases": 11,
+      "required_count": 11,
+      "recovered_count": 11,
+      "returned_count": 11,
+      "allowed_returned_count": 11,
+      "recall": 1.0,
+      "precision": 1.0
+    },
+    "active": {
+      "cases": 11,
+      "required_count": 11,
+      "recovered_count": 11,
+      "returned_count": 11,
+      "allowed_returned_count": 11,
+      "recall": 1.0,
+      "precision": 1.0
+    },
+    "recall_delta": 0.0,
+    "precision_delta": 0.0
+  },
+  "active_missed_ids": [
+    "m11-required",
+    "m23",
+    "m38-required",
+    "m43",
+    "m44"
+  ],
+  "active_raw_report_missed_ids": [
+    "m43",
+    "m44"
+  ]
+}

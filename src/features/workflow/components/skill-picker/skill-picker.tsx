@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SearchInput } from "../../../../components/search-input";
 import type { Skill } from "../../types";
 import { AgentMark } from "../../../../components/agent-mark";
 
@@ -85,12 +86,13 @@ export function SkillPicker({ skills, selectedNames, onChange }: Props) {
       ) : null}
 
       <div className="skill-picker-toolbar">
-        <input
-          type="search"
-          className="skill-picker-search"
+        <SearchInput
+          aria-label="Search skills"
+          containerClassName="skill-picker-search"
           value={query}
           placeholder="Search skills…"
           onChange={(e) => setQuery(e.target.value)}
+          onClear={() => setQuery("")}
         />
         <span className="skill-picker-count muted">
           {selectedNames.length}/{skills.length}

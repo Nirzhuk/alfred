@@ -1,0 +1,5 @@
+{
+  "format": "alfred.workflow-template", "schemaVersion": 1, "minAlfredVersion": "1.0.0", "title": "Unknown", "description": "",
+  "graph": { "nodes": [{ "id": "a", "type": "agent", "data": { "label": "Agent", "provider": "codex", "runArbitrary": true }, "position": { "x": 0, "y": 0 } }], "edges": [] },
+  "parameters": [], "requirements": [], "starts": []
+}

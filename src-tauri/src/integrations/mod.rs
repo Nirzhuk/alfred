@@ -196,6 +196,28 @@ impl IntegrationsState {
             .await
     }
 
+    pub(crate) async fn list_action_resources_for_setup(
+        &self,
+        db: &Db,
+        connection_id: &str,
+        provider_id: &str,
+        action_id: &str,
+        field_key: &str,
+        page_token: Option<&str>,
+    ) -> Result<ActionResourcePage, actions::ActionError> {
+        self.actions
+            .list_resources_for_setup(
+                db,
+                self.token_store.clone(),
+                connection_id,
+                provider_id,
+                action_id,
+                field_key,
+                page_token,
+            )
+            .await
+    }
+
     pub async fn disconnect(
         &self,
         db: &Db,

@@ -53,10 +53,12 @@ wacore-appstate = { version = "=0.7.0", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 log = { version = "0.4", features = ["std"] }
 libc = "0.2"
+unicode-normalization = "0.1"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
 tauri-plugin-window-state = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -65,6 +67,12 @@ keyring-core = "1"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSGraphics", "NSResponder", "NSView", "NSWindow", "objc2-core-foundation"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSGeometry"] }
 window-vibrancy = "0.6"
+
+# ponytail: line tables keep panic backtraces (file:line) but drop variable
+# info, which bloats every copy Cargo keeps in target/debug. Set `debug = true` locally
+# when you need to inspect variables in lldb.
+[profile.dev]
+debug = "line-tables-only"
 
 # Package verification hashes hundreds of MB. Keep SHA-256 optimized while
 # Alfred's own dev code retains normal debug behavior.

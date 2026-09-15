@@ -361,7 +361,8 @@ impl ManagedRuntimeControlPlane {
 
     #[cfg(test)]
     pub fn waive_opencode_process_gates_for_test(&self) {
-        self.waive_opencode_process_gates.store(true, Ordering::SeqCst);
+        self.waive_opencode_process_gates
+            .store(true, Ordering::SeqCst);
     }
 
     #[cfg(test)]
@@ -378,13 +379,17 @@ impl ManagedRuntimeControlPlane {
     #[cfg(test)]
     pub fn enable_claude_oauth_fixture_for_test(&self) {
         self.oauth_fixtures.claude.store(true, Ordering::SeqCst);
-        self.oauth_fixtures.claude_complete.store(true, Ordering::SeqCst);
+        self.oauth_fixtures
+            .claude_complete
+            .store(true, Ordering::SeqCst);
     }
 
     #[cfg(test)]
     pub fn enable_codex_oauth_fixture_for_test(&self) {
         self.oauth_fixtures.codex.store(true, Ordering::SeqCst);
-        self.oauth_fixtures.codex_complete.store(true, Ordering::SeqCst);
+        self.oauth_fixtures
+            .codex_complete
+            .store(true, Ordering::SeqCst);
     }
 
     pub fn supervisor(&self) -> &ManagedRuntimeSupervisor {
@@ -723,24 +728,21 @@ impl ManagedRuntimeControlPlane {
             .persist_runtime_managed_account(db, &account_id, metadata)
             .map_err(account_command_error)?;
         self.register_verified_opencode_runtime()?;
-        self.connections
-            .lock()
-            .map_err(|_| state_error())?
-            .insert(
-                OPENCODE_PRODUCT.as_str().into(),
-                ManagedConnection {
-                    kind: "api_key".into(),
-                    state: "connected".into(),
-                    attempt_id: None,
-                    authorization_url: None,
-                    user_code: None,
-                    terminal_session_id: None,
-                    account_id: Some(account_id),
-                    profile_ref: None,
-                    pending_account_id: None,
-                    codex_login_id: None,
-                },
-            );
+        self.connections.lock().map_err(|_| state_error())?.insert(
+            OPENCODE_PRODUCT.as_str().into(),
+            ManagedConnection {
+                kind: "api_key".into(),
+                state: "connected".into(),
+                attempt_id: None,
+                authorization_url: None,
+                user_code: None,
+                terminal_session_id: None,
+                account_id: Some(account_id),
+                profile_ref: None,
+                pending_account_id: None,
+                codex_login_id: None,
+            },
+        );
         self.connection_status(db, accounts, "opencode", OPENCODE_PRODUCT.as_str())
     }
 
@@ -772,24 +774,21 @@ impl ManagedRuntimeControlPlane {
         opencode::OpenCodeAccountManager::new(servers)
             .disconnect(&account_ref, &profile_ref, &catalog, &cancellation)
             .map_err(native_command_error)?;
-        self.connections
-            .lock()
-            .map_err(|_| state_error())?
-            .insert(
-                OPENCODE_PRODUCT.as_str().into(),
-                ManagedConnection {
-                    kind: "api_key".into(),
-                    state: "disconnected".into(),
-                    attempt_id: None,
-                    authorization_url: None,
-                    user_code: None,
-                    terminal_session_id: None,
-                    account_id: None,
-                    profile_ref: None,
-                    pending_account_id: None,
-                    codex_login_id: None,
-                },
-            );
+        self.connections.lock().map_err(|_| state_error())?.insert(
+            OPENCODE_PRODUCT.as_str().into(),
+            ManagedConnection {
+                kind: "api_key".into(),
+                state: "disconnected".into(),
+                attempt_id: None,
+                authorization_url: None,
+                user_code: None,
+                terminal_session_id: None,
+                account_id: None,
+                profile_ref: None,
+                pending_account_id: None,
+                codex_login_id: None,
+            },
+        );
         Ok(())
     }
 
@@ -816,8 +815,7 @@ impl ManagedRuntimeControlPlane {
             let Some(backend) = backend.as_ref() else {
                 return Ok(());
             };
-            let Some(package_root) =
-                first_opencode_package_root(backend.resource_root.as_deref())
+            let Some(package_root) = first_opencode_package_root(backend.resource_root.as_deref())
             else {
                 return Ok(());
             };
@@ -1229,11 +1227,7 @@ impl ManagedRuntimeControlPlane {
             let selection = self.claude_selection()?;
             let profile = self.open_oauth_profile(spec, account_id, profile_ref)?;
             let queried = ClaudeCodeSubscriptionRuntime::new(self.supervisor.clone())
-                .auth_status(
-                    &selection,
-                    &profile,
-                    ManagedRuntimeCancellation::new(),
-                )
+                .auth_status(&selection, &profile, ManagedRuntimeCancellation::new())
                 .map_err(|error| {
                     ManagedRuntimeCommandError::new(
                         error.code().as_str(),
@@ -1415,13 +1409,9 @@ impl ManagedRuntimeControlPlane {
             ) {
                 let working_directory = profile.launch_home_root().to_path_buf();
                 let runtime = ClaudeCodeSubscriptionRuntime::new(self.supervisor.clone());
-                if let Ok(session) = runtime.start_auth_logout(
-                    &selection,
-                    &profile,
-                    &working_directory,
-                    80,
-                    24,
-                ) {
+                if let Ok(session) =
+                    runtime.start_auth_logout(&selection, &profile, &working_directory, 80, 24)
+                {
                     let id = self.track_claude_terminal(session)?;
                     let _ = self.close_terminal(&id);
                 }
@@ -1592,8 +1582,7 @@ impl ManagedRuntimeControlPlane {
             let Some(backend) = backend.as_ref() else {
                 return Ok(());
             };
-            let Some(package_root) =
-                first_claude_package_root(backend.resource_root.as_deref())
+            let Some(package_root) = first_claude_package_root(backend.resource_root.as_deref())
             else {
                 return Ok(());
             };
@@ -1616,8 +1605,7 @@ impl ManagedRuntimeControlPlane {
             let Some(backend) = backend.as_ref() else {
                 return Ok(());
             };
-            let Some(package_root) =
-                first_codex_package_root(backend.resource_root.as_deref())
+            let Some(package_root) = first_codex_package_root(backend.resource_root.as_deref())
             else {
                 return Ok(());
             };
@@ -1726,24 +1714,36 @@ impl AgentAccountProvider for ManagedRuntimeAccountProvider {
     ) -> ProviderFuture<'a, ()> {
         Box::pin(async move {
             match self.spec.product {
-                OPENCODE_PRODUCT => self
-                    .control_plane
-                    .logout_opencode_account(account)
-                    .map_err(|error| {
-                        AgentProviderError::new(&error.code, AgentProviderFailureKind::Retryable)
-                    }),
-                CLAUDE_PRODUCT => self
-                    .control_plane
-                    .logout_claude_account(account)
-                    .map_err(|error| {
-                        AgentProviderError::new(&error.code, AgentProviderFailureKind::Retryable)
-                    }),
-                CODEX_PRODUCT => self
-                    .control_plane
-                    .logout_codex_account(account)
-                    .map_err(|error| {
-                        AgentProviderError::new(&error.code, AgentProviderFailureKind::Retryable)
-                    }),
+                OPENCODE_PRODUCT => {
+                    self.control_plane
+                        .logout_opencode_account(account)
+                        .map_err(|error| {
+                            AgentProviderError::new(
+                                &error.code,
+                                AgentProviderFailureKind::Retryable,
+                            )
+                        })
+                }
+                CLAUDE_PRODUCT => {
+                    self.control_plane
+                        .logout_claude_account(account)
+                        .map_err(|error| {
+                            AgentProviderError::new(
+                                &error.code,
+                                AgentProviderFailureKind::Retryable,
+                            )
+                        })
+                }
+                CODEX_PRODUCT => {
+                    self.control_plane
+                        .logout_codex_account(account)
+                        .map_err(|error| {
+                            AgentProviderError::new(
+                                &error.code,
+                                AgentProviderFailureKind::Retryable,
+                            )
+                        })
+                }
                 _ => Err(self.blocked_provider_error()),
             }
         })
@@ -1825,27 +1825,23 @@ impl ManagedRuntimeTrustVerifier {
             return Err(native_claude_package_gate());
         };
         let (manifest, signature) = load_claude_publisher_evidence(&package_root)?;
-        let verification = claude::verify_package_for_install(
-            &package_root,
-            target,
-            &manifest,
-            &signature,
-            self,
+        let verification =
+            claude::verify_package_for_install(&package_root, target, &manifest, &signature, self)
+                .map_err(|error| {
+                    package_gate(
+                        "claude:verify_package_for_install",
+                        error,
+                        native_claude_package_gate,
+                    )
+                })?;
+        claude::stage_and_select_verified_package(&store, &package_root, &verification).map_err(
+            |error| package_gate("claude:stage_and_select", error, native_claude_package_gate),
         )
-        .map_err(|error| {
-            package_gate("claude:verify_package_for_install", error, native_claude_package_gate)
-        })?;
-        claude::stage_and_select_verified_package(&store, &package_root, &verification)
-            .map_err(|error| package_gate("claude:stage_and_select", error, native_claude_package_gate))
     }
 
     fn verify_codex_selection(&self) -> Result<RuntimePackageSelection, NativeRuntimeError> {
         let target = host_runtime_target().ok_or_else(native_codex_package_gate)?;
-        let bound = self
-            .codex_package
-            .lock()
-            .ok()
-            .and_then(|slot| slot.clone());
+        let bound = self.codex_package.lock().ok().and_then(|slot| slot.clone());
         let Some((store, package_root)) = bound else {
             return Err(native_codex_package_gate());
         };
@@ -1860,11 +1856,17 @@ impl ManagedRuntimeTrustVerifier {
             self,
         )
         .map_err(|error| {
-            package_gate("codex:verify_codex_sdk_package", error, native_codex_package_gate)
+            package_gate(
+                "codex:verify_codex_sdk_package",
+                error,
+                native_codex_package_gate,
+            )
         })?;
         store
             .stage_and_activate(&package_root, &verification, None)
-            .map_err(|error| package_gate("codex:stage_and_activate", error, native_codex_package_gate))?;
+            .map_err(|error| {
+                package_gate("codex:stage_and_activate", error, native_codex_package_gate)
+            })?;
         store
             .select_active(&verification)
             .map_err(|error| package_gate("codex:select_active", error, native_codex_package_gate))
@@ -2013,7 +2015,8 @@ fn load_opencode_publisher_evidence(
         .join("publisher-evidence");
     let proof = fs::read(evidence_root.join("publisher-verification.json"))
         .map_err(|_| native_package_gate())?;
-    let signature = fs::read(evidence_root.join("publisher.sig")).map_err(|_| native_package_gate())?;
+    let signature =
+        fs::read(evidence_root.join("publisher.sig")).map_err(|_| native_package_gate())?;
     if proof.is_empty() || proof.len() > 1024 * 1024 || signature.len() != 64 {
         return Err(native_package_gate());
     }
@@ -2161,7 +2164,8 @@ fn load_claude_publisher_evidence(
         .parent()
         .ok_or_else(native_claude_package_gate)?
         .join("publisher-evidence");
-    let manifest = fs::read(evidence_root.join("manifest.json")).map_err(|_| native_claude_package_gate())?;
+    let manifest =
+        fs::read(evidence_root.join("manifest.json")).map_err(|_| native_claude_package_gate())?;
     let signature = fs::read(evidence_root.join("manifest.json.sig"))
         .map_err(|_| native_claude_package_gate())?;
     if manifest.is_empty() || manifest.len() > 1024 * 1024 || signature.is_empty() {
@@ -2177,7 +2181,9 @@ struct CodexPackageInputs {
     notice: Vec<u8>,
 }
 
-fn load_codex_package_inputs(package_root: &Path) -> Result<CodexPackageInputs, NativeRuntimeError> {
+fn load_codex_package_inputs(
+    package_root: &Path,
+) -> Result<CodexPackageInputs, NativeRuntimeError> {
     let evidence_root = package_root
         .parent()
         .ok_or_else(native_codex_package_gate)?;
@@ -2744,15 +2750,11 @@ mod tests {
 
     #[test]
     fn prepare_without_a_verified_package_is_reported() {
-        let root = std::env::temp_dir().join(format!(
-            "alfred-managed-runtime-prepare-{}",
-            Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("alfred-managed-runtime-prepare-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root");
         let control_plane = ManagedRuntimeControlPlane::new();
-        control_plane
-            .initialize(&root, None)
-            .expect("initialize");
+        control_plane.initialize(&root, None).expect("initialize");
         let error = control_plane
             .prepare_product("claude_code", "claude_code_subscription")
             .expect_err("missing Claude package must fail closed");
@@ -2775,15 +2777,11 @@ mod tests {
 
     #[test]
     fn opencode_stays_gated_after_setup_without_publisher_evidence() {
-        let root = std::env::temp_dir().join(format!(
-            "alfred-opencode-control-plane-{}",
-            Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("alfred-opencode-control-plane-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root");
         let control_plane = ManagedRuntimeControlPlane::new();
-        control_plane
-            .initialize(&root, None)
-            .expect("initialize");
+        control_plane.initialize(&root, None).expect("initialize");
         let products = control_plane.list_products().expect("products");
         let opencode = products
             .iter()
@@ -2805,17 +2803,17 @@ mod tests {
 
     #[test]
     fn waived_opencode_connect_persists_account_without_exposing_the_key() {
-        let root = std::env::temp_dir().join(format!(
-            "alfred-opencode-control-plane-{}",
-            Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("alfred-opencode-control-plane-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root");
         let sidecar = opencode::fake_server::FakeOpenCodeSidecar::start(
             root.to_string_lossy().into_owned(),
             opencode::fake_server::fixture_go_catalog(),
             Vec::new(),
         );
-        let servers = Arc::new(opencode::fake_server::FixtureOpenCodeProvider::new(&sidecar));
+        let servers = Arc::new(opencode::fake_server::FixtureOpenCodeProvider::new(
+            &sidecar,
+        ));
         let control_plane = Arc::new(ManagedRuntimeControlPlane::new());
         control_plane.initialize(&root, None).expect("initialize");
         control_plane.waive_opencode_process_gates_for_test();
@@ -2859,7 +2857,10 @@ mod tests {
         assert!(!encoded.contains("runtime_profile_"));
         assert!(registry.contains(AgentProvider::Opencode));
 
-        let persisted = db.get_agent_account(&account_id).expect("load").expect("row");
+        let persisted = db
+            .get_agent_account(&account_id)
+            .expect("load")
+            .expect("row");
         assert!(persisted.credential_ref.is_none());
         assert!(persisted.runtime_profile_ref.is_some());
 
@@ -2874,10 +2875,8 @@ mod tests {
 
     #[test]
     fn claude_and_codex_oauth_connect_is_ready_with_fixtures() {
-        let root = std::env::temp_dir().join(format!(
-            "alfred-oauth-control-plane-{}",
-            Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("alfred-oauth-control-plane-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root");
         let control_plane = ManagedRuntimeControlPlane::new();
         control_plane.initialize(&root, None).expect("initialize");
@@ -2957,12 +2956,7 @@ mod tests {
         let db = Db::open_in_memory().expect("db");
         let accounts = AgentAccountsState::default();
         let claude_status = control_plane
-            .connection_status(
-                &db,
-                &accounts,
-                "claude_code",
-                "claude_code_subscription",
-            )
+            .connection_status(&db, &accounts, "claude_code", "claude_code_subscription")
             .expect("claude status");
         assert_eq!(claude_status.connection_state, "connected");
         let claude_account_id = claude_status.account_id.clone().expect("claude account");
@@ -3043,10 +3037,8 @@ mod tests {
             return;
         }
 
-        let root = std::env::temp_dir().join(format!(
-            "alfred-prepared-sidecars-{}",
-            Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("alfred-prepared-sidecars-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root");
         let control_plane = Arc::new(ManagedRuntimeControlPlane::new());
         control_plane

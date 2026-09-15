@@ -82,6 +82,7 @@ fn kind_granted(kind: AlfredToolKind, capabilities: &NativeToolCapabilitySet) ->
         AlfredToolKind::ApplyPatch => capabilities.patch,
         AlfredToolKind::Mcp => capabilities.mcp,
         AlfredToolKind::Subagent => capabilities.subagents,
+        AlfredToolKind::MemoryLookup => capabilities.memory_lookup,
     }
 }
 

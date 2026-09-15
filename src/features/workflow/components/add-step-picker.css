@@ -1,0 +1,190 @@
+.ui-menu.add-step-picker-surface {
+  /* geometry: room for node descriptions within a compact canvas popover. */
+  width: 388px;
+  min-width: 0;
+  max-width: calc(100vw - var(--space-4));
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.add-step-picker {
+  display: flex;
+  flex-direction: column;
+  /* geometry: fixed palette height keeps filtering from moving the popover. */
+  height: min(556px, calc(100dvh - var(--space-4)));
+  min-height: 0;
+}
+
+.add-step-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.add-step-picker-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.add-step-picker-search { margin: 0 var(--space-3); }
+
+.add-step-picker-categories {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.add-step-picker-categories button {
+  flex: 1 0 auto;
+  min-height: var(--control-height-compact);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.add-step-picker-categories button[aria-pressed="true"] {
+  background: var(--surface-selected);
+  color: var(--ink);
+}
+
+.add-step-picker-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: var(--space-2);
+}
+
+.add-step-picker-group + .add-step-picker-group {
+  margin-top: var(--space-2);
+}
+
+.add-step-picker-group-label {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.add-step-picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  width: 100%;
+  min-height: 58px;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.add-step-picker-item[aria-selected="true"],
+.add-step-picker-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+
+.add-step-picker-item:active:not(:disabled) {
+  transform: none;
+  background: var(--surface-pressed);
+}
+
+.add-step-picker-item-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--control-height-comfortable);
+  height: var(--control-height-comfortable);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--step-color) 10%, transparent);
+  color: var(--step-color);
+}
+
+.add-step-picker-item-copy {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: var(--space-0-5);
+}
+
+.add-step-picker-item-label {
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: var(--leading-compact);
+}
+
+.add-step-picker-item-description {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-default);
+}
+
+.add-step-picker-item-add {
+  flex: 0 0 auto;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.add-step-picker-item[aria-selected="true"] .add-step-picker-item-add {
+  opacity: 1;
+}
+
+.add-step-picker-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: var(--space-6);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.add-step-picker-empty p {
+  margin: var(--space-2) 0 0;
+  color: var(--ink);
+  font-size: var(--text-md);
+}
+
+.add-step-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+  min-height: var(--control-height-comfortable);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.add-step-picker-footer kbd {
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: inherit;
+}

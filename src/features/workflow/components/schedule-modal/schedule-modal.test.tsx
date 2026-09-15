@@ -10,12 +10,18 @@ const SAVED: Schedule = {
   cron: "0 0 9 * * 1-5",
   enabled: true,
   nextRunAt: null,
+  onMissed: "run",
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
 };
 
-function render(savedSchedule: Schedule | null): string {
-  return renderToStaticMarkup(<ScheduleLockedContent savedSchedule={savedSchedule} />);
+function render(
+  savedSchedule: Schedule | null,
+  workflowId?: string,
+): string {
+  return renderToStaticMarkup(
+    <ScheduleLockedContent savedSchedule={savedSchedule} workflowId={workflowId} />,
+  );
 }
 
 describe("schedule locked content", () => {
@@ -43,5 +49,16 @@ describe("schedule locked content", () => {
   test("with no saved schedule there is nothing extra to disclose", () => {
     const markup = render(null);
     expect(markup).not.toContain("Saved schedule kept");
+  });
+
+  test("an over-limit schedule stays delete-only instead of fully locked", () => {
+    const markup = render(SAVED, "wf-1");
+    expect(markup).toContain("Remove schedule");
+    expect(markup).toContain('aria-label="Remove schedule for wf-1"');
+  });
+
+  test("without a workflow target there is no remove action to offer", () => {
+    expect(render(SAVED)).not.toContain("Remove schedule");
+    expect(render(null, "wf-1")).not.toContain("Remove schedule");
   });
 });

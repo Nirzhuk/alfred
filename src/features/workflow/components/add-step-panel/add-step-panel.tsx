@@ -31,11 +31,17 @@ export function AddStepPanel(props: Props) {
   return (
     <Panel position="top-right" className="add-step-panel">
       <DropdownMenu className="add-step-panel-inner">
-        <DropdownMenuTrigger className="add-step-trigger">
+        <DropdownMenuTrigger className="add-step-trigger" aria-haspopup="dialog">
           <span aria-hidden>+</span>
           Add step
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="bottom" aria-label="Add step">
+        <DropdownMenuContent
+          align="end"
+          side="bottom"
+          role="dialog"
+          aria-label="Add step"
+          className="add-step-picker-surface"
+        >
           <AddStepDropdownBody {...props} getPosition={getPosition} />
         </DropdownMenuContent>
       </DropdownMenu>

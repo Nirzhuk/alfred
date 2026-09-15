@@ -243,6 +243,31 @@ export type MemoryNodeData = {
   memoryIds: string[];
 };
 
+export type IdentityNodeData = {
+  kind: "identity";
+  label: string;
+  role: string;
+  personality: string;
+  instructions: string;
+};
+
+export function defaultIdentityNodeData(label = "Identity"): IdentityNodeData {
+  return { kind: "identity", label, role: "", personality: "", instructions: "" };
+}
+
+export function normalizeIdentityNodeData(
+  data: Record<string, unknown>,
+): IdentityNodeData {
+  return {
+    kind: "identity",
+    label:
+      typeof data.label === "string" && data.label.trim() ? data.label : "Identity",
+    role: typeof data.role === "string" ? data.role : "",
+    personality: typeof data.personality === "string" ? data.personality : "",
+    instructions: typeof data.instructions === "string" ? data.instructions : "",
+  };
+}
+
 /** Rewrite / append to context using `{{context}}`, `{{output}}`, `{{cwd}}`. */
 export type TemplateNodeData = {
   kind: "template";
@@ -450,6 +475,7 @@ export type WorkflowNodeData =
   | CustomAgentNodeData
   | OutputNodeData
   | MemoryNodeData
+  | IdentityNodeData
   | TemplateNodeData
   | FileInjectNodeData
   | GitStatusNodeData
@@ -469,6 +495,11 @@ export type WorkflowGraph = {
   edges: WorkflowEdge[];
 };
 
+export type MemoryLookupAvailability = {
+  available: boolean;
+  reason: string | null;
+};
+
 export type Workflow = {
   id: string;
   name: string;
@@ -479,6 +510,8 @@ export type Workflow = {
   folderId?: string | null;
   /** Host-side local memory retrieval before agent and custom-agent steps. */
   memoryRetrievalEnabled?: boolean;
+  /** Permission for agents to request bounded memory lookup during a run. */
+  memoryLookupEnabled: boolean;
   graph: WorkflowGraph;
   createdAt: string;
   updatedAt: string;
@@ -551,10 +584,115 @@ export type RunHistoryStep = {
   createdAt: string;
 };
 
+export type OutputReceiptState =
+  | "not_requested"
+  | "skipped_empty"
+  | "pending"
+  | "saving"
+  | "saved"
+  | "failed"
+  | "deleted";
+
+export type OutputPersistenceErrorCode =
+  | "invalid_disposition"
+  | "step_output_unavailable"
+  | "artifact_stage_io"
+  | "artifact_finalize_io"
+  | "artifact_content_mismatch"
+  | "database_write"
+  | "internal";
+
+export type OutputDisposition = Omit<OutputNodeData, "memoryTitle"> & {
+  memoryTitle: string;
+};
+
+export type OutputReceipt = {
+  runId: string;
+  nodeId: string;
+  stepId: string;
+  disposition: OutputDisposition;
+  resolvedMemoryTitle: string;
+  state: OutputReceiptState;
+  storageIdentity: string | null;
+  outputSha256: string | null;
+  artifactRequired: boolean;
+  memoryId: string | null;
+  errorCode: OutputPersistenceErrorCode | null;
+  savingStartedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type OutputPersistenceEvent = {
+  workflowId: string;
+  receipt: OutputReceipt;
+};
+
+export type RetryOutputPersistenceRequest = {
+  runId: string;
+  nodeId: string;
+};
+
 export type RunHistoryDetail = {
   run: RunHistoryItem;
   steps: RunHistoryStep[];
   memoryUses: RunHistoryMemoryUse[];
+  memoryContextSummaries: RunHistoryMemoryContextSummary[];
+  evidenceSources: EvidenceSource[];
+  outputReceipts?: OutputReceipt[];
+};
+
+export type EvidenceOrigin =
+  | "authored_task"
+  | "configured_workflow_instruction"
+  | "external_trigger_data"
+  | "host_recorded_observation"
+  | "model_output"
+  | "prior_memory"
+  | "retrieved_historical_summary";
+
+export type EvidenceSubject =
+  | "user_statement"
+  | "workflow_configuration"
+  | "recorded_observation";
+
+export type EvidenceCaptureState =
+  | { state: "complete"; originalBytes: number }
+  | { state: "truncated"; originalBytes: number; capturedBytes: number }
+  | {
+      state: "omitted";
+      originalBytes: number;
+      reason: "run_byte_limit" | "sensitive_content" | "observation_unavailable";
+    };
+
+export type EvidenceSource = {
+  sourceId: string;
+  runId: string;
+  stepId: string | null;
+  nodeId: string | null;
+  origin: EvidenceOrigin;
+  producerIdentity: string | null;
+  sourceLabel: string | null;
+  observedAt: string;
+  normalizationVersion: number;
+  normalizedText: string;
+  captureState: EvidenceCaptureState;
+  digest: string;
+};
+
+export type RunHistoryMemoryContextSummary = {
+  nodeId: string;
+  budgetBytes: number;
+  memoryBytes: number;
+  includedCount: number;
+  explicitOmittedCount: number;
+  pinnedOmittedCount: number;
+  automaticOmittedCount: number;
+  unavailableCount: number;
+  repeatedCount: number;
+  traceAvailable: boolean;
+  createdAt: string;
 };
 
 export type RunHistoryMemoryUse = {
@@ -565,8 +703,14 @@ export type RunHistoryMemoryUse = {
   memoryType: MemoryType;
   rank: number;
   score: number;
-  reason: "lexical" | "recent" | "pinned";
+  reason: "explicit" | "lexical" | "recent" | "pinned";
   renderedBytes: number;
+  rankingVersion:
+    | "explicit_v1"
+    | "lexical_v1"
+    | "lexical_v2"
+    | "pinned_v1"
+    | string;
   createdAt: string;
 };
 
@@ -715,6 +859,11 @@ export type MemoryType =
   | "output"
   | "artifact";
 export type MemoryStatus = "active" | "superseded" | "retracted";
+export type MemoryProvenanceState =
+  | "legacy_unknown"
+  | "manual"
+  | "evidence_verified"
+  | "source_removed";
 
 export type MemoryCandidateOperation = "create" | "supersede" | "retract";
 export type MemoryCandidateStatus =
@@ -736,6 +885,16 @@ export type MemoryReviewSettings = {
   model: string | null;
   maxCandidates: number;
   updatedAt: string;
+  availability?: MemoryReviewAvailability;
+};
+
+export type MemoryReviewAvailability = {
+  supported: boolean;
+  reason: string | null;
+  product: string | null;
+  runtimeVersion: string | null;
+  executionMode: string | null;
+  restrictionContractVersion: string;
 };
 
 /** Per-workflow review toggle. */
@@ -751,6 +910,10 @@ export type MemoryReviewJob = {
   workflowId: string;
   status: MemoryReviewJobStatus;
   provider: string;
+  providerProduct: string | null;
+  executionMode: string | null;
+  capabilityVersion: string | null;
+  restrictionContractVersion: string | null;
   model: string | null;
   errorCode: string | null;
   candidateCount: number;
@@ -767,6 +930,11 @@ export type MemoryCandidate = {
   sourceNodeId: string | null;
   operation: MemoryCandidateOperation;
   targetMemoryId: string | null;
+  candidateRevision: number;
+  expectedTargetMemoryId: string | null;
+  expectedTargetSemanticRevision: number | null;
+  expectedTargetContentDigest: string | null;
+  targetComplete: boolean | null;
   scopeType: MemoryScopeType;
   scopeKey: string;
   memoryType: MemoryType;
@@ -774,10 +942,50 @@ export type MemoryCandidate = {
   body: string;
   confidence: number;
   rationale: string;
+  factKey: string | null;
+  observedAt: string | null;
+  lastConfirmedAt: string | null;
+  validFrom: string | null;
+  expiresAt: string | null;
+  possibleConflicts: PossibleMemoryConflict[];
+  curationContractVersion: number;
+  evidenceState:
+    | "verified"
+    | "legacy_unavailable"
+    | "needs_reconfirmation"
+    | "source_removed";
+  evidenceSubject: EvidenceSubject | null;
+  isInference: boolean;
+  claimDigest: string | null;
+  evidence: MemoryEvidenceItem[];
   status: MemoryCandidateStatus;
   blockedCode: string | null;
   createdAt: string;
   decidedAt: string | null;
+};
+
+export type PossibleMemoryConflict = {
+  memoryId: string;
+  title: string;
+  relation: "exact_duplicate" | "same_fact_key" | "possible_relationship";
+};
+
+export type MemoryEvidenceItem = {
+  ordinal: number;
+  sourceId: string | null;
+  fragmentId: string;
+  sourceRunId: string;
+  sourceStepId: string | null;
+  sourceNodeId: string | null;
+  origin: EvidenceOrigin;
+  producerIdentity: string | null;
+  sourceLabel: string | null;
+  quote: string | null;
+  byteStart: number | null;
+  byteEnd: number | null;
+  normalizationVersion: number | null;
+  fragmentDigest: string | null;
+  sourceRemoved: boolean;
 };
 
 /** Durable workflow memory — SQLite-backed, optionally pinned into agent prompts. */
@@ -797,20 +1005,35 @@ export type OutputMemory = {
   title: string;
   body: string;
   artifactPath?: string | null;
+  artifactContentDigest: string | null;
   pinned: boolean;
   confidence: number;
   salience: number;
   status: MemoryStatus;
+  semanticRevision: number;
+  contentDigest: string;
   supersedesId?: string | null;
-  lastConfirmedAt?: string | null;
-  expiresAt?: string | null;
+  factKey: string | null;
+  observedAt: string | null;
+  lastConfirmedAt: string | null;
+  validFrom: string | null;
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+  provenanceState?: MemoryProvenanceState;
+  evidenceSubject?: EvidenceSubject | null;
+  evidenceIsInference?: boolean;
   /** `"owned"` for local memories; `"linked"` when imported from another workflow. */
   origin?: MemoryOrigin;
   /** Owning workflow name when `origin` is linked/linkable. */
   sourceWorkflowName?: string | null;
 };
+
+/**
+ * What Alfred does with a scheduled time that passed while it was closed:
+ * run as soon as Alfred opens, drop the run, or ask per schedule.
+ */
+export type OnMissed = "run" | "skip" | "ask";
 
 export type Schedule = {
   id: string;
@@ -819,6 +1042,7 @@ export type Schedule = {
   cron: string;
   enabled: boolean;
   nextRunAt: string | null;
+  onMissed: OnMissed;
   createdAt: string;
   updatedAt: string;
 };
@@ -826,6 +1050,18 @@ export type Schedule = {
 /** Schedule row for the schedules page (includes workflow name). */
 export type ScheduleListItem = Schedule & {
   workflowName: string;
+};
+
+/**
+ * A scheduled run that was missed while Alfred was closed and waits on the
+ * user's decision. `missedAt` is the scheduled time that passed.
+ */
+export type MissedSchedule = {
+  scheduleId: string;
+  workflowId: string;
+  workflowName: string;
+  cron: string;
+  missedAt: string;
 };
 
 export type TriggerSource = "file" | "webhook" | "app";
@@ -950,6 +1186,12 @@ export function isTemplateNodeData(
   return hasKind(data, "template");
 }
 
+export function isIdentityNodeData(
+  data: WorkflowNodeData,
+): data is IdentityNodeData {
+  return hasKind(data, "identity");
+}
+
 export function isFileInjectNodeData(
   data: WorkflowNodeData,
 ): data is FileInjectNodeData {
@@ -1008,6 +1250,8 @@ export function titleForNodeType(type: string | undefined): string {
       return "Input";
     case "memory":
       return "Memories";
+    case "identity":
+      return "Identity";
     case "chooseOutput":
       return "Output";
     case "agent":

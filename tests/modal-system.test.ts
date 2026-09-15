@@ -42,6 +42,7 @@ const namedModalCallers = [
   "src/features/integrations/telegram-connect.tsx",
   "src/features/integrations/whatsapp-connect.tsx",
   "src/features/workflow/components/memories-inspector/memories-inspector.tsx",
+  "src/features/workflow/components/missed-schedules-modal/missed-schedules-modal.tsx",
   "src/features/workflow/components/node-settings-modal/node-settings-modal.tsx",
   "src/features/workflow/components/output-modal/output-modal.tsx",
   "src/features/workflow/components/rename-workflow-modal/rename-workflow-modal.tsx",

@@ -1,0 +1,11 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Missing parameter target",
+  "description": "",
+  "graph": { "nodes": [{ "id": "input", "type": "input", "data": { "label": "Input", "prompt": "Ready" }, "position": { "x": 0, "y": 0 } }], "edges": [] },
+  "parameters": [{ "key": "missing", "label": "Missing", "kind": "text", "required": true, "target": { "kind": "node", "nodeId": "does-not-exist", "field": "prompt" } }],
+  "requirements": [],
+  "starts": []
+}

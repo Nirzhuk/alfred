@@ -1,0 +1,14 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Duplicate requirement",
+  "description": "",
+  "graph": { "nodes": [{ "id": "input", "type": "input", "data": { "label": "Input", "prompt": "Ready" }, "position": { "x": 0, "y": 0 } }], "edges": [] },
+  "parameters": [],
+  "requirements": [
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" },
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" }
+  ],
+  "starts": []
+}

@@ -103,12 +103,18 @@ export function withMemoryDefaults(
           : "output"),
     source: "run",
     artifactPath: null,
+    artifactContentDigest: null,
     pinned: false,
     confidence: 1,
     salience: 50,
     status: "active",
+    semanticRevision: 1,
+    contentDigest: "",
     supersedesId: null,
+    factKey: null,
+    observedAt: null,
     lastConfirmedAt: null,
+    validFrom: null,
     expiresAt: null,
     ...memory,
   };
@@ -127,9 +133,13 @@ export function isMemoryPromptEligible(
   now: Date | number = Date.now(),
 ): boolean {
   if (memory.status !== "active") return false;
+  const nowMs = typeof now === "number" ? now : now.getTime();
+  if (memory.validFrom) {
+    const validFrom = Date.parse(memory.validFrom);
+    if (!Number.isFinite(validFrom) || validFrom > nowMs) return false;
+  }
   if (!memory.expiresAt) return true;
   const expiresAt = Date.parse(memory.expiresAt);
-  const nowMs = typeof now === "number" ? now : now.getTime();
   return Number.isFinite(expiresAt) && expiresAt > nowMs;
 }
 

@@ -10,16 +10,22 @@ import type {
   AppTriggerStatus,
   HistorySearchHit,
   HistorySearchInput,
+  MemoryEvidenceItem,
   MemoryCandidate,
   MemoryCandidateStatus,
   MemoryKind,
   MemoryReviewJob,
   MemoryReviewSettings,
+  MemoryLookupAvailability,
   MemoryScopeType,
   MemorySource,
   MemoryStatus,
   MemoryType,
+  MissedSchedule,
+  OnMissed,
   OutputMemory,
+  OutputReceipt,
+  RetryOutputPersistenceRequest,
   RunHistoryDetail,
   RunHistoryItem,
   RunSummary,
@@ -58,9 +64,16 @@ export async function updateWorkflow(input: {
   description?: string;
   workingDirectory?: string;
   memoryRetrievalEnabled?: boolean;
+  memoryLookupEnabled?: boolean;
   graph?: WorkflowGraph;
 }): Promise<Workflow> {
   return invoke("update_workflow", { input });
+}
+
+export async function getMemoryLookupAvailability(
+  workflowId: string,
+): Promise<MemoryLookupAvailability> {
+  return invoke("get_memory_lookup_availability", { workflowId });
 }
 
 export async function deleteWorkflow(id: string): Promise<void> {
@@ -174,6 +187,12 @@ export async function getRunHistory(
   return invoke("get_run_history", { runId });
 }
 
+export async function retryOutputPersistence(
+  request: RetryOutputPersistenceRequest,
+): Promise<OutputReceipt> {
+  return invoke("retry_output_persistence", request);
+}
+
 export async function searchHistory(
   input: HistorySearchInput,
 ): Promise<HistorySearchHit[]> {
@@ -200,12 +219,27 @@ export async function upsertWorkflowSchedule(input: {
   workflowId: string;
   cron: string;
   enabled: boolean;
+  onMissed: OnMissed;
 }): Promise<Schedule> {
   return invoke("upsert_workflow_schedule", {
     workflowId: input.workflowId,
     cron: input.cron,
     enabled: input.enabled,
+    onMissed: input.onMissed,
   });
+}
+
+/** Scheduled runs missed while Alfred was closed, waiting on the user. */
+export async function listMissedSchedules(): Promise<MissedSchedule[]> {
+  return invoke("list_missed_schedules");
+}
+
+/** Answer one missed schedule: run it now, or drop that occurrence. */
+export async function resolveMissedSchedule(
+  scheduleId: string,
+  decision: "run" | "skip",
+): Promise<void> {
+  return invoke("resolve_missed_schedule", { scheduleId, decision });
 }
 
 export async function deleteWorkflowSchedule(
@@ -303,7 +337,10 @@ export async function createMemory(input: {
   salience?: number;
   status?: MemoryStatus;
   supersedesId?: string | null;
+  factKey?: string | null;
+  observedAt?: string | null;
   lastConfirmedAt?: string | null;
+  validFrom?: string | null;
   expiresAt?: string | null;
   id?: string;
 }): Promise<OutputMemory> {
@@ -312,6 +349,7 @@ export async function createMemory(input: {
 
 export async function updateMemory(input: {
   id: string;
+  expectedSemanticRevision: number;
   contextWorkflowId?: string;
   title?: string;
   body?: string;
@@ -323,7 +361,10 @@ export async function updateMemory(input: {
   salience?: number;
   status?: MemoryStatus;
   supersedesId?: string | null;
+  factKey?: string | null;
+  observedAt?: string | null;
   lastConfirmedAt?: string | null;
+  validFrom?: string | null;
   expiresAt?: string | null;
 }): Promise<OutputMemory> {
   return invoke("update_memory", { input });
@@ -374,16 +415,31 @@ export async function listMemoryCandidates(input: {
 /** Pending candidates only may be edited; decided ones are final. */
 export async function updateMemoryCandidate(input: {
   id: string;
+  expectedCandidateRevision: number;
   title?: string;
   body?: string;
   scopeType?: MemoryScopeType;
   memoryType?: MemoryType;
+  validFrom?: string | null;
+  expiresAt?: string | null;
+  evidenceConfirmed?: boolean;
 }): Promise<MemoryCandidate> {
   return invoke("update_memory_candidate", { input });
 }
 
-export async function approveMemoryCandidate(id: string): Promise<MemoryCandidate> {
-  return invoke("approve_memory_candidate", { id });
+export async function listMemoryEvidence(
+  memoryId: string,
+): Promise<MemoryEvidenceItem[]> {
+  return invoke("list_memory_evidence", { memoryId });
+}
+
+export async function approveMemoryCandidate(
+  id: string,
+  expectedCandidateRevision: number,
+): Promise<MemoryCandidate> {
+  return invoke("approve_memory_candidate", {
+    input: { id, expectedCandidateRevision },
+  });
 }
 
 export async function rejectMemoryCandidate(id: string): Promise<MemoryCandidate> {

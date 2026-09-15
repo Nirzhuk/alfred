@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { SearchInput } from "../../../../components/search-input";
 import {
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
@@ -203,20 +204,6 @@ function DataIcon() {
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden>
-      <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.35" />
-      <path
-        d="m10.2 10.2 3.05 3.05"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 const NAV_GROUPS: SettingsNavGroup[] = [
   {
     label: "Application",
@@ -271,6 +258,12 @@ const NAV_GROUPS: SettingsNavGroup[] = [
         id: "connected-apps",
         label: SETTINGS_SECTION_LABELS["connected-apps"],
         description: "Accounts and external services",
+        icon: <ConnectedAppsIcon />,
+      },
+      {
+        id: "sharing",
+        label: SETTINGS_SECTION_LABELS.sharing,
+        description: "Review and revoke published workflow links",
         icon: <ConnectedAppsIcon />,
       },
     ],
@@ -330,18 +323,13 @@ export function SettingsSidebar({ activeSection, onChange, onBack }: Props) {
         </div>
       </div>
 
-      <label className="settings-sidebar-search">
-        <span className="settings-sidebar-search-icon">
-          <SearchIcon />
-        </span>
-        <span className="sr-only">Search settings</span>
-        <input
-          type="search"
-          value={query}
-          placeholder="Search settings…"
-          onChange={(event) => setQuery(event.currentTarget.value)}
-        />
-      </label>
+      <SearchInput
+        aria-label="Search settings"
+        value={query}
+        placeholder="Search settings…"
+        onChange={(event) => setQuery(event.currentTarget.value)}
+        onClear={() => setQuery("")}
+      />
 
       <nav className="settings-sidebar-nav" aria-label="Settings sections">
         {visibleGroups.map((group) => (

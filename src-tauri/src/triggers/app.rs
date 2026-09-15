@@ -510,13 +510,17 @@ mod tests {
         // What `crate::triggers::reload` does after every trigger write.
         runtime.reload();
 
-        let triggers = scan(&runtime, &db, |run| started.push(run.run_id.clone()))
-            .expect("scan after reload");
+        let triggers =
+            scan(&runtime, &db, |run| started.push(run.run_id.clone())).expect("scan after reload");
         assert_eq!(
             triggers.iter().map(|item| &item.id).collect::<Vec<_>>(),
             vec![&trigger_id]
         );
-        assert_eq!(started.len(), 1, "the queued event was promoted and started");
+        assert_eq!(
+            started.len(),
+            1,
+            "the queued event was promoted and started"
+        );
         assert_eq!(run_status(&db, &started[0]), "pending");
         assert_eq!(
             db.list_pending_app_event_runs().expect("pending").len(),

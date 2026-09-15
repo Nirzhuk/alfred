@@ -1,11 +1,27 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
+use super::artifact_chunks::{
+    create_artifact_chunk_schema, ARTIFACT_CHUNK_SIZE, ARTIFACT_CHUNK_DIGEST_VERSION,
+    ARTIFACT_VERIFICATION_LEGACY_UNVERIFIED,
+};
 use super::history::{index_memory, index_run_step};
+use super::lookup_trace::create_lookup_trace_schema;
+use super::memory_curation::REVIEW_ERROR_LEGACY_REVIEW_UNAVAILABLE;
+use super::output_persistence::create_output_persistence_schema;
+use super::template_shares::TEMPLATE_SHARES_SCHEMA;
 use super::DbError;
 
 /// Apply compatibility migrations for databases created with earlier schemas.
 /// Most are additive; contract changes use explicit transactional rebuilds.
 pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
+    // The scoped-memory compatibility migration rebuilds `memories`. Drop the
+    // evidence scrub trigger before any possible rebuild and recreate it after
+    // all memory and curation columns exist.
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS scrub_evidence_source_before_delete;
+         DROP TRIGGER IF EXISTS bump_memory_semantic_revision;
+         DROP TRIGGER IF EXISTS bump_memory_candidate_revision;",
+    )?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS workflow_folders (
            id TEXT PRIMARY KEY NOT NULL,
@@ -45,6 +61,12 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
         "memory_retrieval_enabled",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    ensure_column(
+        conn,
+        "workflows",
+        "memory_lookup_enabled",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     backfill_workflow_sort_order(conn)?;
 
     // Drop legacy column name if an early schema used `trigger`.
@@ -57,6 +79,8 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_workflow_unique ON schedules(workflow_id);",
     )?;
+    // Existing schedules keep today's behaviour: catch up as soon as Alfred opens.
+    ensure_column(conn, "schedules", "on_missed", "TEXT NOT NULL DEFAULT 'run'")?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_workflows_folder_id ON workflows(folder_id);",
     )?;
@@ -73,8 +97,29 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
     )?;
     create_search_indexes(conn)?;
     migrate_scoped_memories(conn)?;
+    ensure_column(conn, "memories", "artifact_path", "TEXT")?;
+    ensure_column(conn, "memories", "artifact_content_digest", "TEXT")?;
+    create_artifact_chunk_schema(conn)?;
+    backfill_legacy_artifact_manifests(conn)?;
+    create_lookup_trace_schema(conn)?;
     create_memory_retrieval_schema(conn)?;
+    ensure_column(
+        conn,
+        "run_memory_uses",
+        "ranking_version",
+        "TEXT NOT NULL DEFAULT 'lexical_v1'",
+    )?;
+    expand_memory_use_reason_check(conn)?;
+    conn.execute(
+        "UPDATE run_memory_uses SET ranking_version = 'pinned_v1'
+         WHERE reason = 'pinned' AND ranking_version = 'lexical_v1'",
+        [],
+    )?;
     create_memory_curation_schema(conn)?;
+    create_memory_evidence_schema(conn)?;
+    create_memory_revision_schema(conn)?;
+    create_output_persistence_schema(conn)?;
+    create_output_cleanup_journal_schema(conn)?;
     rebuild_search_indexes(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_triggers_workflow_id ON triggers(workflow_id);
@@ -166,7 +211,41 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
            updated_at TEXT NOT NULL
          );",
     )?;
+    conn.execute_batch(TEMPLATE_SHARES_SCHEMA)?;
+    ensure_column(
+        conn,
+        "template_publication_requests",
+        "template_json",
+        "TEXT",
+    )?;
 
+    Ok(())
+}
+
+/// Existing artifact paths have no bounded proof until a canonical writer
+/// records the complete manifest. Keep an explicit safe state without
+/// fabricating a digest or reading legacy files during migration.
+fn backfill_legacy_artifact_manifests(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO artifact_chunk_manifests
+           (memory_id, content_digest, digest_version, byte_length, chunk_size,
+            chunk_count, verification_state, created_at)
+         SELECT id,
+                COALESCE(artifact_content_digest, ''),
+                CASE WHEN artifact_content_digest IS NULL THEN 0 ELSE ?1 END,
+                0,
+                ?2,
+                0,
+                ?3,
+                updated_at
+           FROM memories
+          WHERE artifact_path IS NOT NULL",
+        params![
+            ARTIFACT_CHUNK_DIGEST_VERSION,
+            ARTIFACT_CHUNK_SIZE as i64,
+            ARTIFACT_VERIFICATION_LEGACY_UNVERIFIED,
+        ],
+    )?;
     Ok(())
 }
 
@@ -390,16 +469,74 @@ fn create_memory_retrieval_schema(conn: &Connection) -> Result<(), DbError> {
            memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
            rank INTEGER NOT NULL,
            score REAL NOT NULL,
-           reason TEXT NOT NULL CHECK (reason IN ('lexical', 'recent', 'pinned')),
+           reason TEXT NOT NULL CHECK (reason IN ('explicit', 'lexical', 'recent', 'pinned')),
            rendered_bytes INTEGER NOT NULL,
+           ranking_version TEXT NOT NULL DEFAULT 'lexical_v1',
            created_at TEXT NOT NULL,
            UNIQUE (run_id, node_id, memory_id)
          );
          CREATE INDEX IF NOT EXISTS idx_run_memory_uses_run_node_rank
            ON run_memory_uses(run_id, node_id, rank);
          CREATE INDEX IF NOT EXISTS idx_run_memory_uses_memory_id
-           ON run_memory_uses(memory_id);",
+           ON run_memory_uses(memory_id);
+         CREATE TABLE IF NOT EXISTS run_memory_context_summaries (
+           run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+           node_id TEXT NOT NULL,
+           budget_bytes INTEGER NOT NULL,
+           memory_bytes INTEGER NOT NULL,
+           included_count INTEGER NOT NULL,
+           explicit_omitted_count INTEGER NOT NULL,
+           pinned_omitted_count INTEGER NOT NULL,
+           automatic_omitted_count INTEGER NOT NULL,
+           unavailable_count INTEGER NOT NULL,
+           repeated_count INTEGER NOT NULL,
+           trace_available INTEGER NOT NULL CHECK (trace_available IN (0, 1)),
+           created_at TEXT NOT NULL,
+           PRIMARY KEY (run_id, node_id)
+         );",
     )?;
+    Ok(())
+}
+
+fn expand_memory_use_reason_check(conn: &Connection) -> Result<(), DbError> {
+    let sql: String = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'run_memory_uses'",
+        [],
+        |row| row.get(0),
+    )?;
+    if sql.contains("'explicit'") {
+        return Ok(());
+    }
+    let transaction = conn.unchecked_transaction()?;
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS idx_run_memory_uses_run_node_rank;
+         DROP INDEX IF EXISTS idx_run_memory_uses_memory_id;
+         CREATE TABLE run_memory_uses_v048 (
+           id TEXT PRIMARY KEY NOT NULL,
+           run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+           node_id TEXT NOT NULL,
+           memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+           rank INTEGER NOT NULL,
+           score REAL NOT NULL,
+           reason TEXT NOT NULL CHECK (reason IN ('explicit', 'lexical', 'recent', 'pinned')),
+           rendered_bytes INTEGER NOT NULL,
+           ranking_version TEXT NOT NULL DEFAULT 'lexical_v1',
+           created_at TEXT NOT NULL,
+           UNIQUE (run_id, node_id, memory_id)
+         );
+         INSERT INTO run_memory_uses_v048
+           (id, run_id, node_id, memory_id, rank, score, reason, rendered_bytes,
+            ranking_version, created_at)
+         SELECT id, run_id, node_id, memory_id, rank, score, reason, rendered_bytes,
+                ranking_version, created_at
+         FROM run_memory_uses;
+         DROP TABLE run_memory_uses;
+         ALTER TABLE run_memory_uses_v048 RENAME TO run_memory_uses;
+         CREATE INDEX idx_run_memory_uses_run_node_rank
+           ON run_memory_uses(run_id, node_id, rank);
+         CREATE INDEX idx_run_memory_uses_memory_id ON run_memory_uses(memory_id);",
+    )?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -425,9 +562,13 @@ fn create_memory_curation_schema(conn: &Connection) -> Result<(), DbError> {
            run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
            workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
            status TEXT NOT NULL CHECK (
-             status IN ('pending','running','completed','failed','skipped')
-           ),
-           provider TEXT NOT NULL,
+           status IN ('pending','running','completed','failed','skipped')
+         ),
+         provider TEXT NOT NULL,
+           provider_product TEXT,
+           execution_mode TEXT,
+           capability_version TEXT,
+           restriction_contract_version TEXT,
            model TEXT,
            error_code TEXT,
            candidate_count INTEGER NOT NULL DEFAULT 0,
@@ -465,6 +606,321 @@ fn create_memory_curation_schema(conn: &Connection) -> Result<(), DbError> {
          CREATE INDEX IF NOT EXISTS idx_memory_reviews_status ON memory_reviews(status);
          CREATE INDEX IF NOT EXISTS idx_memory_reviews_created ON memory_reviews(created_at);",
     )?;
+    for (column, declaration) in [
+        ("provider_product", "TEXT"),
+        ("execution_mode", "TEXT"),
+        ("capability_version", "TEXT"),
+        ("restriction_contract_version", "TEXT"),
+    ] {
+        ensure_column(conn, "memory_reviews", column, declaration)?;
+    }
+    // Pre-restriction rows have no execution identity and must never be sent
+    // through the old adapter after an upgrade. Preserve completed history,
+    // candidates, and settings; the predicate makes this idempotent.
+    conn.execute(
+        "UPDATE memory_reviews
+            SET status = 'skipped',
+                error_code = ?1,
+                finished_at = COALESCE(finished_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          WHERE restriction_contract_version IS NULL
+            AND status IN ('pending', 'running')",
+        [REVIEW_ERROR_LEGACY_REVIEW_UNAVAILABLE],
+    )?;
+    // A process can terminate after claiming a restricted job. On the next
+    // startup, return only identity-bearing rows to the durable dispatcher;
+    // legacy rows were already classified above and stay unavailable.
+    conn.execute(
+        "UPDATE memory_reviews
+            SET status = 'pending', started_at = NULL, finished_at = NULL,
+                error_code = NULL
+          WHERE status = 'running'
+            AND restriction_contract_version IS NOT NULL",
+        [],
+    )?;
+    Ok(())
+}
+
+fn create_output_cleanup_journal_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS output_cleanup_journal (
+           storage_id TEXT NOT NULL,
+           attempt_id TEXT NOT NULL DEFAULT '',
+           generation INTEGER NOT NULL CHECK (generation > 0),
+           remove_final INTEGER NOT NULL CHECK (remove_final IN (0, 1)),
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           PRIMARY KEY (storage_id, attempt_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_output_cleanup_journal_updated
+           ON output_cleanup_journal(updated_at, storage_id, attempt_id);",
+    )?;
+    ensure_column(
+        conn,
+        "output_cleanup_journal",
+        "generation",
+        "INTEGER NOT NULL DEFAULT 1 CHECK (generation > 0)",
+    )?;
+    Ok(())
+}
+
+fn create_memory_evidence_schema(conn: &Connection) -> Result<(), DbError> {
+    let transaction = conn.unchecked_transaction()?;
+    ensure_column(
+        &transaction,
+        "memories",
+        "provenance_state",
+        "TEXT NOT NULL DEFAULT 'legacy_unknown' CHECK (provenance_state IN ('legacy_unknown','manual','evidence_verified','source_removed'))",
+    )?;
+    ensure_column(
+        &transaction,
+        "memories",
+        "evidence_subject",
+        "TEXT CHECK (evidence_subject IS NULL OR evidence_subject IN ('user_statement','workflow_configuration','recorded_observation'))",
+    )?;
+    ensure_column(
+        &transaction,
+        "memories",
+        "evidence_is_inference",
+        "INTEGER NOT NULL DEFAULT 0 CHECK (evidence_is_inference IN (0, 1))",
+    )?;
+    for (column, declaration) in [
+        ("curation_contract_version", "INTEGER NOT NULL DEFAULT 0"),
+        (
+            "evidence_state",
+            "TEXT NOT NULL DEFAULT 'legacy_unavailable' CHECK (evidence_state IN ('verified','legacy_unavailable','needs_reconfirmation','source_removed'))",
+        ),
+        (
+            "evidence_subject",
+            "TEXT CHECK (evidence_subject IN ('user_statement','workflow_configuration','recorded_observation'))",
+        ),
+        (
+            "is_inference",
+            "INTEGER NOT NULL DEFAULT 0 CHECK (is_inference IN (0, 1))",
+        ),
+        ("claim_digest", "TEXT"),
+    ] {
+        ensure_column(&transaction, "memory_candidates", column, declaration)?;
+    }
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS run_evidence_sources (
+           id TEXT PRIMARY KEY NOT NULL,
+           run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+           step_id TEXT REFERENCES run_steps(id) ON DELETE CASCADE,
+           node_id TEXT,
+           origin TEXT NOT NULL CHECK (origin IN (
+             'authored_task','configured_workflow_instruction','external_trigger_data',
+             'host_recorded_observation','model_output','prior_memory','retrieved_historical_summary'
+           )),
+           producer_identity TEXT,
+           source_label TEXT,
+           observed_at TEXT NOT NULL,
+           normalization_version INTEGER NOT NULL,
+           normalized_text TEXT NOT NULL,
+           capture_state TEXT NOT NULL CHECK (capture_state IN ('complete','truncated','omitted')),
+           omission_reason TEXT CHECK (omission_reason IN ('run_byte_limit','sensitive_content','observation_unavailable')),
+           original_bytes INTEGER NOT NULL,
+           captured_bytes INTEGER NOT NULL,
+           content_digest TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS memory_candidate_evidence (
+           id TEXT PRIMARY KEY NOT NULL,
+           candidate_id TEXT NOT NULL REFERENCES memory_candidates(id) ON DELETE CASCADE,
+           ordinal INTEGER NOT NULL,
+           source_id TEXT REFERENCES run_evidence_sources(id) ON DELETE SET NULL,
+           fragment_id TEXT NOT NULL,
+           source_run_id TEXT NOT NULL,
+           source_step_id TEXT,
+           source_node_id TEXT,
+           origin TEXT NOT NULL,
+           producer_identity TEXT,
+           source_label TEXT,
+           quote TEXT,
+           byte_start INTEGER,
+           byte_end INTEGER,
+           normalization_version INTEGER,
+           fragment_digest TEXT,
+           source_removed INTEGER NOT NULL DEFAULT 0 CHECK (source_removed IN (0, 1)),
+           created_at TEXT NOT NULL,
+           UNIQUE (candidate_id, ordinal)
+         );
+         CREATE TABLE IF NOT EXISTS memory_evidence (
+           id TEXT PRIMARY KEY NOT NULL,
+           memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+           ordinal INTEGER NOT NULL,
+           source_id TEXT REFERENCES run_evidence_sources(id) ON DELETE SET NULL,
+           fragment_id TEXT NOT NULL,
+           source_run_id TEXT NOT NULL,
+           source_step_id TEXT,
+           source_node_id TEXT,
+           origin TEXT NOT NULL,
+           producer_identity TEXT,
+           source_label TEXT,
+           quote TEXT,
+           byte_start INTEGER,
+           byte_end INTEGER,
+           normalization_version INTEGER,
+           fragment_digest TEXT,
+           source_removed INTEGER NOT NULL DEFAULT 0 CHECK (source_removed IN (0, 1)),
+           created_at TEXT NOT NULL,
+           UNIQUE (memory_id, ordinal)
+         );
+         CREATE INDEX IF NOT EXISTS idx_run_evidence_sources_run
+           ON run_evidence_sources(run_id, observed_at, id);
+         CREATE INDEX IF NOT EXISTS idx_run_evidence_sources_step
+           ON run_evidence_sources(step_id);
+         CREATE INDEX IF NOT EXISTS idx_memory_candidate_evidence_source
+           ON memory_candidate_evidence(source_id);
+         CREATE INDEX IF NOT EXISTS idx_memory_evidence_source
+           ON memory_evidence(source_id);
+         CREATE TRIGGER IF NOT EXISTS scrub_evidence_source_before_delete
+         BEFORE DELETE ON run_evidence_sources
+         BEGIN
+           UPDATE memory_candidates
+              SET status = CASE WHEN status = 'pending' THEN 'blocked' ELSE status END,
+                  blocked_code = CASE WHEN status = 'pending' THEN 'source_removed' ELSE blocked_code END,
+                  evidence_state = 'source_removed', claim_digest = NULL, rationale = ''
+            WHERE id IN (
+              SELECT candidate_id FROM memory_candidate_evidence WHERE source_id = OLD.id
+            );
+           UPDATE memories
+              SET provenance_state = 'source_removed'
+            WHERE id IN (
+              SELECT memory_id FROM memory_evidence WHERE source_id = OLD.id
+            );
+           UPDATE memory_candidate_evidence
+              SET source_id = NULL, quote = NULL, byte_start = NULL, byte_end = NULL,
+                  normalization_version = NULL, fragment_digest = NULL, source_removed = 1
+            WHERE source_id = OLD.id;
+           UPDATE memory_evidence
+              SET source_id = NULL, quote = NULL, byte_start = NULL, byte_end = NULL,
+                  normalization_version = NULL, fragment_digest = NULL, source_removed = 1
+            WHERE source_id = OLD.id;
+         END;",
+    )?;
+    transaction.execute(
+        "UPDATE memories SET provenance_state = CASE
+           WHEN source = 'manual' THEN 'manual' ELSE 'legacy_unknown' END
+         WHERE provenance_state = 'legacy_unknown'",
+        [],
+    )?;
+    transaction.execute(
+        "UPDATE memory_candidates
+            SET status = CASE WHEN status = 'pending' THEN 'blocked' ELSE status END,
+                blocked_code = CASE WHEN status = 'pending'
+                  THEN 'legacy_evidence_unavailable' ELSE blocked_code END,
+                evidence_state = 'legacy_unavailable', claim_digest = NULL
+          WHERE curation_contract_version = 0",
+        [],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn create_memory_revision_schema(conn: &Connection) -> Result<(), DbError> {
+    let transaction = conn.unchecked_transaction()?;
+    for (column, declaration) in [
+        (
+            "semantic_revision",
+            "INTEGER NOT NULL DEFAULT 1 CHECK (semantic_revision >= 1)",
+        ),
+        ("artifact_content_digest", "TEXT"),
+        ("fact_key", "TEXT"),
+        ("observed_at", "TEXT"),
+        ("valid_from", "TEXT"),
+    ] {
+        ensure_column(&transaction, "memories", column, declaration)?;
+    }
+    for (column, declaration) in [
+        (
+            "candidate_revision",
+            "INTEGER NOT NULL DEFAULT 1 CHECK (candidate_revision >= 1)",
+        ),
+        ("expected_target_memory_id", "TEXT"),
+        ("expected_target_semantic_revision", "INTEGER"),
+        ("expected_target_content_digest", "TEXT"),
+        (
+            "target_complete",
+            "INTEGER CHECK (target_complete IS NULL OR target_complete IN (0, 1))",
+        ),
+        ("fact_key", "TEXT"),
+        ("observed_at", "TEXT"),
+        ("last_confirmed_at", "TEXT"),
+        ("valid_from", "TEXT"),
+        ("expires_at", "TEXT"),
+        ("possible_conflicts_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ] {
+        ensure_column(&transaction, "memory_candidates", column, declaration)?;
+    }
+
+    transaction.execute(
+        "UPDATE memory_candidates
+            SET status = 'blocked', blocked_code = 'target_snapshot_unavailable',
+                decided_at = COALESCE(decided_at, created_at)
+          WHERE status = 'pending' AND operation IN ('supersede', 'retract')
+            AND (expected_target_memory_id IS NULL
+              OR expected_target_semantic_revision IS NULL
+              OR expected_target_content_digest IS NULL
+              OR target_complete IS NULL)",
+        [],
+    )?;
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_memories_validity
+           ON memories(status, valid_from, expires_at);
+         CREATE INDEX IF NOT EXISTS idx_memories_fact_key
+           ON memories(scope_type, scope_key, fact_key, status);
+         CREATE INDEX IF NOT EXISTS idx_memory_candidates_target_revision
+           ON memory_candidates(expected_target_memory_id, expected_target_semantic_revision, status);
+         CREATE TRIGGER IF NOT EXISTS bump_memory_semantic_revision
+         AFTER UPDATE OF title, body, kind, artifact_path, artifact_content_digest,
+           scope_type, scope_key, memory_type, status, supersedes_id, fact_key,
+           observed_at, last_confirmed_at, valid_from, expires_at ON memories
+         FOR EACH ROW
+         WHEN NEW.semantic_revision = OLD.semantic_revision AND (
+           NEW.title IS NOT OLD.title OR NEW.body IS NOT OLD.body OR
+           NEW.kind IS NOT OLD.kind OR NEW.artifact_path IS NOT OLD.artifact_path OR
+           NEW.artifact_content_digest IS NOT OLD.artifact_content_digest OR
+           NEW.scope_type IS NOT OLD.scope_type OR NEW.scope_key IS NOT OLD.scope_key OR
+           NEW.memory_type IS NOT OLD.memory_type OR NEW.status IS NOT OLD.status OR
+           NEW.supersedes_id IS NOT OLD.supersedes_id OR NEW.fact_key IS NOT OLD.fact_key OR
+           NEW.observed_at IS NOT OLD.observed_at OR
+           NEW.last_confirmed_at IS NOT OLD.last_confirmed_at OR
+           NEW.valid_from IS NOT OLD.valid_from OR NEW.expires_at IS NOT OLD.expires_at
+         )
+         BEGIN
+           UPDATE memories
+              SET semantic_revision = OLD.semantic_revision + 1
+            WHERE id = OLD.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS bump_memory_candidate_revision
+         AFTER UPDATE OF scope_type, scope_key, memory_type, title, body, confidence,
+           rationale, content_hash, fact_key, observed_at, last_confirmed_at, valid_from,
+           expires_at, possible_conflicts_json, curation_contract_version, evidence_state,
+           evidence_subject, is_inference, claim_digest, status, blocked_code, decided_at
+           ON memory_candidates
+         FOR EACH ROW
+         WHEN NEW.candidate_revision = OLD.candidate_revision AND (
+           NEW.scope_type IS NOT OLD.scope_type OR NEW.scope_key IS NOT OLD.scope_key OR
+           NEW.memory_type IS NOT OLD.memory_type OR NEW.title IS NOT OLD.title OR
+           NEW.body IS NOT OLD.body OR NEW.confidence IS NOT OLD.confidence OR
+           NEW.rationale IS NOT OLD.rationale OR NEW.content_hash IS NOT OLD.content_hash OR
+           NEW.fact_key IS NOT OLD.fact_key OR NEW.observed_at IS NOT OLD.observed_at OR
+           NEW.last_confirmed_at IS NOT OLD.last_confirmed_at OR
+           NEW.valid_from IS NOT OLD.valid_from OR NEW.expires_at IS NOT OLD.expires_at OR
+           NEW.possible_conflicts_json IS NOT OLD.possible_conflicts_json OR
+           NEW.curation_contract_version IS NOT OLD.curation_contract_version OR
+           NEW.evidence_state IS NOT OLD.evidence_state OR
+           NEW.evidence_subject IS NOT OLD.evidence_subject OR
+           NEW.is_inference IS NOT OLD.is_inference OR
+           NEW.claim_digest IS NOT OLD.claim_digest OR NEW.status IS NOT OLD.status OR
+           NEW.blocked_code IS NOT OLD.blocked_code OR NEW.decided_at IS NOT OLD.decided_at
+         )
+         BEGIN
+           UPDATE memory_candidates
+              SET candidate_revision = OLD.candidate_revision + 1
+            WHERE id = OLD.id;
+         END;",
+    )?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -551,6 +1007,10 @@ fn migrate_scoped_memories(conn: &Connection) -> Result<(), DbError> {
            value TEXT NOT NULL
          );",
     )?;
+    let scoped_memories = table_has_column(conn, "memories", "scope_type")?;
+    if scoped_memories {
+        ensure_column(conn, "memories", "artifact_path", "TEXT")?;
+    }
     let already_migrated: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM schema_meta WHERE key = 'scoped_memory_v1')",
         [],
@@ -561,7 +1021,7 @@ fn migrate_scoped_memories(conn: &Connection) -> Result<(), DbError> {
         return Ok(());
     }
 
-    if table_has_column(conn, "memories", "scope_type")? {
+    if scoped_memories {
         ensure_scoped_memory_indexes(conn)?;
         conn.execute(
             "INSERT INTO schema_meta(key, value) VALUES ('scoped_memory_v1', 'complete')",
@@ -1222,6 +1682,43 @@ mod tests {
     }
 
     #[test]
+    fn existing_schedules_keep_catching_up_after_the_missed_run_migration() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch(include_str!("schema.sql"))
+            .expect("initialize legacy fixture");
+        conn.execute_batch("ALTER TABLE schedules DROP COLUMN on_missed;")
+            .expect("remove the newer column from the fixture");
+        conn.execute(
+            "INSERT INTO workflows
+               (id, name, description, working_directory, sort_order, graph_json, created_at, updated_at)
+             VALUES ('legacy-workflow', 'Legacy', '', '', 0, '{}', 'now', 'now')",
+            [],
+        )
+        .expect("insert existing workflow");
+        conn.execute(
+            "INSERT INTO schedules
+               (id, workflow_id, cron, enabled, next_run_at, created_at, updated_at)
+             VALUES ('legacy-schedule', 'legacy-workflow', '0 0 9 * * *', 1, NULL, 'now', 'now')",
+            [],
+        )
+        .expect("insert existing schedule");
+
+        apply_migrations(&conn).expect("upgrade fixture");
+
+        let on_missed: String = conn
+            .query_row(
+                "SELECT on_missed FROM schedules WHERE id = 'legacy-schedule'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load migrated missed-run policy");
+        assert_eq!(
+            on_missed, "run",
+            "existing schedules must keep catching up on open"
+        );
+    }
+
+    #[test]
     fn initializes_memory_retrieval_rollout_and_audit_cascades() {
         let conn = Connection::open_in_memory().expect("open database");
         conn.execute_batch("PRAGMA foreign_keys = ON;")
@@ -1229,7 +1726,6 @@ mod tests {
         conn.execute_batch(include_str!("schema.sql"))
             .expect("initialize schema");
         apply_migrations(&conn).expect("apply migrations");
-
         assert!(columns(&conn, "workflows").contains(&"memory_retrieval_enabled".to_owned()));
         for expected in [
             "run_id",
@@ -1239,6 +1735,7 @@ mod tests {
             "score",
             "reason",
             "rendered_bytes",
+            "ranking_version",
             "created_at",
         ] {
             assert!(
@@ -1292,6 +1789,76 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM run_memory_uses", [], |row| row.get(0))
             .expect("count audit rows");
         assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn backfills_memory_ranking_versions_idempotently() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch(include_str!("schema.sql"))
+            .expect("initialize schema");
+        conn.execute_batch(
+            "DROP TABLE run_memory_uses;
+             CREATE TABLE run_memory_uses (
+               id TEXT PRIMARY KEY NOT NULL,
+               run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+               node_id TEXT NOT NULL,
+               memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+               rank INTEGER NOT NULL,
+               score REAL NOT NULL,
+               reason TEXT NOT NULL CHECK (reason IN ('lexical', 'recent', 'pinned')),
+               rendered_bytes INTEGER NOT NULL,
+               created_at TEXT NOT NULL,
+               UNIQUE (run_id, node_id, memory_id)
+             );
+             INSERT INTO workflows
+               (id, name, description, graph_json, created_at, updated_at)
+             VALUES ('wf', 'Workflow', '', '{}', 'now', 'now');
+             INSERT INTO runs (id, workflow_id, created_at) VALUES ('run', 'wf', 'now');
+             INSERT INTO memories
+               (id, workflow_id, scope_type, scope_key, title, body, created_at, updated_at)
+             VALUES ('lexical', 'wf', 'workflow', 'wf', 'Lexical', 'body', 'now', 'now'),
+                    ('recent', 'wf', 'workflow', 'wf', 'Recent', 'body', 'now', 'now'),
+                    ('pinned', 'wf', 'workflow', 'wf', 'Pinned', 'body', 'now', 'now');
+             INSERT INTO run_memory_uses
+               (id, run_id, node_id, memory_id, rank, score, reason, rendered_bytes, created_at)
+             VALUES ('u1', 'run', 'n', 'lexical', 1, 1, 'lexical', 10, 'now'),
+                    ('u2', 'run', 'n', 'recent', 2, 1, 'recent', 10, 'now'),
+                    ('u3', 'run', 'n', 'pinned', 3, 0, 'pinned', 10, 'now');",
+        )
+        .expect("initialize legacy retrieval table");
+
+        apply_migrations(&conn).expect("first migration");
+        apply_migrations(&conn).expect("second migration");
+        let versions = conn
+            .prepare(
+                "SELECT reason, ranking_version FROM run_memory_uses
+                 ORDER BY rank",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            versions,
+            vec![
+                ("lexical".into(), "lexical_v1".into()),
+                ("recent".into(), "lexical_v1".into()),
+                ("pinned".into(), "pinned_v1".into()),
+            ]
+        );
+        conn.execute(
+            "INSERT INTO run_memory_uses
+               (id, run_id, node_id, memory_id, rank, score, reason, rendered_bytes,
+                ranking_version, created_at)
+             VALUES ('u4', 'run', 'explicit-node', 'lexical', 1, 0, 'explicit', 11,
+                     'explicit_v1', 'now')",
+            [],
+        )
+        .expect("explicit trace reason is accepted after migration");
+        assert!(!columns(&conn, "run_memory_context_summaries").is_empty());
     }
 
     #[test]
@@ -1699,6 +2266,92 @@ mod tests {
     }
 
     #[test]
+    fn legacy_unfinished_reviews_are_classified_once_without_resetting_metadata() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch(include_str!("schema.sql"))
+            .expect("initialize schema");
+        apply_migrations(&conn).expect("initial migration");
+        conn.execute_batch(
+            "INSERT INTO workflows (id, name, description, graph_json, created_at, updated_at)
+             VALUES ('legacy-review-workflow', 'Legacy', '', '{}', 'now', 'now');
+             INSERT INTO runs (id, workflow_id, status, created_at)
+             VALUES ('legacy-pending', 'legacy-review-workflow', 'completed', 'now'),
+                    ('legacy-running', 'legacy-review-workflow', 'completed', 'now'),
+                    ('legacy-completed', 'legacy-review-workflow', 'completed', 'now'),
+                    ('interrupted-running', 'legacy-review-workflow', 'completed', 'now');
+             INSERT INTO memory_reviews
+               (run_id, workflow_id, status, provider, model, candidate_count, created_at)
+             VALUES ('legacy-pending', 'legacy-review-workflow', 'pending', 'claude_code', 'sonnet', 0, 'now'),
+                    ('legacy-running', 'legacy-review-workflow', 'running', 'claude_code', 'haiku', 2, 'now'),
+                    ('legacy-completed', 'legacy-review-workflow', 'completed', 'claude_code', 'opus', 1, 'now'),
+                    ('interrupted-running', 'legacy-review-workflow', 'running', 'claude_code', 'sonnet', 0, 'now');
+             UPDATE memory_reviews
+                SET provider_product = 'claude_code', execution_mode = 'restricted_print',
+                    capability_version = '2.1.263',
+                    restriction_contract_version = 'memory-review-restricted-v1',
+                    started_at = 'old-start', error_code = 'timeout'
+              WHERE run_id = 'interrupted-running';",
+        )
+        .expect("insert legacy reviews");
+
+        apply_migrations(&conn).expect("classify legacy rows");
+        let statuses: Vec<(String, String, Option<String>)> = conn
+            .prepare(
+                "SELECT run_id, status, error_code FROM memory_reviews
+                 ORDER BY run_id",
+            )
+            .expect("prepare statuses")
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query statuses")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect statuses");
+        assert_eq!(
+            statuses,
+            vec![
+                ("interrupted-running".into(), "pending".into(), None),
+                ("legacy-completed".into(), "completed".into(), None),
+                (
+                    "legacy-pending".into(),
+                    "skipped".into(),
+                    Some(REVIEW_ERROR_LEGACY_REVIEW_UNAVAILABLE.into())
+                ),
+                (
+                    "legacy-running".into(),
+                    "skipped".into(),
+                    Some(REVIEW_ERROR_LEGACY_REVIEW_UNAVAILABLE.into())
+                ),
+            ]
+        );
+        let metadata: (String, i64) = conn
+            .query_row(
+                "SELECT model, candidate_count FROM memory_reviews
+                 WHERE run_id = 'legacy-completed'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("completed metadata");
+        assert_eq!(metadata, ("opus".into(), 1));
+
+        // The second run must not rewrite status or timestamps.
+        let before: String = conn
+            .query_row(
+                "SELECT finished_at FROM memory_reviews WHERE run_id = 'legacy-pending'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("finished timestamp");
+        apply_migrations(&conn).expect("repeat migration");
+        let after: String = conn
+            .query_row(
+                "SELECT finished_at FROM memory_reviews WHERE run_id = 'legacy-pending'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("finished timestamp");
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn memory_curation_cascades_and_uniqueness_hold_on_fresh_schema() {
         let conn = Connection::open_in_memory().expect("open database");
         conn.execute_batch("PRAGMA foreign_keys = ON;")
@@ -1803,5 +2456,146 @@ mod tests {
             )
             .expect("load migrated singleton default");
         assert_eq!(enabled, 0, "review must stay off after upgrade");
+    }
+
+    #[test]
+    fn evidence_migration_blocks_legacy_pending_and_labels_provenance_idempotently() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .expect("enable foreign keys");
+        conn.execute_batch(include_str!("schema.sql"))
+            .expect("initialize legacy-shaped fixture");
+        conn.execute_batch(
+            "INSERT INTO workflows
+               (id, name, description, working_directory, sort_order, graph_json, created_at, updated_at)
+             VALUES ('workflow-e', 'Evidence', '', '/tmp/evidence', 0, '{}', 'now', 'now');
+             INSERT INTO runs (id, workflow_id, status, created_at)
+             VALUES ('run-e', 'workflow-e', 'completed', 'now');
+             INSERT INTO memory_reviews (run_id, workflow_id, status, provider, created_at)
+             VALUES ('run-e', 'workflow-e', 'completed', 'claude_code', 'now');
+             INSERT INTO memory_candidates
+               (id, review_run_id, workflow_id, operation, scope_type, scope_key,
+                memory_type, title, body, confidence, rationale, content_hash, status, created_at)
+             VALUES ('candidate-e', 'run-e', 'workflow-e', 'create', 'workflow',
+                     'workflow-e', 'fact', 'Legacy', 'Legacy body', 0.7,
+                     'Legacy rationale', 'legacy-hash', 'pending', 'now');
+             INSERT INTO memories
+               (id, workflow_id, scope_type, scope_key, source, title, body, created_at, updated_at)
+             VALUES ('manual-e', 'workflow-e', 'workflow', 'workflow-e', 'manual',
+                     'Manual', 'Manual body', 'now', 'now'),
+                    ('review-e', 'workflow-e', 'workflow', 'workflow-e', 'review',
+                     'Old review', 'Old review body', 'now', 'now');",
+        ).expect("seed rows before evidence migration");
+
+        apply_migrations(&conn).expect("apply evidence migration");
+        let candidate: (String, Option<String>, String, Option<String>) = conn
+            .query_row(
+                "SELECT status, blocked_code, evidence_state, claim_digest
+             FROM memory_candidates WHERE id = 'candidate-e'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            candidate,
+            (
+                "blocked".into(),
+                Some("legacy_evidence_unavailable".into()),
+                "legacy_unavailable".into(),
+                None,
+            )
+        );
+        let provenance = conn
+            .prepare(
+                "SELECT id, provenance_state, evidence_subject, evidence_is_inference
+                 FROM memories ORDER BY id",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            provenance,
+            vec![
+                ("manual-e".into(), "manual".into(), None, 0),
+                ("review-e".into(), "legacy_unknown".into(), None, 0),
+            ]
+        );
+
+        apply_migrations(&conn).expect("repeat evidence migration");
+        let repeated: (String, Option<String>, String) = conn.query_row(
+            "SELECT status, blocked_code, evidence_state FROM memory_candidates WHERE id = 'candidate-e'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            repeated,
+            (
+                "blocked".into(),
+                Some("legacy_evidence_unavailable".into()),
+                "legacy_unavailable".into(),
+            )
+        );
+    }
+
+    #[test]
+    fn production_bootstrap_upgrades_pre_revision_tables_before_creating_new_objects() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             CREATE TABLE memories (
+               id TEXT PRIMARY KEY NOT NULL, workflow_id TEXT, run_id TEXT, node_id TEXT,
+               scope_type TEXT NOT NULL, scope_key TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text',
+               memory_type TEXT NOT NULL DEFAULT 'output', source TEXT NOT NULL DEFAULT 'run',
+               title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', artifact_path TEXT,
+               pinned INTEGER NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 1.0,
+               salience INTEGER NOT NULL DEFAULT 50, status TEXT NOT NULL DEFAULT 'active',
+               supersedes_id TEXT, last_confirmed_at TEXT, expires_at TEXT,
+               provenance_state TEXT NOT NULL DEFAULT 'legacy_unknown', evidence_subject TEXT,
+               evidence_is_inference INTEGER NOT NULL DEFAULT 0,
+               created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+             );
+             CREATE TABLE memory_candidates (
+               id TEXT PRIMARY KEY NOT NULL, review_run_id TEXT NOT NULL,
+               workflow_id TEXT NOT NULL, source_node_id TEXT, operation TEXT NOT NULL,
+               target_memory_id TEXT, scope_type TEXT NOT NULL, scope_key TEXT NOT NULL,
+               memory_type TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+               confidence REAL NOT NULL, rationale TEXT NOT NULL, content_hash TEXT NOT NULL,
+               curation_contract_version INTEGER NOT NULL DEFAULT 0,
+               evidence_state TEXT NOT NULL DEFAULT 'legacy_unavailable', evidence_subject TEXT,
+               is_inference INTEGER NOT NULL DEFAULT 0, claim_digest TEXT,
+               status TEXT NOT NULL, blocked_code TEXT, created_at TEXT NOT NULL, decided_at TEXT,
+               UNIQUE (review_run_id, content_hash)
+             );",
+        )
+        .expect("create pre-revision tables");
+
+        // This is the exact production order in Db::open: schema first,
+        // compatibility migration second. New-column indexes/triggers must be
+        // deferred until after ALTER TABLE succeeds.
+        conn.execute_batch(include_str!("schema.sql"))
+            .expect("current schema must tolerate old table shapes");
+        apply_migrations(&conn).expect("upgrade old table shapes");
+        apply_migrations(&conn).expect("repeat upgrade idempotently");
+
+        assert!(table_has_column(&conn, "memories", "semantic_revision").unwrap());
+        assert!(table_has_column(&conn, "memory_candidates", "candidate_revision").unwrap());
+        let target_index: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type='index' AND name='idx_memory_candidates_target_revision'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target_index, 1);
     }
 }

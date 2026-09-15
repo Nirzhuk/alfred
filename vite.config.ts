@@ -7,17 +7,23 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 // `build.rs` bakes ALFRED_POLAR_ENVIRONMENT into the Rust binary; the frontend
 // needs the same value to pick the matching Polar public-link allow-list (see
-// src/features/licensing/public-link-rules.ts). Only this one key is loaded and
-// defined — no other ALFRED_* publisher value reaches the bundle.
-export default defineConfig(async ({ mode }) => ({
-  plugins: [react()],
+// src/features/licensing/public-link-rules.ts). ALFRED_DISABLE_LICENSE_GATING
+// is the self-compile opt-out next to it: `1` forces every capability
+// available without Polar. Only these two keys are loaded and defined — no
+// other ALFRED_* publisher value reaches the bundle.
+export default defineConfig(async ({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "ALFRED_");
+  return {
+    plugins: [react()],
 
-  define: {
-    "import.meta.env.ALFRED_POLAR_ENVIRONMENT": JSON.stringify(
-      loadEnv(mode, process.cwd(), "ALFRED_POLAR_ENVIRONMENT")
-        .ALFRED_POLAR_ENVIRONMENT ?? "",
-    ),
-  },
+    define: {
+      "import.meta.env.ALFRED_POLAR_ENVIRONMENT": JSON.stringify(
+        env.ALFRED_POLAR_ENVIRONMENT ?? "",
+      ),
+      "import.meta.env.ALFRED_DISABLE_LICENSE_GATING": JSON.stringify(
+        env.ALFRED_DISABLE_LICENSE_GATING ?? "",
+      ),
+    },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -40,4 +46,5 @@ export default defineConfig(async ({ mode }) => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+  };
+});

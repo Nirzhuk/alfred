@@ -1,3 +1,5 @@
+use super::memory_evidence::{list_run_evidence_sources_conn, EvidenceSource};
+use super::output_persistence::{list_output_receipts_for_run_conn, OutputReceipt};
 #[cfg(test)]
 use super::Db;
 use super::DbError;
@@ -48,6 +50,25 @@ pub struct RunHistoryDetail {
     pub run: RunHistoryItem,
     pub steps: Vec<RunHistoryStep>,
     pub memory_uses: Vec<RunHistoryMemoryUse>,
+    pub memory_context_summaries: Vec<RunHistoryMemoryContextSummary>,
+    pub evidence_sources: Vec<EvidenceSource>,
+    pub output_receipts: Vec<OutputReceipt>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHistoryMemoryContextSummary {
+    pub node_id: String,
+    pub budget_bytes: i64,
+    pub memory_bytes: i64,
+    pub included_count: i64,
+    pub explicit_omitted_count: i64,
+    pub pinned_omitted_count: i64,
+    pub automatic_omitted_count: i64,
+    pub unavailable_count: i64,
+    pub repeated_count: i64,
+    pub trace_available: bool,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +83,7 @@ pub struct RunHistoryMemoryUse {
     pub score: f64,
     pub reason: String,
     pub rendered_bytes: i64,
+    pub ranking_version: String,
     pub created_at: String,
 }
 
@@ -204,7 +226,8 @@ impl super::Db {
                 .collect::<Result<Vec<_>, _>>()?;
             let mut memory_statement = conn.prepare(
                 "SELECT u.node_id, u.memory_id, m.title, m.scope_type, m.memory_type,
-                        u.rank, u.score, u.reason, u.rendered_bytes, u.created_at
+                        u.rank, u.score, u.reason, u.rendered_bytes, u.ranking_version,
+                        u.created_at
                  FROM run_memory_uses u
                  JOIN memories m ON m.id = u.memory_id
                  WHERE u.run_id = ?1
@@ -223,14 +246,46 @@ impl super::Db {
                         score: (score * 100.0).round() / 100.0,
                         reason: row.get(7)?,
                         rendered_bytes: row.get(8)?,
-                        created_at: row.get(9)?,
+                        ranking_version: row.get(9)?,
+                        created_at: row.get(10)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
+            let mut summary_statement = conn.prepare(
+                "SELECT node_id, budget_bytes, memory_bytes, included_count,
+                        explicit_omitted_count, pinned_omitted_count,
+                        automatic_omitted_count, unavailable_count, repeated_count,
+                        trace_available, created_at
+                 FROM run_memory_context_summaries
+                 WHERE run_id = ?1
+                 ORDER BY created_at ASC, node_id ASC",
+            )?;
+            let memory_context_summaries = summary_statement
+                .query_map(params![run_id], |row| {
+                    Ok(RunHistoryMemoryContextSummary {
+                        node_id: row.get(0)?,
+                        budget_bytes: row.get(1)?,
+                        memory_bytes: row.get(2)?,
+                        included_count: row.get(3)?,
+                        explicit_omitted_count: row.get(4)?,
+                        pinned_omitted_count: row.get(5)?,
+                        automatic_omitted_count: row.get(6)?,
+                        unavailable_count: row.get(7)?,
+                        repeated_count: row.get(8)?,
+                        trace_available: row.get::<_, i64>(9)? != 0,
+                        created_at: row.get(10)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            let evidence_sources = list_run_evidence_sources_conn(conn, run_id)?;
+            let output_receipts = list_output_receipts_for_run_conn(conn, run_id)?;
             Ok(Some(RunHistoryDetail {
                 run,
                 steps,
                 memory_uses,
+                memory_context_summaries,
+                evidence_sources,
+                output_receipts,
             }))
         })
     }
@@ -578,7 +633,10 @@ mod tests {
                 salience: None,
                 status: None,
                 supersedes_id: None,
+                fact_key: None,
+                observed_at: None,
                 last_confirmed_at: None,
+                valid_from: None,
                 expires_at: None,
                 id: Some("memory-sync".into()),
             })
@@ -597,6 +655,7 @@ mod tests {
 
         db.update_memory(UpdateMemoryInput {
             id: memory.id.clone(),
+            expected_semantic_revision: memory.semantic_revision,
             context_workflow_id: None,
             title: Some("Updated title".into()),
             body: Some("replacement body".into()),
@@ -608,7 +667,10 @@ mod tests {
             salience: None,
             status: None,
             supersedes_id: None,
+            fact_key: None,
+            observed_at: None,
             last_confirmed_at: None,
+            valid_from: None,
             expires_at: None,
         })
         .expect("update memory");
@@ -765,7 +827,10 @@ mod tests {
             salience: None,
             status: None,
             supersedes_id: None,
+            fact_key: None,
+            observed_at: None,
             last_confirmed_at: None,
+            valid_from: None,
             expires_at: None,
             id: Some("delete-memory".into()),
         })
@@ -901,6 +966,105 @@ mod tests {
     }
 
     #[test]
+    fn history_exposes_explicit_version_and_context_summary_without_changing_step_input() {
+        let db = Db::open_in_memory().expect("open database");
+        let workflow_id = create_workflow(&db, "Versioned memory history");
+        insert_run_fixture(
+            &db,
+            &workflow_id,
+            "versioned-run",
+            "2026-08-18T08:00:00Z",
+            &[(
+                "versioned-step",
+                "agent",
+                json!({
+                    "prompt": "release",
+                    "memoryRecallStatus": "included",
+                    "memoryRecallOmittedCount": 0
+                }),
+                json!({ "answer": "done" }),
+            )],
+        );
+        db.create_memory(CreateMemoryInput {
+            workflow_id,
+            title: "Release decision".into(),
+            body: "Use the release checklist".into(),
+            run_id: None,
+            node_id: None,
+            kind: None,
+            scope_type: None,
+            memory_type: Some(MemoryType::Decision),
+            source: Some("manual".into()),
+            pinned: None,
+            confidence: None,
+            salience: None,
+            status: None,
+            supersedes_id: None,
+            fact_key: None,
+            observed_at: None,
+            last_confirmed_at: None,
+            valid_from: None,
+            expires_at: None,
+            id: Some("versioned-memory".into()),
+        })
+        .expect("create memory");
+        db.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO run_memory_uses
+                   (id, run_id, node_id, memory_id, rank, score, reason, rendered_bytes,
+                    ranking_version, created_at)
+                 VALUES ('versioned-use', 'versioned-run', 'agent', 'versioned-memory', 1, 220.0,
+                         'explicit', 120, 'explicit_v1', '2026-08-18T08:00:00Z')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO run_memory_context_summaries
+                   (run_id, node_id, budget_bytes, memory_bytes, included_count,
+                    explicit_omitted_count, pinned_omitted_count,
+                    automatic_omitted_count, unavailable_count, repeated_count,
+                    trace_available, created_at)
+                 VALUES ('versioned-run', 'agent', 12000, 120, 1, 2, 1, 3, 4, 5, 0,
+                         '2026-08-18T08:00:00Z')",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("insert memory use");
+
+        let detail = db
+            .get_run_history("versioned-run")
+            .expect("load history")
+            .expect("known run");
+        assert_eq!(detail.memory_uses.len(), 1);
+        assert_eq!(detail.memory_uses[0].ranking_version, "explicit_v1");
+        assert_eq!(detail.memory_uses[0].reason, "explicit");
+        assert_eq!(detail.memory_context_summaries.len(), 1);
+        let summary = &detail.memory_context_summaries[0];
+        assert_eq!(summary.budget_bytes, 12_000);
+        assert_eq!(summary.memory_bytes, 120);
+        assert_eq!(summary.explicit_omitted_count, 2);
+        assert_eq!(summary.pinned_omitted_count, 1);
+        assert_eq!(summary.automatic_omitted_count, 3);
+        assert_eq!(summary.unavailable_count, 4);
+        assert_eq!(summary.repeated_count, 5);
+        assert!(!summary.trace_available);
+        assert_eq!(detail.steps[0].input["memoryRecallStatus"], "included");
+        assert_eq!(detail.steps[0].input["memoryRecallOmittedCount"], 0);
+
+        db.with_conn(|conn| {
+            conn.execute("DELETE FROM runs WHERE id = 'versioned-run'", [])?;
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM run_memory_context_summaries WHERE run_id = 'versioned-run'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert_eq!(count, 0);
+            Ok(())
+        })
+        .expect("summary cascades with run");
+    }
+
+    #[test]
     fn searches_memory_and_run_documents_with_scope_ranking_and_safe_queries() {
         let db = Db::open_in_memory().expect("open database");
         let first_workflow = create_workflow(&db, "Search workflow");
@@ -946,7 +1110,10 @@ mod tests {
                 salience: None,
                 status: None,
                 supersedes_id: None,
+                fact_key: None,
+                observed_at: None,
                 last_confirmed_at: None,
+                valid_from: None,
                 expires_at: None,
                 id: Some(id.into()),
             })
@@ -1034,7 +1201,10 @@ mod tests {
                     salience: None,
                     status: Some(status),
                     supersedes_id: None,
+                    fact_key: None,
+                    observed_at: None,
                     last_confirmed_at: None,
+                    valid_from: None,
                     expires_at: None,
                     id: Some(id.into()),
                 })

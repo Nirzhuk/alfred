@@ -1,6 +1,9 @@
+use super::memories::remove_output_deletion_files;
+use super::output_persistence::{tombstone_output_receipts_for_workflow, OutputArtifactStore};
 use super::{Db, DbError};
 use chrono::Utc;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -15,6 +18,7 @@ pub struct Workflow {
     pub working_directory: String,
     pub folder_id: Option<String>,
     pub memory_retrieval_enabled: bool,
+    pub memory_lookup_enabled: bool,
     pub graph: Value,
     pub created_at: String,
     pub updated_at: String,
@@ -42,6 +46,7 @@ pub struct UpdateWorkflowInput {
     pub description: Option<String>,
     pub working_directory: Option<String>,
     pub memory_retrieval_enabled: Option<bool>,
+    pub memory_lookup_enabled: Option<bool>,
     pub graph: Option<Value>,
 }
 
@@ -54,7 +59,7 @@ fn now() -> String {
 }
 
 fn row_to_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workflow> {
-    let graph_json: String = row.get(6)?;
+    let graph_json: String = row.get(7)?;
     Ok(Workflow {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -62,9 +67,10 @@ fn row_to_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workflow> {
         working_directory: row.get(3)?,
         folder_id: row.get(4)?,
         memory_retrieval_enabled: row.get::<_, i64>(5)? != 0,
+        memory_lookup_enabled: row.get::<_, i64>(6)? != 0,
         graph: serde_json::from_str(&graph_json).unwrap_or_else(|_| empty_graph()),
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -72,7 +78,9 @@ impl Db {
     pub fn list_workflows(&self) -> Result<Vec<Workflow>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, description, working_directory, folder_id, memory_retrieval_enabled, graph_json, created_at, updated_at
+                "SELECT id, name, description, working_directory, folder_id,
+                        memory_retrieval_enabled, memory_lookup_enabled, graph_json,
+                        created_at, updated_at
                  FROM workflows
                  ORDER BY sort_order ASC, updated_at DESC",
             )?;
@@ -88,7 +96,9 @@ impl Db {
     pub fn get_workflow(&self, id: &str) -> Result<Option<Workflow>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, description, working_directory, folder_id, memory_retrieval_enabled, graph_json, created_at, updated_at
+                "SELECT id, name, description, working_directory, folder_id,
+                        memory_retrieval_enabled, memory_lookup_enabled, graph_json,
+                        created_at, updated_at
                  FROM workflows
                  WHERE id = ?1",
             )?;
@@ -123,8 +133,11 @@ impl Db {
                 )
                 .unwrap_or(-1);
             conn.execute(
-                "INSERT INTO workflows (id, name, description, working_directory, folder_id, sort_order, memory_retrieval_enabled, graph_json, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?8)",
+                "INSERT INTO workflows
+                   (id, name, description, working_directory, folder_id, sort_order,
+                    memory_retrieval_enabled, memory_lookup_enabled, graph_json,
+                    created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8, ?8)",
                 params![
                     id,
                     input.name,
@@ -162,49 +175,71 @@ impl Db {
     }
 
     pub fn update_workflow(&self, input: UpdateWorkflowInput) -> Result<Workflow, DbError> {
-        let existing = self
-            .get_workflow(&input.id)?
-            .ok_or_else(|| DbError::Other(format!("workflow not found: {}", input.id)))?;
-
-        let name = input.name.unwrap_or(existing.name);
-        let description = input.description.unwrap_or(existing.description);
-        let working_directory = input
-            .working_directory
-            .unwrap_or(existing.working_directory);
-        let memory_retrieval_enabled = input
-            .memory_retrieval_enabled
-            .unwrap_or(existing.memory_retrieval_enabled);
-        let graph = input.graph.unwrap_or(existing.graph);
-        let graph_json =
-            serde_json::to_string(&graph).map_err(|e| DbError::Other(e.to_string()))?;
+        let graph_json = input
+            .graph
+            .map(|graph| serde_json::to_string(&graph))
+            .transpose()
+            .map_err(|error| DbError::Other(error.to_string()))?;
         let updated_at = now();
-
+        let workflow_id = input.id.clone();
         self.with_conn(|conn| {
-            conn.execute(
+            let transaction = conn.unchecked_transaction()?;
+            let changed = transaction.execute(
                 "UPDATE workflows
-                 SET name = ?1, description = ?2, working_directory = ?3,
-                     memory_retrieval_enabled = ?4, graph_json = ?5, updated_at = ?6
-                 WHERE id = ?7",
+                    SET name = COALESCE(?1, name),
+                        description = COALESCE(?2, description),
+                        working_directory = COALESCE(?3, working_directory),
+                        memory_retrieval_enabled =
+                            COALESCE(?4, memory_retrieval_enabled),
+                        memory_lookup_enabled =
+                            COALESCE(?5, memory_lookup_enabled),
+                        graph_json = COALESCE(?6, graph_json),
+                        updated_at = ?7
+                  WHERE id = ?8",
                 params![
-                    name,
-                    description,
-                    working_directory,
-                    if memory_retrieval_enabled { 1 } else { 0 },
+                    input.name,
+                    input.description,
+                    input.working_directory,
+                    input
+                        .memory_retrieval_enabled
+                        .map(|enabled| if enabled { 1_i64 } else { 0_i64 }),
+                    input
+                        .memory_lookup_enabled
+                        .map(|enabled| if enabled { 1_i64 } else { 0_i64 }),
                     graph_json,
                     updated_at,
-                    input.id
+                    &workflow_id,
                 ],
             )?;
-            Ok(())
-        })?;
-
-        self.get_workflow(&input.id)?
-            .ok_or_else(|| DbError::Other("failed to load updated workflow".into()))
+            if changed == 0 {
+                return Err(DbError::Other(format!("workflow not found: {workflow_id}")));
+            }
+            let updated = {
+                let mut statement = transaction.prepare(
+                    "SELECT id, name, description, working_directory, folder_id,
+                            memory_retrieval_enabled, memory_lookup_enabled, graph_json,
+                            created_at, updated_at
+                     FROM workflows
+                     WHERE id = ?1",
+                )?;
+                statement
+                    .query_row(params![&workflow_id], row_to_workflow)
+                    .optional()?
+                    .ok_or_else(|| {
+                        DbError::Other(format!("workflow not found: {workflow_id}"))
+                    })?
+            };
+            transaction.commit()?;
+            Ok(updated)
+        })
     }
 
     pub fn delete_workflow(&self, id: &str) -> Result<(), DbError> {
-        let (changed, deleted_artifacts) = self.with_conn(|conn| {
+        let deleted_at = Utc::now().to_rfc3339();
+        let (changed, deleted_artifacts, output_cleanups) = self.with_conn(|conn| {
             let transaction = conn.unchecked_transaction()?;
+            let output_cleanups =
+                tombstone_output_receipts_for_workflow(&transaction, id, &deleted_at)?;
             let deleted_artifacts = {
                 let mut statement = transaction.prepare(
                     "SELECT artifact_path FROM memories
@@ -247,6 +282,7 @@ impl Db {
                 super::history::index_memory(&transaction, &memory_id)?;
             }
             transaction.execute("DELETE FROM schedules WHERE workflow_id = ?1", params![id])?;
+            super::memory_evidence::delete_workflow_evidence_sources_conn(&transaction, id)?;
             transaction.execute(
                 "DELETE FROM run_steps WHERE run_id IN (SELECT id FROM runs WHERE workflow_id = ?1)",
                 params![id],
@@ -254,7 +290,7 @@ impl Db {
             transaction.execute("DELETE FROM runs WHERE workflow_id = ?1", params![id])?;
             let changed = transaction.execute("DELETE FROM workflows WHERE id = ?1", params![id])?;
             transaction.commit()?;
-            Ok((changed, deleted_artifacts))
+            Ok((changed, deleted_artifacts, output_cleanups))
         })?;
 
         if changed == 0 {
@@ -262,9 +298,89 @@ impl Db {
         }
 
         for artifact in deleted_artifacts {
-            let _ = std::fs::remove_file(artifact);
+            if let Some(path) = self.trusted_memory_artifact_path(Path::new(&artifact)) {
+                let _ = std::fs::remove_file(path);
+            }
         }
+        let output_store = self.output_artifact_store();
+        remove_output_deletion_files(self, &output_store, output_cleanups);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn concurrent_partial_updates_preserve_unrelated_fields_after_reload() {
+        let db = Arc::new(Db::open_in_memory().expect("open isolated database"));
+        let workflow = db
+            .create_workflow(CreateWorkflowInput {
+                name: "Concurrent".into(),
+                description: "Keep me".into(),
+                working_directory: "/tmp/project".into(),
+                folder_id: None,
+                graph: json!({"nodes": [{"id": "keep"}], "edges": []}),
+            })
+            .expect("create workflow");
+        let workflow_id = workflow.id;
+        let barrier = Arc::new(Barrier::new(3));
+
+        std::thread::scope(|scope| {
+            let lookup_db = Arc::clone(&db);
+            let lookup_barrier = Arc::clone(&barrier);
+            let lookup_id = workflow_id.clone();
+            let lookup = scope.spawn(move || {
+                lookup_barrier.wait();
+                lookup_db
+                    .update_workflow(UpdateWorkflowInput {
+                        id: lookup_id,
+                        name: None,
+                        description: None,
+                        working_directory: None,
+                        memory_retrieval_enabled: None,
+                        memory_lookup_enabled: Some(true),
+                        graph: None,
+                    })
+                    .expect("lookup update");
+            });
+
+            let retrieval_db = Arc::clone(&db);
+            let retrieval_barrier = Arc::clone(&barrier);
+            let retrieval_id = workflow_id.clone();
+            let retrieval = scope.spawn(move || {
+                retrieval_barrier.wait();
+                retrieval_db
+                    .update_workflow(UpdateWorkflowInput {
+                        id: retrieval_id,
+                        name: None,
+                        description: None,
+                        working_directory: None,
+                        memory_retrieval_enabled: Some(false),
+                        memory_lookup_enabled: None,
+                        graph: None,
+                    })
+                    .expect("retrieval update");
+            });
+
+            barrier.wait();
+            lookup.join().expect("lookup thread");
+            retrieval.join().expect("retrieval thread");
+        });
+
+        let reloaded = db
+            .get_workflow(&workflow_id)
+            .expect("reload workflow")
+            .expect("workflow exists");
+        assert!(reloaded.memory_lookup_enabled);
+        assert!(!reloaded.memory_retrieval_enabled);
+        assert_eq!(reloaded.name, "Concurrent");
+        assert_eq!(reloaded.description, "Keep me");
+        assert_eq!(reloaded.working_directory, "/tmp/project");
+        assert_eq!(reloaded.graph, json!({"nodes": [{"id": "keep"}], "edges": []}));
     }
 }

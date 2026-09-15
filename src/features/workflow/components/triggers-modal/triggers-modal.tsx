@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../../../../components/icon";
+import { SearchInput } from "../../../../components/search-input";
 import { Modal, ModalHeader } from "../../../../components/modal";
 import {
   compatibleEventConnections,
@@ -811,13 +812,15 @@ function EventResourceSelector({
     <div className="field app-action-resource-field">
       <span>{field.label}</span>
       <div className="field-row">
-        <input
-          type="search"
+        <SearchInput
+          aria-label={`Search ${field.label} options`}
+          containerClassName="app-action-resource-search"
           value={query}
           maxLength={200}
           disabled={!connectionId || busy}
           placeholder="Search options"
           onChange={(event) => setQuery(event.currentTarget.value)}
+          onClear={() => setQuery("")}
         />
         <button
           type="button"

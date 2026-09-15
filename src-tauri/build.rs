@@ -15,6 +15,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ALFRED_POLAR_INDIVIDUAL_BENEFIT_ID");
     println!("cargo:rerun-if-env-changed=ALFRED_POLAR_TEAMS_BENEFIT_ID");
     println!("cargo:rerun-if-env-changed=ALFRED_RELEASE_DATE");
+    println!("cargo:rerun-if-env-changed=ALFRED_DISABLE_LICENSE_GATING");
     tauri_build::build()
 }
 
@@ -34,6 +35,9 @@ fn load_dotenv() {
         "ALFRED_POLAR_ORGANIZATION_ID",
         "ALFRED_POLAR_INDIVIDUAL_BENEFIT_ID",
         "ALFRED_POLAR_TEAMS_BENEFIT_ID",
+        // Opt-out for self-compiled builds without Polar: `1` disables all
+        // license gating in the frontend (`appLicenseGatingDisabled`).
+        "ALFRED_DISABLE_LICENSE_GATING",
         // The release workflow supplies this as an ISO 8601 `YYYY-MM-DD` date.
         // Unset means a source build, which never closes an update window.
         "ALFRED_RELEASE_DATE",

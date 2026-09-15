@@ -3,6 +3,7 @@ import {
   appBuildKind,
   PRO_CAPABILITIES,
   readBuildKind,
+  readLicenseGatingDisabled,
   resolveCapability,
   resolveEntitlement,
   type BuildKind,
@@ -53,6 +54,13 @@ describe("build kind", () => {
     expect(readBuildKind(undefined)).toBe("source");
     expect(readBuildKind("   ")).toBe("source");
     expect(readBuildKind(null)).toBe("source");
+  });
+  test("the explicit disable flag forces unlocked even with Polar values", () => {
+    expect(readLicenseGatingDisabled("1")).toBe(true);
+    expect(readLicenseGatingDisabled("true")).toBe(true);
+    expect(readLicenseGatingDisabled("")).toBe(false);
+    expect(readLicenseGatingDisabled(undefined)).toBe(false);
+    expect(readLicenseGatingDisabled("0")).toBe(false);
   });
 
   test("the running bundle resolves its kind once from the same env value", () => {

@@ -358,7 +358,7 @@ fn value_references(value: &Value, connection_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{CreateWorkflowInput, UpsertScheduleInput, UpsertTriggerInput};
+    use crate::db::{CreateWorkflowInput, OnMissed, UpsertScheduleInput, UpsertTriggerInput};
     use crate::integrations::models::canonical_identity_key;
 
     fn input(tenant: Option<&str>, mode: &str, credential_ref: &str) -> UpsertAppConnection {
@@ -524,6 +524,7 @@ mod tests {
                 workflow_id: workflow.id.clone(),
                 cron: "0 * * * * *".into(),
                 enabled: false,
+                on_missed: OnMissed::Run,
             },
             None,
         )

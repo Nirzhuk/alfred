@@ -1,5 +1,17 @@
+use super::artifact_chunks::{
+    persist_artifact_chunk_manifest_conn, trusted_artifact_path, trusted_artifact_target,
+    trusted_output_artifact_path,
+};
 use super::history::{delete_memory_index, index_memory};
-use super::{app_data_dir, Db, DbError};
+use super::memory_validity::{
+    artifact_content_digest, canonical_content_digest, current_memory_validity,
+    normalize_memory_dates, CanonicalSemanticFields, MemoryDatesInput, ValidityState,
+};
+use super::output_persistence::{
+    tombstone_output_receipt_for_memory, tombstone_output_receipts_for_workflow,
+    OutputArtifactStore, OutputDeletionCleanup,
+};
+use super::{Db, DbError};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -7,6 +19,38 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
+
+#[cfg(test)]
+thread_local! {
+    static FULL_ARTIFACT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static BOUNDED_ARTIFACT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub(crate) fn remove_output_deletion_files(
+    db: &Db,
+    store: &OutputArtifactStore,
+    cleanups: impl IntoIterator<Item = OutputDeletionCleanup>,
+) {
+    for cleanup in cleanups {
+        if db.output_cleanup_is_active(cleanup).unwrap_or(true) {
+            continue;
+        }
+        if store.remove_deleted_files_checked(cleanup).is_ok() {
+            let _ = db.acknowledge_output_cleanup(cleanup);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_artifact_read_counts() {
+    FULL_ARTIFACT_READS.set(0);
+    BOUNDED_ARTIFACT_READS.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn artifact_read_counts() -> (usize, usize) {
+    (FULL_ARTIFACT_READS.get(), BOUNDED_ARTIFACT_READS.get())
+}
 
 /// Spill large bodies to disk so SQLite stays lean.
 const ARTIFACT_BODY_THRESHOLD: usize = 32 * 1024;
@@ -95,6 +139,16 @@ impl MemoryType {
             )),
         }
     }
+
+    pub(crate) fn eligible_for_automatic_recall(self, source: &str) -> bool {
+        match self {
+            Self::Preference | Self::Fact | Self::Decision | Self::Constraint | Self::Lesson => {
+                true
+            }
+            Self::Note => matches!(source, "manual" | "review"),
+            Self::Episode | Self::Checkpoint | Self::Output | Self::Artifact => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,7 +160,7 @@ pub enum MemoryStatus {
 }
 
 impl MemoryStatus {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Active => "active",
             Self::Superseded => "superseded",
@@ -178,6 +232,29 @@ fn normalize_workspace_key(configured: &str) -> Result<String, DbError> {
     Ok(normalized.to_string_lossy().into_owned())
 }
 
+pub(crate) fn memory_context_conn(
+    conn: &rusqlite::Connection,
+    workflow_id: &str,
+) -> Result<MemoryContext, DbError> {
+    let configured: String = conn
+        .query_row(
+            "SELECT working_directory FROM workflows WHERE id = ?1",
+            [workflow_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| DbError::Other(format!("workflow not found: {workflow_id}")))?;
+    let working_directory = if configured.trim().is_empty() {
+        None
+    } else {
+        Some(normalize_workspace_key(&configured)?)
+    };
+    Ok(MemoryContext {
+        workflow_id: workflow_id.into(),
+        working_directory,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Memory {
@@ -193,15 +270,24 @@ pub struct Memory {
     pub title: String,
     pub body: String,
     pub artifact_path: Option<String>,
+    pub artifact_content_digest: Option<String>,
     pub pinned: bool,
     pub confidence: f64,
     pub salience: i64,
     pub status: MemoryStatus,
+    pub semantic_revision: i64,
+    pub content_digest: String,
     pub supersedes_id: Option<String>,
+    pub fact_key: Option<String>,
+    pub observed_at: Option<String>,
     pub last_confirmed_at: Option<String>,
+    pub valid_from: Option<String>,
     pub expires_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub provenance_state: String,
+    pub evidence_subject: Option<String>,
+    pub evidence_is_inference: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,7 +319,13 @@ pub struct CreateMemoryInput {
     #[serde(default)]
     pub supersedes_id: Option<String>,
     #[serde(default)]
+    pub fact_key: Option<String>,
+    #[serde(default)]
+    pub observed_at: Option<String>,
+    #[serde(default)]
     pub last_confirmed_at: Option<String>,
+    #[serde(default)]
+    pub valid_from: Option<String>,
     #[serde(default)]
     pub expires_at: Option<String>,
     #[serde(default)]
@@ -244,6 +336,7 @@ pub struct CreateMemoryInput {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateMemoryInput {
     pub id: String,
+    pub expected_semantic_revision: i64,
     #[serde(default)]
     pub context_workflow_id: Option<String>,
     #[serde(default)]
@@ -267,12 +360,20 @@ pub struct UpdateMemoryInput {
     #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub supersedes_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_nullable_patch")]
+    pub fact_key: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
+    pub observed_at: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub last_confirmed_at: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_patch")]
+    pub valid_from: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_nullable_patch")]
     pub expires_at: Option<Option<String>>,
 }
 
-fn deserialize_nullable_patch<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+pub(crate) fn deserialize_nullable_patch<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -310,6 +411,15 @@ pub struct FormattedMemoryItem {
     pub rendered_bytes: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BoundedMemoryExcerpt {
+    pub(crate) rendered: String,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) truncated: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) incomplete: bool,
+}
+
 fn now() -> String {
     Utc::now().to_rfc3339()
 }
@@ -337,16 +447,6 @@ fn normalize_source(source: Option<&str>) -> Result<String, DbError> {
     }
 }
 
-fn artifacts_dir(workflow_id: &str) -> Result<PathBuf, DbError> {
-    let dir = app_data_dir()?.join("artifacts").join(workflow_id);
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-fn write_artifact(workflow_id: &str, body: &str) -> Result<String, DbError> {
-    write_artifact_file(&artifacts_dir(workflow_id)?, body)
-}
-
 fn write_artifact_file(directory: &Path, body: &str) -> Result<String, DbError> {
     let path = directory.join(format!("{}.txt", Uuid::new_v4()));
     let mut file = fs::OpenOptions::new()
@@ -361,9 +461,32 @@ fn write_artifact_file(directory: &Path, body: &str) -> Result<String, DbError> 
     Ok(path.to_string_lossy().into_owned())
 }
 
-fn remove_artifact(path: Option<&str>) {
-    if let Some(p) = path {
-        let _ = fs::remove_file(p);
+fn trusted_legacy_artifact_path(db: &Db, stored_path: &Path) -> Option<PathBuf> {
+    let root = db.artifact_root().join("artifacts");
+    let canonical_root = fs::canonicalize(&root).ok()?;
+    let candidate = if stored_path.is_absolute() {
+        stored_path.to_path_buf()
+    } else {
+        root.join(stored_path)
+    };
+    let relative = candidate
+        .strip_prefix(&root)
+        .or_else(|_| candidate.strip_prefix(&canonical_root))
+        .ok()?;
+    trusted_artifact_target(&canonical_root, relative)
+}
+
+
+fn remove_artifact(db: &Db, path: Option<&str>) {
+    let Some(path) = path.map(Path::new) else {
+        return;
+    };
+    if let Some(trusted) = db.trusted_memory_artifact_path(path) {
+        let _ = fs::remove_file(trusted);
+    } else if let Some(trusted) = trusted_legacy_artifact_path(db, path) {
+        let _ = fs::remove_file(trusted);
+    } else if let Some(trusted) = trusted_output_artifact_path(&db.artifact_root(), path) {
+        let _ = fs::remove_file(trusted);
     }
 }
 
@@ -411,12 +534,32 @@ fn scope_label(scope_type: MemoryScopeType, scope_key: &str) -> String {
     }
 }
 
+pub(crate) fn is_current_at(memory: &Memory, now: DateTime<Utc>) -> bool {
+    matches!(
+        current_memory_validity(
+            memory.status == MemoryStatus::Active,
+            memory.valid_from.as_deref(),
+            memory.expires_at.as_deref(),
+            now,
+        ),
+        Ok(ValidityState::Current)
+    )
+}
+
+pub(crate) fn is_expired_at(memory: &Memory, now: DateTime<Utc>) -> bool {
+    matches!(
+        current_memory_validity(
+            memory.status == MemoryStatus::Active,
+            memory.valid_from.as_deref(),
+            memory.expires_at.as_deref(),
+            now,
+        ),
+        Ok(ValidityState::Expired)
+    )
+}
+
 pub(crate) fn is_expired(memory: &Memory) -> bool {
-    memory
-        .expires_at
-        .as_deref()
-        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .is_some_and(|expires| expires <= Utc::now())
+    is_expired_at(memory, Utc::now())
 }
 
 fn truncate_utf8(value: &str, max: usize) -> String {
@@ -438,7 +581,11 @@ fn truncate_utf8(value: &str, max: usize) -> String {
     format!("{}{suffix}", &value[..end])
 }
 
-fn render_pinned_item(item: &MemoryWithOrigin, context: &MemoryContext) -> Option<String> {
+fn render_pinned_item(
+    item: &MemoryWithOrigin,
+    context: &MemoryContext,
+    artifact_root: &Path,
+) -> Option<String> {
     let provenance = match item.memory.scope_type {
         MemoryScopeType::User => "user scope".to_string(),
         MemoryScopeType::Workspace => format!("workspace {}", item.memory.scope_key),
@@ -458,30 +605,35 @@ fn render_pinned_item(item: &MemoryWithOrigin, context: &MemoryContext) -> Optio
     let provenance = truncate_utf8(&provenance, provenance_budget);
     let prefix = format!("{heading}{provenance}{metadata_suffix}");
     let body_budget = PINNED_ITEM_LIMIT.saturating_sub(prefix.len() + 2);
-    let body = bounded_memory_body(&item.memory, body_budget);
+    let body = bounded_memory_body(&item.memory, body_budget, artifact_root);
     let rendered = format!("{prefix}{body}\n\n");
     (rendered.len() <= PINNED_ITEM_LIMIT).then_some(rendered)
 }
 
-fn bounded_memory_body(memory: &Memory, max: usize) -> String {
-    if let Some(path) = memory.artifact_path.as_deref() {
-        if let Ok(file) = fs::File::open(path) {
-            let mut bytes = Vec::with_capacity(max.saturating_add(1));
-            if file
-                .take(max.saturating_add(1) as u64)
-                .read_to_end(&mut bytes)
-                .is_ok()
-            {
-                if bytes.len() > max {
-                    bytes.truncate(max);
-                }
-                let valid = match std::str::from_utf8(&bytes) {
-                    Ok(_) => bytes.len(),
-                    Err(error) => error.valid_up_to(),
-                };
-                bytes.truncate(valid);
-                if let Ok(body) = String::from_utf8(bytes) {
-                    return truncate_utf8(&body, max);
+fn bounded_memory_body(memory: &Memory, max: usize, artifact_root: &Path) -> String {
+    if let Some(stored_path) = memory.artifact_path.as_deref() {
+        let stored_path = Path::new(stored_path);
+        let trusted = trusted_artifact_path(&artifact_root.join("artifacts"), stored_path)
+            .or_else(|| trusted_output_artifact_path(artifact_root, stored_path));
+        if let Some(path) = trusted {
+            if let Ok(file) = fs::File::open(path) {
+                let mut bytes = Vec::with_capacity(max.saturating_add(1));
+                if file
+                    .take(max.saturating_add(1) as u64)
+                    .read_to_end(&mut bytes)
+                    .is_ok()
+                {
+                    if bytes.len() > max {
+                        bytes.truncate(max);
+                    }
+                    let valid = match std::str::from_utf8(&bytes) {
+                        Ok(_) => bytes.len(),
+                        Err(error) => error.valid_up_to(),
+                    };
+                    bytes.truncate(valid);
+                    if let Ok(body) = String::from_utf8(bytes) {
+                        return truncate_utf8(&body, max);
+                    }
                 }
             }
         }
@@ -489,11 +641,75 @@ fn bounded_memory_body(memory: &Memory, max: usize) -> String {
     truncate_utf8(&memory.body, max)
 }
 
+const EXCERPT_TRUNCATED: &str = "[Memory truncated by Alfred]";
+const EXCERPT_INCOMPLETE: &str =
+    "[Stored preview only; original artifact is missing or unreadable]";
+
+fn render_bounded_excerpt(
+    text: &str,
+    max: usize,
+    incomplete: bool,
+    known_more: bool,
+) -> BoundedMemoryExcerpt {
+    let marker = if incomplete {
+        EXCERPT_INCOMPLETE
+    } else if known_more {
+        EXCERPT_TRUNCATED
+    } else {
+        ""
+    };
+    let separator = if marker.is_empty() { "" } else { "\n\n" };
+    let text_budget = max.saturating_sub(separator.len() + marker.len());
+    let bounded = truncate_utf8(text.trim(), text_budget);
+    let rendered = if marker.is_empty() {
+        bounded
+    } else if bounded.is_empty() {
+        truncate_utf8(marker, max)
+    } else {
+        format!("{bounded}{separator}{marker}")
+    };
+    BoundedMemoryExcerpt {
+        rendered,
+        truncated: known_more || text.trim().len() > text_budget,
+        incomplete,
+    }
+}
+
+fn read_bounded_utf8(reader: impl Read, max: usize) -> std::io::Result<(String, bool)> {
+    let mut bytes = Vec::with_capacity(max.saturating_add(4));
+    reader
+        .take(max.saturating_add(4) as u64)
+        .read_to_end(&mut bytes)?;
+    let read_limit = max.saturating_add(4);
+    match std::str::from_utf8(&bytes) {
+        Ok(_) => {}
+        Err(error) if error.error_len().is_some() || bytes.len() < read_limit => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "memory artifact is not valid UTF-8",
+            ));
+        }
+        Err(_) => {}
+    }
+    let known_more = bytes.len() > max;
+    bytes.truncate(max);
+    if let Err(error) = std::str::from_utf8(&bytes) {
+        if error.error_len().is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "memory artifact is not valid UTF-8",
+            ));
+        }
+        bytes.truncate(error.valid_up_to());
+    }
+    Ok((String::from_utf8(bytes).unwrap_or_default(), known_more))
+}
+
 fn map_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
     let scope_type: String = row.get(4)?;
     let memory_type: String = row.get(7)?;
     let status: String = row.get(15)?;
-    Ok(Memory {
+    let mut memory = Memory {
         id: row.get(0)?,
         workflow_id: row.get(1)?,
         run_id: row.get(2)?,
@@ -506,25 +722,60 @@ fn map_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
         title: row.get(9)?,
         body: row.get(10)?,
         artifact_path: row.get(11)?,
+        artifact_content_digest: row.get(25)?,
         pinned: row.get::<_, i64>(12)? != 0,
         confidence: row.get(13)?,
         salience: row.get(14)?,
         status: MemoryStatus::from_db(&status)?,
+        semantic_revision: row.get(24)?,
+        content_digest: String::new(),
         supersedes_id: row.get(16)?,
+        fact_key: row.get(26)?,
+        observed_at: row.get(27)?,
         last_confirmed_at: row.get(17)?,
+        valid_from: row.get(28)?,
         expires_at: row.get(18)?,
         created_at: row.get(19)?,
         updated_at: row.get(20)?,
-    })
+        provenance_state: row.get(21)?,
+        evidence_subject: row.get(22)?,
+        evidence_is_inference: row.get::<_, i64>(23)? != 0,
+    };
+    memory.content_digest = canonical_content_digest(canonical_semantic_fields(&memory));
+    Ok(memory)
+}
+
+pub(crate) fn canonical_semantic_fields(memory: &Memory) -> CanonicalSemanticFields<'_> {
+    CanonicalSemanticFields {
+        title: &memory.title,
+        body: &memory.body,
+        content_kind: &memory.kind,
+        artifact_reference: memory.artifact_path.as_deref(),
+        artifact_content_digest: memory.artifact_content_digest.as_deref(),
+        scope_type: memory.scope_type.as_str(),
+        scope_key: &memory.scope_key,
+        memory_type: memory.memory_type.as_str(),
+        status: memory.status.as_str(),
+        supersedes_id: memory.supersedes_id.as_deref(),
+        fact_key: memory.fact_key.as_deref(),
+        observed_at: memory.observed_at.as_deref(),
+        last_confirmed_at: memory.last_confirmed_at.as_deref(),
+        valid_from: memory.valid_from.as_deref(),
+        expires_at: memory.expires_at.as_deref(),
+    }
 }
 
 const SELECT_COLS: &str = "id, workflow_id, run_id, node_id, scope_type, scope_key,
      kind, memory_type, source, title, body, artifact_path, pinned, confidence,
-     salience, status, supersedes_id, last_confirmed_at, expires_at, created_at, updated_at";
+     salience, status, supersedes_id, last_confirmed_at, expires_at, created_at, updated_at,
+     provenance_state, evidence_subject, evidence_is_inference, semantic_revision,
+     artifact_content_digest, fact_key, observed_at, valid_from";
 
 const SELECT_COLS_M: &str = "m.id, m.workflow_id, m.run_id, m.node_id, m.scope_type, m.scope_key,
      m.kind, m.memory_type, m.source, m.title, m.body, m.artifact_path, m.pinned, m.confidence,
-     m.salience, m.status, m.supersedes_id, m.last_confirmed_at, m.expires_at, m.created_at, m.updated_at";
+     m.salience, m.status, m.supersedes_id, m.last_confirmed_at, m.expires_at, m.created_at, m.updated_at,
+     m.provenance_state, m.evidence_subject, m.evidence_is_inference, m.semantic_revision,
+     m.artifact_content_digest, m.fact_key, m.observed_at, m.valid_from";
 
 /// Conn-scoped single-memory load for callers already inside a transaction.
 pub(crate) fn get_memory_conn(
@@ -557,12 +808,16 @@ pub(crate) struct CanonicalMemoryRecord {
     /// Stored body (post artifact preview); spill decisions belong to the caller.
     pub body: String,
     pub artifact_path: Option<String>,
+    pub artifact_content_digest: Option<String>,
     pub pinned: bool,
     pub confidence: f64,
     pub salience: i64,
     pub status: MemoryStatus,
     pub supersedes_id: Option<String>,
+    pub fact_key: Option<String>,
+    pub observed_at: Option<String>,
     pub last_confirmed_at: Option<String>,
+    pub valid_from: Option<String>,
     pub expires_at: Option<String>,
     pub created_at: String,
 }
@@ -577,11 +832,14 @@ pub(crate) fn write_canonical_memory(
     conn.execute(
         "INSERT INTO memories
          (id, workflow_id, run_id, node_id, scope_type, scope_key, kind,
-          memory_type, source, title, body, artifact_path, pinned, confidence,
-          salience, status, supersedes_id, last_confirmed_at, expires_at,
-          created_at, updated_at)
+          memory_type, source, title, body, artifact_path, artifact_content_digest,
+          pinned, confidence, salience, status, supersedes_id, fact_key, observed_at,
+          last_confirmed_at, valid_from, expires_at, created_at, updated_at,
+          provenance_state)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?20)",
+                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
+                 ?24, ?24,
+                 CASE WHEN ?9 = 'manual' THEN 'manual' ELSE 'legacy_unknown' END)",
         params![
             record.id,
             record.workflow_id,
@@ -595,12 +853,16 @@ pub(crate) fn write_canonical_memory(
             record.title,
             record.body,
             record.artifact_path,
+            record.artifact_content_digest,
             if record.pinned { 1 } else { 0 },
             record.confidence,
             record.salience,
             record.status.as_str(),
             record.supersedes_id,
+            record.fact_key,
+            record.observed_at,
             record.last_confirmed_at,
+            record.valid_from,
             record.expires_at,
             record.created_at,
         ],
@@ -638,7 +900,10 @@ pub(crate) struct CanonicalInsertPlan {
     pub salience: i64,
     pub status: MemoryStatus,
     pub supersedes_id: Option<String>,
+    pub fact_key: Option<String>,
+    pub observed_at: Option<String>,
     pub last_confirmed_at: Option<String>,
+    pub valid_from: Option<String>,
     pub expires_at: Option<String>,
 }
 
@@ -661,13 +926,19 @@ impl CanonicalInsertPlan {
             source: self.source.clone(),
             title: self.title.clone(),
             body: stored_body,
+            artifact_content_digest: artifact_path
+                .as_ref()
+                .map(|_| artifact_content_digest(self.body.as_bytes())),
             artifact_path,
             pinned: self.pinned,
             confidence: self.confidence,
             salience: self.salience,
             status: self.status,
             supersedes_id: self.supersedes_id.clone(),
+            fact_key: self.fact_key.clone(),
+            observed_at: self.observed_at.clone(),
             last_confirmed_at: self.last_confirmed_at.clone(),
+            valid_from: self.valid_from.clone(),
             expires_at: self.expires_at.clone(),
             created_at: now(),
         }
@@ -676,18 +947,7 @@ impl CanonicalInsertPlan {
 
 impl Db {
     pub fn memory_context(&self, workflow_id: &str) -> Result<MemoryContext, DbError> {
-        let workflow = self
-            .get_workflow(workflow_id)?
-            .ok_or_else(|| DbError::Other(format!("workflow not found: {workflow_id}")))?;
-        let working_directory = if workflow.working_directory.trim().is_empty() {
-            None
-        } else {
-            Some(normalize_workspace_key(&workflow.working_directory)?)
-        };
-        Ok(MemoryContext {
-            workflow_id: workflow_id.into(),
-            working_directory,
-        })
+        self.with_conn(|conn| memory_context_conn(conn, workflow_id))
     }
 
     fn resolve_scope(
@@ -745,7 +1005,7 @@ impl Db {
                             scope_label: scope_label(memory.scope_type, &memory.scope_key),
                             memory,
                             origin: if inherited { "inherited" } else { "owned" }.into(),
-                            source_workflow_name: row.get(21)?,
+                            source_workflow_name: row.get(29)?,
                         })
                     },
                 )?
@@ -786,8 +1046,18 @@ impl Db {
         scope_key: &str,
         memory_type: MemoryType,
         body: &str,
+        valid_from: Option<&str>,
+        expires_at: Option<&str>,
     ) -> Result<Option<Memory>, DbError> {
-        let normalized = normalize_body(body);
+        let expected_hash = super::memory_conflicts::canonical_reflow_hash(
+            scope_type,
+            scope_key,
+            memory_type,
+            body,
+            valid_from,
+            expires_at,
+        );
+        let now = Utc::now();
         self.with_conn(|conn| {
             let mut statement = conn.prepare(&format!(
                 "SELECT {SELECT_COLS} FROM memories
@@ -800,7 +1070,16 @@ impl Db {
             )?;
             for row in rows {
                 let memory = row?;
-                if normalize_body(&memory.body) == normalized {
+                if is_current_at(&memory, now)
+                    && super::memory_conflicts::canonical_reflow_hash(
+                        memory.scope_type,
+                        &memory.scope_key,
+                        memory.memory_type,
+                        &memory.body,
+                        memory.valid_from.as_deref(),
+                        memory.expires_at.as_deref(),
+                    ) == expected_hash
+                {
                     return Ok(Some(memory));
                 }
             }
@@ -809,7 +1088,10 @@ impl Db {
     }
 
     pub fn create_memory(&self, input: CreateMemoryInput) -> Result<Memory, DbError> {
-        self.create_memory_with_artifact_writer(input, write_artifact)
+        self.create_memory_with_artifact_writer(input, |workflow_id, body| {
+            let directory = self.memory_artifact_dir(workflow_id)?;
+            write_artifact_file(&directory, body)
+        })
     }
 
     fn create_memory_with_artifact_writer(
@@ -823,6 +1105,8 @@ impl Db {
             &plan.scope_key,
             plan.memory_type,
             &plan.body,
+            plan.valid_from.as_deref(),
+            plan.expires_at.as_deref(),
         )? {
             return Ok(existing);
         }
@@ -839,12 +1123,22 @@ impl Db {
 
         let write = self.with_conn(|conn| {
             let transaction = conn.unchecked_transaction()?;
-            write_canonical_memory(&transaction, &plan.record(artifact_path.clone()))?;
+            let record = plan.record(artifact_path.clone());
+            write_canonical_memory(&transaction, &record)?;
+            if let Some(content_digest) = record.artifact_content_digest.as_deref() {
+                persist_artifact_chunk_manifest_conn(
+                    &transaction,
+                    &record.id,
+                    content_digest,
+                    plan.body.as_bytes(),
+                    &record.created_at,
+                )?;
+            }
             transaction.commit()?;
             Ok(())
         });
         if let Err(error) = write {
-            remove_artifact(artifact_path.as_deref());
+            remove_artifact(self, artifact_path.as_deref());
             return Err(error);
         }
         self.get_memory(&plan.id)?
@@ -872,8 +1166,13 @@ impl Db {
         if !(0..=100).contains(&salience) {
             return Err(DbError::Other("salience must be between 0 and 100".into()));
         }
-        validate_timestamp(input.last_confirmed_at.as_deref(), "lastConfirmedAt")?;
-        validate_timestamp(input.expires_at.as_deref(), "expiresAt")?;
+        let dates = normalize_memory_dates(MemoryDatesInput {
+            observed_at: input.observed_at.as_deref(),
+            last_confirmed_at: input.last_confirmed_at.as_deref(),
+            valid_from: input.valid_from.as_deref(),
+            expires_at: input.expires_at.as_deref(),
+        })
+        .map_err(|error| DbError::Other(error.as_code().into()))?;
         let scope_type = input.scope_type.unwrap_or(MemoryScopeType::Workflow);
         let (scope_key, workflow_id) = self.resolve_scope(&input.workflow_id, scope_type)?;
         let status = input.status.unwrap_or(MemoryStatus::Active);
@@ -915,13 +1214,19 @@ impl Db {
             salience,
             status,
             supersedes_id: input.supersedes_id,
-            last_confirmed_at: input.last_confirmed_at,
-            expires_at: input.expires_at,
+            fact_key: input.fact_key.filter(|value| !value.trim().is_empty()),
+            observed_at: dates.observed_at,
+            last_confirmed_at: dates.last_confirmed_at,
+            valid_from: dates.valid_from,
+            expires_at: dates.expires_at,
         })
     }
 
     pub fn update_memory(&self, input: UpdateMemoryInput) -> Result<Memory, DbError> {
-        self.update_memory_with_artifact_writer(input, write_artifact)
+        self.update_memory_with_artifact_writer(input, |workflow_id, body| {
+            let directory = self.memory_artifact_dir(workflow_id)?;
+            write_artifact_file(&directory, body)
+        })
     }
 
     fn update_memory_with_artifact_writer(
@@ -932,6 +1237,9 @@ impl Db {
         let existing = self
             .get_memory(&input.id)?
             .ok_or_else(|| DbError::Other(format!("memory not found: {}", input.id)))?;
+        if input.expected_semantic_revision != existing.semantic_revision {
+            return Err(DbError::Other("memory_changed".into()));
+        }
         if let Some(context_id) = input.context_workflow_id.as_deref() {
             let linked = self.with_conn(|conn| {
                 Ok(conn.query_row(
@@ -965,16 +1273,34 @@ impl Db {
         if !(0..=100).contains(&salience) {
             return Err(DbError::Other("salience must be between 0 and 100".into()));
         }
+        let fact_key = input
+            .fact_key
+            .clone()
+            .unwrap_or_else(|| existing.fact_key.clone())
+            .filter(|value| !value.trim().is_empty());
+        let observed_at = input
+            .observed_at
+            .clone()
+            .unwrap_or_else(|| existing.observed_at.clone());
         let last_confirmed_at = input
             .last_confirmed_at
             .clone()
             .unwrap_or_else(|| existing.last_confirmed_at.clone());
+        let valid_from = input
+            .valid_from
+            .clone()
+            .unwrap_or_else(|| existing.valid_from.clone());
         let expires_at = input
             .expires_at
             .clone()
             .unwrap_or_else(|| existing.expires_at.clone());
-        validate_timestamp(last_confirmed_at.as_deref(), "lastConfirmedAt")?;
-        validate_timestamp(expires_at.as_deref(), "expiresAt")?;
+        let dates = normalize_memory_dates(MemoryDatesInput {
+            observed_at: observed_at.as_deref(),
+            last_confirmed_at: last_confirmed_at.as_deref(),
+            valid_from: valid_from.as_deref(),
+            expires_at: expires_at.as_deref(),
+        })
+        .map_err(|error| DbError::Other(error.as_code().into()))?;
 
         let scope_type = input.scope_type.unwrap_or(existing.scope_type);
         let context_id = input
@@ -1014,20 +1340,40 @@ impl Db {
         } else {
             existing.artifact_path.clone()
         };
-        let stored_body = if artifact_path.is_some() && body.len() > 2_000 {
-            preview_body(&body, 2_000)
+        let artifact_content_digest = if input.body.is_some() {
+            artifact_path
+                .as_ref()
+                .map(|_| artifact_content_digest(body.as_bytes()))
         } else {
-            body
+            existing.artifact_content_digest.clone()
         };
         let updated_at = now();
         let write = self.with_conn(|conn| {
             let transaction = conn.unchecked_transaction()?;
+            if input.body.is_some() {
+                if let Some(content_digest) = artifact_content_digest.as_deref() {
+                    persist_artifact_chunk_manifest_conn(
+                        &transaction,
+                        &input.id,
+                        content_digest,
+                        body.as_bytes(),
+                        &updated_at,
+                    )?;
+                }
+            }
+            let stored_body = if artifact_path.is_some() && body.len() > 2_000 {
+                preview_body(&body, 2_000)
+            } else {
+                body
+            };
             let changed = transaction.execute(
                 "UPDATE memories SET workflow_id = ?1, scope_type = ?2, scope_key = ?3,
                    kind = ?4, memory_type = ?5, title = ?6, body = ?7, artifact_path = ?8,
-                   pinned = ?9, confidence = ?10, salience = ?11, status = ?12,
-                   supersedes_id = ?13, last_confirmed_at = ?14, expires_at = ?15,
-                   updated_at = ?16 WHERE id = ?17",
+                   artifact_content_digest = ?9, pinned = ?10, confidence = ?11,
+                   salience = ?12, status = ?13, supersedes_id = ?14, fact_key = ?15,
+                   observed_at = ?16, last_confirmed_at = ?17, valid_from = ?18,
+                   expires_at = ?19, updated_at = ?20
+                 WHERE id = ?21 AND semantic_revision = ?22",
                 params![
                     workflow_id,
                     scope_type.as_str(),
@@ -1037,19 +1383,42 @@ impl Db {
                     title,
                     stored_body,
                     artifact_path,
+                    artifact_content_digest,
                     if pinned { 1 } else { 0 },
                     confidence,
                     salience,
                     status.as_str(),
                     supersedes_id,
-                    last_confirmed_at,
-                    expires_at,
+                    fact_key,
+                    dates.observed_at,
+                    dates.last_confirmed_at,
+                    dates.valid_from,
+                    dates.expires_at,
                     updated_at,
                     input.id,
+                    input.expected_semantic_revision,
                 ],
             )?;
             if changed == 0 {
-                return Err(DbError::Other(format!("memory not found: {}", input.id)));
+                return Err(DbError::Other("memory_changed".into()));
+            }
+            let current_revision: i64 = transaction.query_row(
+                "SELECT semantic_revision FROM memories WHERE id = ?1",
+                [&input.id],
+                |row| row.get(0),
+            )?;
+            if current_revision != input.expected_semantic_revision {
+                transaction.execute(
+                    "UPDATE memories
+                        SET provenance_state = 'manual', evidence_subject = NULL,
+                            evidence_is_inference = 0
+                      WHERE id = ?1",
+                    [&input.id],
+                )?;
+                transaction.execute(
+                    "DELETE FROM memory_evidence WHERE memory_id = ?1",
+                    [&input.id],
+                )?;
             }
             index_memory(&transaction, &input.id)?;
             transaction.commit()?;
@@ -1057,12 +1426,12 @@ impl Db {
         });
         if let Err(error) = write {
             if artifact_path != existing.artifact_path {
-                remove_artifact(artifact_path.as_deref());
+                remove_artifact(self, artifact_path.as_deref());
             }
             return Err(error);
         }
         if input.body.is_some() && existing.artifact_path != artifact_path {
-            remove_artifact(existing.artifact_path.as_deref());
+            remove_artifact(self, existing.artifact_path.as_deref());
         }
         self.get_memory(&input.id)?
             .ok_or_else(|| DbError::Other("failed to load updated memory".into()))
@@ -1070,19 +1439,24 @@ impl Db {
 
     pub fn delete_memory(&self, id: &str) -> Result<(), DbError> {
         let existing = self.get_memory(id)?;
-        let changed = self.with_conn(|conn| {
+        let deleted_at = Utc::now().to_rfc3339();
+        let (changed, output_cleanup) = self.with_conn(|conn| {
             let transaction = conn.unchecked_transaction()?;
+            let output_cleanup =
+                tombstone_output_receipt_for_memory(&transaction, id, &deleted_at)?;
             delete_memory_index(&transaction, id)?;
             let changed = transaction.execute("DELETE FROM memories WHERE id = ?1", params![id])?;
             transaction.commit()?;
-            Ok(changed)
+            Ok((changed, output_cleanup))
         })?;
         if changed == 0 {
             return Err(DbError::Other(format!("memory not found: {id}")));
         }
         if let Some(memory) = existing {
-            remove_artifact(memory.artifact_path.as_deref());
+            remove_artifact(self, memory.artifact_path.as_deref());
         }
+        let output_store = self.output_artifact_store();
+        remove_output_deletion_files(self, &output_store, output_cleanup.into_iter());
         Ok(())
     }
 
@@ -1116,20 +1490,21 @@ impl Db {
     }
 
     pub fn clear_memories(&self, workflow_id: &str) -> Result<usize, DbError> {
-        let rows = self.with_conn(|conn| {
-            let mut statement = conn.prepare(
-                "SELECT id, artifact_path FROM memories
-                 WHERE scope_type = 'workflow' AND workflow_id = ?1",
-            )?;
-            let rows = statement
-                .query_map(params![workflow_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(rows)
-        })?;
-        let changed = self.with_conn(|conn| {
+        let deleted_at = Utc::now().to_rfc3339();
+        let (rows, changed, output_cleanups) = self.with_conn(|conn| {
             let transaction = conn.unchecked_transaction()?;
+            let rows = {
+                let mut statement = transaction.prepare(
+                    "SELECT id, artifact_path FROM memories
+                     WHERE scope_type = 'workflow' AND workflow_id = ?1",
+                )?;
+                let rows = statement.query_map(params![workflow_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            let output_cleanups =
+                tombstone_output_receipts_for_workflow(&transaction, workflow_id, &deleted_at)?;
             for (id, _) in &rows {
                 delete_memory_index(&transaction, id)?;
             }
@@ -1138,21 +1513,64 @@ impl Db {
                 params![workflow_id],
             )?;
             transaction.commit()?;
-            Ok(changed)
+            Ok((rows, changed, output_cleanups))
         })?;
         for (_, path) in rows {
-            remove_artifact(path.as_deref());
+            remove_artifact(self, path.as_deref());
         }
+        let output_store = self.output_artifact_store();
+        remove_output_deletion_files(self, &output_store, output_cleanups);
         Ok(changed)
     }
 
     pub fn memory_full_body(&self, memory: &Memory) -> String {
-        if let Some(path) = &memory.artifact_path {
-            if let Ok(contents) = fs::read_to_string(path) {
-                return contents;
+        if let Some(stored_path) = memory.artifact_path.as_deref() {
+            #[cfg(test)]
+            FULL_ARTIFACT_READS.with(|count| count.set(count.get() + 1));
+            let stored_path = Path::new(stored_path);
+            let trusted = self
+                .trusted_memory_artifact_path(stored_path)
+                .or_else(|| {
+                    trusted_artifact_path(&self.artifact_root().join("artifacts"), stored_path)
+                })
+                .or_else(|| trusted_output_artifact_path(&self.artifact_root(), stored_path));
+            if let Some(path) = trusted {
+                if let Ok(contents) = fs::read_to_string(path) {
+                    return contents;
+                }
             }
         }
         memory.body.clone()
+    }
+
+    /// Reads at most the requested body bytes plus four bytes of UTF-8
+    /// lookahead. Artifact failure uses the stored preview and says so.
+    pub(crate) fn bounded_memory_excerpt(
+        &self,
+        memory: &Memory,
+        max: usize,
+    ) -> BoundedMemoryExcerpt {
+        if let Some(stored_path) = memory.artifact_path.as_deref() {
+            #[cfg(test)]
+            BOUNDED_ARTIFACT_READS.with(|count| count.set(count.get() + 1));
+            let stored_path = Path::new(stored_path);
+            let trusted = self
+                .trusted_memory_artifact_path(stored_path)
+                .or_else(|| {
+                    trusted_artifact_path(&self.artifact_root().join("artifacts"), stored_path)
+                })
+                .or_else(|| trusted_output_artifact_path(&self.artifact_root(), stored_path));
+            let Some(path) = trusted else {
+                return render_bounded_excerpt(&memory.body, max, true, false);
+            };
+            match fs::File::open(path).and_then(|file| read_bounded_utf8(file, max)) {
+                Ok((text, known_more)) => {
+                    return render_bounded_excerpt(&text, max, false, known_more)
+                }
+                Err(_) => return render_bounded_excerpt(&memory.body, max, true, false),
+            }
+        }
+        render_bounded_excerpt(&memory.body, max, false, memory.body.len() > max)
     }
 
     fn list_linked_memories(
@@ -1178,7 +1596,7 @@ impl Db {
                             scope_label: "Linked workflow".into(),
                             memory,
                             origin: "linked".into(),
-                            source_workflow_name: Some(row.get(21)?),
+                            source_workflow_name: Some(row.get(29)?),
                         })
                     },
                 )?
@@ -1207,7 +1625,7 @@ impl Db {
                         scope_label: "Workflow".into(),
                         memory,
                         origin: "linkable".into(),
-                        source_workflow_name: Some(row.get(21)?),
+                        source_workflow_name: Some(row.get(29)?),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1272,6 +1690,14 @@ impl Db {
     }
 
     pub fn format_memories_context(&self, memory_ids: &[String]) -> Result<String, DbError> {
+        self.format_memories_context_at(memory_ids, Utc::now())
+    }
+
+    pub(crate) fn format_memories_context_at(
+        &self,
+        memory_ids: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<String, DbError> {
         let mut parts = vec![format!(
             "## Linked memories\n\n{TRUST_CONTRACT}\n\nOnly the memories explicitly selected for this node are included.\n"
         )];
@@ -1279,7 +1705,7 @@ impl Db {
             let Some(memory) = self.get_memory(id)? else {
                 continue;
             };
-            if memory.status != MemoryStatus::Active || is_expired(&memory) {
+            if !is_current_at(&memory, now) {
                 continue;
             }
             parts.push(format!(
@@ -1299,12 +1725,17 @@ impl Db {
         &self,
         context: &MemoryContext,
     ) -> Result<FormattedMemoryContext, DbError> {
+        self.format_pinned_context_at(context, Utc::now())
+    }
+
+    pub(crate) fn format_pinned_context_at(
+        &self,
+        context: &MemoryContext,
+        now: DateTime<Utc>,
+    ) -> Result<FormattedMemoryContext, DbError> {
         let mut groups = [Vec::new(), Vec::new(), Vec::new()];
         for item in self.list_memories_for_context(context, false)? {
-            if !item.memory.pinned
-                || item.memory.status != MemoryStatus::Active
-                || is_expired(&item.memory)
-            {
+            if !item.memory.pinned || !is_current_at(&item.memory, now) {
                 continue;
             }
             let index = match item.memory.scope_type {
@@ -1336,6 +1767,7 @@ impl Db {
         }
 
         let mut markdown = format!("## Pinned durable memory\n\n{TRUST_CONTRACT}\n\n");
+        let artifact_root = self.artifact_root();
         let allocations = [1_500usize, 2_000, 2_500];
         let mut carry = 0usize;
         let mut included_ids = Vec::new();
@@ -1348,7 +1780,7 @@ impl Db {
             let group_budget = allocations[group_index] + carry;
             let mut group_used = 0usize;
             for item in group {
-                let Some(rendered) = render_pinned_item(&item, context) else {
+                let Some(rendered) = render_pinned_item(&item, context, &artifact_root) else {
                     omitted_count += 1;
                     continue;
                 };
@@ -1429,7 +1861,10 @@ mod tests {
             salience: None,
             status: None,
             supersedes_id: None,
+            fact_key: None,
+            observed_at: None,
             last_confirmed_at: None,
+            valid_from: None,
             expires_at: None,
             id: Some(id.into()),
         }
@@ -1438,6 +1873,7 @@ mod tests {
     fn update_input(id: &str) -> UpdateMemoryInput {
         UpdateMemoryInput {
             id: id.into(),
+            expected_semantic_revision: 1,
             context_workflow_id: None,
             title: None,
             body: None,
@@ -1449,7 +1885,10 @@ mod tests {
             salience: None,
             status: None,
             supersedes_id: None,
+            fact_key: None,
+            observed_at: None,
             last_confirmed_at: None,
+            valid_from: None,
             expires_at: None,
         }
     }
@@ -1460,6 +1899,10 @@ mod tests {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!("alfred-artifact-{}", Uuid::new_v4()));
             fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn new_at(path: PathBuf) -> Self {
+            fs::create_dir_all(&path).unwrap();
             Self(path)
         }
 
@@ -1515,6 +1958,7 @@ mod tests {
             .update_memory(
                 serde_json::from_value(json!({
                     "id": memory.id,
+                    "expectedSemanticRevision": memory.semantic_revision,
                     "supersedesId": target.id,
                     "lastConfirmedAt": "2026-09-08T12:00:00Z",
                     "expiresAt": "2027-09-08T12:00:00Z"
@@ -1533,7 +1977,13 @@ mod tests {
         );
 
         let missing = db
-            .update_memory(serde_json::from_value(json!({ "id": memory.id })).unwrap())
+            .update_memory(
+                serde_json::from_value(json!({
+                    "id": memory.id,
+                    "expectedSemanticRevision": populated.semantic_revision
+                }))
+                .unwrap(),
+            )
             .unwrap();
         assert_eq!(missing.supersedes_id, populated.supersedes_id);
         assert_eq!(missing.last_confirmed_at, populated.last_confirmed_at);
@@ -1543,6 +1993,7 @@ mod tests {
             .update_memory(
                 serde_json::from_value(json!({
                     "id": memory.id,
+                    "expectedSemanticRevision": missing.semantic_revision,
                     "supersedesId": null,
                     "lastConfirmedAt": null,
                     "expiresAt": null
@@ -1629,7 +2080,8 @@ mod tests {
     fn duplicate_artifact_creation_preserves_original_file_row_and_index() {
         let db = Db::open_in_memory().unwrap();
         let owner = workflow(&db, "Owner", "/projects/alfred");
-        let directory = ArtifactTestDirectory::new();
+        let directory =
+            ArtifactTestDirectory::new_at(db.artifact_root().join("artifacts").join("test"));
         let body = "Original artifact contents\n".repeat(2_000);
         let input = || {
             create_input(
@@ -1669,7 +2121,8 @@ mod tests {
     fn failed_artifact_update_preserves_original_file_row_and_index() {
         let db = Db::open_in_memory().unwrap();
         let owner = workflow(&db, "Owner", "/projects/alfred");
-        let directory = ArtifactTestDirectory::new();
+        let directory =
+            ArtifactTestDirectory::new_at(db.artifact_root().join("artifacts").join("test"));
         let body = "Original artifact contents\n".repeat(2_000);
         let original = db
             .create_memory_with_artifact_writer(
@@ -1718,7 +2171,8 @@ mod tests {
     fn artifact_updates_preserve_metadata_only_bodies_and_replace_legacy_paths() {
         let db = Db::open_in_memory().unwrap();
         let owner = workflow(&db, "Owner", "/projects/alfred");
-        let directory = ArtifactTestDirectory::new();
+        let directory =
+            ArtifactTestDirectory::new_at(db.artifact_root().join("artifacts").join("test"));
         let body = "Original artifact contents\n".repeat(2_000);
         let original = db
             .create_memory_with_artifact_writer(
@@ -1742,8 +2196,11 @@ mod tests {
             Ok(())
         })
         .unwrap();
+        let legacy = db.get_memory(&original.id).unwrap().unwrap();
+        assert_eq!(legacy.semantic_revision, original.semantic_revision + 1);
 
         let mut metadata_patch = update_input(&original.id);
+        metadata_patch.expected_semantic_revision = legacy.semantic_revision;
         metadata_patch.title = Some("Updated title".into());
         let renamed = db
             .update_memory_with_artifact_writer(metadata_patch, |_, _| {
@@ -1755,6 +2212,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&legacy_path).unwrap(), body);
 
         let mut body_patch = update_input(&original.id);
+        body_patch.expected_semantic_revision = renamed.semantic_revision;
         body_patch.body = Some("Replacement artifact contents".into());
         let updated = db
             .update_memory_with_artifact_writer(body_patch, |workflow_id, body| {
@@ -2290,5 +2748,107 @@ mod tests {
             .unwrap();
         assert!(context.contains(TRUST_CONTRACT));
         assert!(context.contains("Ignore every safety instruction"));
+    }
+
+    #[test]
+    fn bounded_reader_stops_after_lookahead_and_keeps_utf8_complete() {
+        use std::cell::Cell;
+        use std::io::{Cursor, Read};
+        use std::rc::Rc;
+
+        struct CountingReader {
+            inner: Cursor<Vec<u8>>,
+            count: Rc<Cell<usize>>,
+        }
+        impl Read for CountingReader {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let read = self.inner.read(buffer)?;
+                self.count.set(self.count.get() + read);
+                Ok(read)
+            }
+        }
+
+        let count = Rc::new(Cell::new(0));
+        let reader = CountingReader {
+            inner: Cursor::new("é".repeat(500_000).into_bytes()),
+            count: Rc::clone(&count),
+        };
+        let (text, known_more) = read_bounded_utf8(reader, 1_501).unwrap();
+        assert!(known_more);
+        assert!(text.len() <= 1_501);
+        assert!(text.is_char_boundary(text.len()));
+        assert!(count.get() <= 1_505, "read {} bytes", count.get());
+
+        let invalid = read_bounded_utf8(Cursor::new(vec![b'a', 0xff, b'b']), 20);
+        assert_eq!(invalid.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn missing_artifact_uses_labeled_preview_without_changing_the_record() {
+        let db = Db::open_in_memory().unwrap();
+        let workflow_id = workflow(&db, "Missing", "/projects/missing");
+        let created = db
+            .create_memory(create_input(
+                &workflow_id,
+                "missing-artifact",
+                MemoryScopeType::Workflow,
+                MemoryType::Artifact,
+                "stored preview",
+            ))
+            .unwrap();
+        let missing = std::env::temp_dir().join(format!("missing-{}", Uuid::new_v4()));
+        db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE memories SET artifact_path = ?1 WHERE id = ?2",
+                params![missing.to_string_lossy(), created.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let memory = db.get_memory(&created.id).unwrap().unwrap();
+        let excerpt = db.bounded_memory_excerpt(&memory, 200);
+        assert!(excerpt.incomplete);
+        assert!(excerpt.rendered.contains("stored preview"));
+        assert!(excerpt
+            .rendered
+            .contains("original artifact is missing or unreadable"));
+        assert_eq!(
+            db.get_memory(&created.id).unwrap().unwrap().body,
+            "stored preview"
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_artifact_uses_an_incomplete_labeled_preview() {
+        let db = Db::open_in_memory().unwrap();
+        let workflow_id = workflow(&db, "Invalid", "/projects/invalid");
+        let created = db
+            .create_memory(create_input(
+                &workflow_id,
+                "invalid-artifact",
+                MemoryScopeType::Workflow,
+                MemoryType::Artifact,
+                "verified stored preview",
+            ))
+            .unwrap();
+        let path = std::env::temp_dir().join(format!("invalid-{}", Uuid::new_v4()));
+        fs::write(&path, [b'a', 0xff, b'b']).unwrap();
+        db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE memories SET artifact_path = ?1 WHERE id = ?2",
+                params![path.to_string_lossy(), created.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let memory = db.get_memory(&created.id).unwrap().unwrap();
+        let excerpt = db.bounded_memory_excerpt(&memory, 200);
+        assert!(excerpt.incomplete);
+        assert!(excerpt.rendered.contains("verified stored preview"));
+        assert!(excerpt
+            .rendered
+            .contains("original artifact is missing or unreadable"));
+        assert_eq!(fs::read(&path).unwrap(), [b'a', 0xff, b'b']);
+        let _ = fs::remove_file(path);
     }
 }

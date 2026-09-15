@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { SelectControl } from "../../../../components/select-control";
 import { ConnectedAppsSettings } from "../../../integrations/connected-apps-settings";
+import { PublicationList } from "../../../sharing";
 import {
   NativeAgentSettings,
   useAgentAccountsStore,
@@ -37,6 +38,7 @@ import {
   MEMORY_REVIEW_ACKNOWLEDGEMENT,
   MEMORY_REVIEW_EXPLANATION,
   canSaveMemoryReview,
+  memoryReviewDraftFromSettings,
   DEFAULT_MEMORY_REVIEW_DRAFT,
   type MemoryReviewDraft,
   useMemoryReviewStore,
@@ -122,12 +124,7 @@ export function SettingsPage({ activeSection }: Props) {
   // Keep the draft in step with the SQLite-backed settings once loaded.
   useEffect(() => {
     if (!reviewLoaded) return;
-    setReviewDraft({
-      enabled: reviewSettings.enabled,
-      provider: reviewSettings.provider,
-      model: reviewSettings.model,
-      acknowledged: false,
-    });
+    setReviewDraft(memoryReviewDraftFromSettings(reviewSettings));
   }, [
     reviewLoaded,
     reviewSettings.enabled,
@@ -169,6 +166,13 @@ export function SettingsPage({ activeSection }: Props) {
     } finally {
       setClearingSuggestions(false);
     }
+  };
+
+  const saveReviewDraft = async () => {
+    if (await saveReviewSettings({ ...reviewDraft })) return;
+    setReviewDraft(
+      memoryReviewDraftFromSettings(useMemoryReviewStore.getState().settings),
+    );
   };
 
 
@@ -258,6 +262,13 @@ export function SettingsPage({ activeSection }: Props) {
         ) : null}
 
         {activeSection === "connected-apps" ? <ConnectedAppsSettings /> : null}
+
+        {activeSection === "sharing" ? (
+          <section className="settings-section" aria-labelledby="sharing-settings-heading">
+            <h2 id="sharing-settings-heading">Published workflow links</h2>
+            <PublicationList />
+          </section>
+        ) : null}
 
         {activeSection === "native-agents" ? <NativeAgentSettings /> : null}
 
@@ -614,7 +625,7 @@ export function SettingsPage({ activeSection }: Props) {
                       setReviewDraft((draft) => ({
                         ...draft,
                         enabled: !draft.enabled,
-                        acknowledged: false,
+                        acknowledged: reviewSettings.enabled,
                       }))
                     }
                   >
@@ -637,14 +648,15 @@ export function SettingsPage({ activeSection }: Props) {
                     aria-label="Reviewer provider"
                     value={reviewDraft.provider ?? ""}
                     disabled={!reviewDraft.enabled || reviewSaving}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const provider = event.currentTarget.value || null;
                       setReviewDraft((draft) => ({
                         ...draft,
-                        provider: event.currentTarget.value || null,
+                        provider,
                         model: null,
-                        acknowledged: false,
-                      }))
-                    }
+                        acknowledged: reviewSettings.enabled,
+                      }));
+                    }}
                   >
                     <option value="">Select a provider…</option>
                     {reviewProviders.map((provider) => (
@@ -655,6 +667,19 @@ export function SettingsPage({ activeSection }: Props) {
                   </SelectControl>
                 </div>
               </div>
+
+              {reviewDraft.provider === reviewSettings.provider && reviewSettings.availability ? (
+                <div className="settings-row">
+                  <div>
+                    <p className="settings-label">Restricted review availability</p>
+                    <p className="settings-value" role="status">
+                      {reviewSettings.availability.supported
+                        ? `Available: ${reviewSettings.availability.product ?? reviewDraft.provider} ${reviewSettings.availability.runtimeVersion ?? ""}`
+                        : `Unavailable: ${reviewSettings.availability.reason?.replace(/_/g, " ") ?? "restriction capability is unverified"}. No provider call will be made.`}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
 
               <MemoryReviewModelRow
                 provider={reviewDraft.provider}
@@ -671,12 +696,13 @@ export function SettingsPage({ activeSection }: Props) {
                   <input
                     type="checkbox"
                     checked={reviewDraft.acknowledged}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const acknowledged = event.currentTarget.checked;
                       setReviewDraft((draft) => ({
                         ...draft,
-                        acknowledged: event.currentTarget.checked,
-                      }))
-                    }
+                        acknowledged,
+                      }));
+                    }}
                   />
                   <span>{MEMORY_REVIEW_ACKNOWLEDGEMENT}</span>
                 </label>
@@ -702,9 +728,7 @@ export function SettingsPage({ activeSection }: Props) {
                     disabled={
                       !canSaveMemoryReview(reviewDraft) || reviewSaving
                     }
-                    onClick={() =>
-                      void saveReviewSettings({ ...reviewDraft })
-                    }
+                    onClick={() => void saveReviewDraft()}
                   >
                     {reviewSaving ? "Saving…" : "Save"}
                   </button>

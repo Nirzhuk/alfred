@@ -28,6 +28,7 @@ function workflow(id = "workflow-1", graph?: WorkflowGraph): Workflow {
     name: id,
     description: "",
     workingDirectory: "",
+    memoryLookupEnabled: false,
     graph: graph ?? { nodes: [inputNode()], edges: [] },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",

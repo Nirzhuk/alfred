@@ -2,12 +2,14 @@ pub mod agent_accounts;
 pub mod github_cli;
 pub mod integrations;
 pub mod managed_runtime;
+pub mod sharing;
 
 use crate::agents;
 use crate::db::{
-    CreateMemoryInput, CreateWorkflowInput, Db, HistorySearchHit, HistorySearchInput,
-    ListMemoryCandidatesInput, Memory, MemoryCandidate, MemoryReviewJob, MemoryReviewSettings,
-    MemoryWithOrigin, RunHistoryDetail, RunHistoryItem, Schedule, ScheduleListItem, Trigger,
+    ApproveMemoryCandidateInput, CreateMemoryInput, CreateWorkflowInput, Db, HistorySearchHit,
+    HistorySearchInput, ListMemoryCandidatesInput, Memory, MemoryCandidate, MemoryEvidenceItem,
+    MemoryReviewJob, MemoryReviewSettings, MemoryWithOrigin, OnMissed, OutputReceipt,
+    RunHistoryDetail, RunHistoryItem, Schedule, ScheduleListItem, Trigger,
     UpdateMemoryCandidateInput, UpdateMemoryInput, UpdateMemoryReviewSettingsInput,
     UpdateWorkflowInput, UpsertTriggerInput, Workflow, WorkflowFolder, WorkflowMemoryReview,
 };
@@ -20,7 +22,8 @@ use crate::runner::{self, RunSummary, RunTrigger};
 use crate::scheduler;
 use crate::skills::{self, SkillRef};
 use crate::triggers::{self, TriggerRuntime};
-use tauri::{AppHandle, Emitter, State};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 pub async fn activate_license(
@@ -97,6 +100,134 @@ pub fn update_workflow(
         agents::normalize_agent_nodes_in_graph(graph).map_err(|error| error.to_string())?;
     }
     db.update_workflow(input).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryLookupAvailability {
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+/// Report whether this workflow has a configured, registered, release-eligible
+/// Alfred native route with an actually verified lookup transport. The
+/// persisted workflow permission is intentionally not consulted here: enabling
+/// it never creates a runtime capability.
+#[tauri::command]
+pub fn get_memory_lookup_availability(
+    db: State<'_, Db>,
+    native_registry: State<'_, std::sync::Arc<agents::native::NativeRuntimeRegistry>>,
+    native_router: State<'_, agents::native::NativeExecutionRouter>,
+    manifest: State<'_, agents::capability_manifest::AgentCapabilityManifest>,
+    workflow_id: String,
+) -> Result<MemoryLookupAvailability, String> {
+    let workflow = db
+        .get_workflow(&workflow_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "workflow_not_found".to_string())?;
+    if !manifest.is_valid() {
+        return Ok(MemoryLookupAvailability {
+            available: false,
+            reason: Some("native_capability_manifest_invalid".into()),
+        });
+    }
+
+    let mut saw_native_route = false;
+    let mut first_reason = None;
+    let nodes = workflow
+        .graph
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten();
+    for node in nodes {
+        let node_type = node.get("type").and_then(serde_json::Value::as_str);
+        if !matches!(node_type, Some("agent" | "customAgent")) {
+            continue;
+        }
+        let Some(data) = node.get("data").and_then(serde_json::Value::as_object) else {
+            continue;
+        };
+        let harness = agents::AgentHarness::parse_persisted(data.get("harness"))
+            .map_err(|error| error.to_string())?;
+        if harness != agents::AgentHarness::Alfred {
+            continue;
+        }
+        saw_native_route = true;
+        let Some(provider) = data
+            .get("provider")
+            .and_then(serde_json::Value::as_str)
+            .and_then(agents::AgentProvider::from_str)
+        else {
+            if first_reason.is_none() {
+                first_reason = Some("native_provider_unconfigured".into());
+            }
+            continue;
+        };
+        if data
+            .get("accountRef")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            if first_reason.is_none() {
+                first_reason = Some("native_account_unconfigured".into());
+            }
+            continue;
+        }
+        let Ok(descriptor) = native_registry.descriptor(provider) else {
+            if first_reason.is_none() {
+                first_reason = Some("native_runtime_unavailable".into());
+            }
+            continue;
+        };
+        let Some(entry) = crate::matching_native_release_entry(manifest.inner(), &descriptor)
+        else {
+            if first_reason.is_none() {
+                first_reason = Some("native_route_descriptor_mismatch".into());
+            }
+            continue;
+        };
+        if !crate::native_release_binding_is_eligible(manifest.inner(), &descriptor) {
+            if first_reason.is_none() {
+                first_reason = entry
+                    .block_reason
+                    .clone()
+                    .or_else(|| Some("native_provider_blocked".into()));
+            }
+            continue;
+        }
+        match native_router.memory_lookup_availability(provider) {
+            Ok(availability) if availability.available => {
+                return Ok(MemoryLookupAvailability {
+                    available: true,
+                    reason: None,
+                });
+            }
+            Ok(availability) => {
+                if first_reason.is_none() {
+                    first_reason = Some(
+                        availability
+                            .reason
+                            .unwrap_or_else(|| "memory_lookup_transport_unavailable".into()),
+                    );
+                }
+            }
+            Err(_) => {
+                if first_reason.is_none() {
+                    first_reason = Some("native_runtime_unavailable".into());
+                }
+            }
+        }
+    }
+
+    Ok(MemoryLookupAvailability {
+        available: false,
+        reason: Some(if saw_native_route {
+            first_reason.unwrap_or_else(|| "memory_lookup_unavailable".into())
+        } else {
+            "workflow_has_no_configured_alfred_agent".into()
+        }),
+    })
 }
 
 #[tauri::command]
@@ -276,6 +407,16 @@ pub fn get_run_history(
 }
 
 #[tauri::command]
+pub fn retry_output_persistence(
+    app: AppHandle,
+    db: State<'_, Db>,
+    run_id: String,
+    node_id: String,
+) -> Result<OutputReceipt, String> {
+    runner::output::retry_output_persistence(&app, db.inner(), &run_id, &node_id)
+}
+
+#[tauri::command]
 pub fn search_history(
     db: State<'_, Db>,
     input: HistorySearchInput,
@@ -304,12 +445,41 @@ pub fn upsert_workflow_schedule(
     workflow_id: String,
     cron: String,
     enabled: bool,
+    on_missed: OnMissed,
 ) -> Result<Schedule, String> {
-    let schedule =
-        scheduler::upsert_schedule(&db, workflow_id, cron, enabled).map_err(|e| e.to_string())?;
+    let schedule = scheduler::upsert_schedule(&db, workflow_id, cron, enabled, on_missed)
+        .map_err(|e| e.to_string())?;
     crate::tray::refresh(&app);
     let _ = app.emit("schedules://changed", ());
     Ok(schedule)
+}
+
+/// Scheduled runs that were missed while Alfred was closed and wait on the
+/// user's decision.
+#[tauri::command]
+pub fn list_missed_schedules(
+    app: AppHandle,
+    db: State<'_, Db>,
+) -> Result<Vec<scheduler::MissedSchedule>, String> {
+    let opened_at = app.state::<scheduler::SchedulerRuntime>().opened_at();
+    scheduler::missed_schedules(&db, opened_at).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn resolve_missed_schedule(
+    app: AppHandle,
+    db: State<'_, Db>,
+    schedule_id: String,
+    decision: scheduler::MissedDecision,
+) -> Result<(), String> {
+    let started = scheduler::resolve_missed(&app, &db, &schedule_id, decision)
+        .map_err(|e| e.to_string())?;
+    crate::tray::refresh(&app);
+    if started {
+        let _ = app.emit("scheduler://fired", 1);
+    }
+    let _ = app.emit("schedules://changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -492,7 +662,9 @@ pub fn clear_memories(db: State<'_, Db>, workflow_id: String) -> Result<usize, S
 
 #[tauri::command]
 pub fn get_memory_review_settings(db: State<'_, Db>) -> Result<MemoryReviewSettings, String> {
-    db.get_memory_review_settings().map_err(|e| e.to_string())
+    let mut settings = db.get_memory_review_settings().map_err(|e| e.to_string())?;
+    settings.availability = crate::db::memory_review_availability(settings.provider.clone());
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -500,8 +672,11 @@ pub fn update_memory_review_settings(
     db: State<'_, Db>,
     input: UpdateMemoryReviewSettingsInput,
 ) -> Result<MemoryReviewSettings, String> {
-    db.update_memory_review_settings(input)
-        .map_err(|e| e.to_string())
+    let mut settings = db
+        .update_memory_review_settings(input)
+        .map_err(|e| e.to_string())?;
+    settings.availability = crate::db::memory_review_availability(settings.provider.clone());
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -531,13 +706,22 @@ pub fn update_memory_candidate(
 }
 
 #[tauri::command]
+pub fn list_memory_evidence(
+    db: State<'_, Db>,
+    memory_id: String,
+) -> Result<Vec<MemoryEvidenceItem>, String> {
+    db.list_memory_evidence(&memory_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn approve_memory_candidate(
     app: AppHandle,
     db: State<'_, Db>,
-    id: String,
+    input: ApproveMemoryCandidateInput,
 ) -> Result<MemoryCandidate, String> {
     let candidate = db
-        .approve_memory_candidate(&id)
+        .approve_memory_candidate(input)
         .map_err(|e| e.to_string())?;
     emit_candidates_changed(&app, &db, &candidate.workflow_id);
     Ok(candidate)

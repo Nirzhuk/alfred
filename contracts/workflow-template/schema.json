@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alfred.local/contracts/workflow-template/v1",
+  "title": "Alfred workflow template",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schemaVersion", "minAlfredVersion", "title", "description", "graph", "parameters", "requirements", "starts"],
+  "properties": {
+    "format": { "const": "alfred.workflow-template" },
+    "schemaVersion": { "const": 1 },
+    "minAlfredVersion": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "graph": { "$ref": "#/$defs/graph" },
+    "parameters": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/parameter" } },
+    "requirements": { "type": "array", "items": { "$ref": "#/$defs/requirement" } },
+    "starts": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/start" } }
+  },
+  "$defs": {
+    "position": {
+      "type": "object", "additionalProperties": false, "required": ["x", "y"],
+      "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+    },
+    "node": {
+      "type": "object", "additionalProperties": false, "required": ["id", "type", "data", "position"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,96}$" },
+        "type": { "type": "string", "enum": ["input", "prompt", "agent", "customAgent", "chooseOutput", "output", "memory", "identity", "template", "fileInject", "gitStatus", "shell", "script", "http", "notify", "writeFile", "gitHost", "appAction"] },
+        "data": { "type": "object" },
+        "position": { "$ref": "#/$defs/position" }
+      }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false, "required": ["id", "source", "target"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" },
+        "source": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "sourceHandle": { "type": ["string", "null"], "maxLength": 96 },
+        "targetHandle": { "type": ["string", "null"], "maxLength": 96 }
+      }
+    },
+    "graph": {
+      "type": "object", "additionalProperties": false, "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/node" } },
+        "edges": { "type": "array", "maxItems": 300, "items": { "$ref": "#/$defs/edge" } }
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "nodeId", "field"],
+      "properties": { "kind": { "enum": ["node", "start", "workingDirectory"] }, "nodeId": { "type": ["string", "null"] }, "field": { "type": "string", "minLength": 1, "maxLength": 128 } }
+    },
+    "parameter": {
+      "type": "object", "additionalProperties": false, "required": ["key", "label", "kind", "required", "target"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_.-]{0,63}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "kind": { "enum": ["text", "folder", "file", "agentAccount", "appConnection", "appResource", "memory", "channel", "email", "secretBacked"] },
+        "required": { "type": "boolean" },
+        "allowedProvider": { "type": ["string", "null"], "maxLength": 96 },
+        "allowedAction": { "type": ["string", "null"], "maxLength": 96 },
+        "target": { "$ref": "#/$defs/target" },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/target" }, "maxItems": 16 }
+      }
+    },
+    "requirement": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "name"],
+      "properties": { "kind": { "enum": ["agent", "harness", "model", "skill", "interpreter", "appAction", "appEvent"] }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "provider": { "type": ["string", "null"], "maxLength": 96 }, "capability": { "type": ["string", "null"], "maxLength": 120 } }
+    },
+    "start": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "config"],
+      "properties": { "kind": { "enum": ["schedule", "file", "appEvent", "webhook"] }, "config": { "type": "object", "additionalProperties": false, "properties": { "cron": { "type": "string" }, "timezone": { "type": "string" }, "path": { "type": "string" }, "pattern": { "type": "string" }, "event": { "type": "string" }, "eventType": { "type": "string" }, "providerId": { "type": "string" }, "label": { "type": "string" }, "filters": { "type": "object" } } } }
+    }
+  }
+}

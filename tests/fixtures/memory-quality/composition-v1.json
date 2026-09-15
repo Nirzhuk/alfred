@@ -1,0 +1,185 @@
+{
+  "version": "composition-v1",
+  "evaluator_version": "memory-composition-eval-1",
+  "base_fixture_digest": "f19b5e3ef701b31aaaed9aae8ab55f80d1a305a286b6c7e43c468bcc9e063d8e",
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "limits": {
+    "shared_bytes": 12000,
+    "explicit_bytes": 6000,
+    "pinned_bytes": 6000,
+    "automatic_bytes": 6000,
+    "explicit_item_bytes": 1500,
+    "pinned_item_bytes": 1500,
+    "automatic_item_bytes": 1200,
+    "automatic_items": 8
+  },
+  "base_case_ids": [
+    "c01",
+    "c02",
+    "c03",
+    "c04",
+    "c05",
+    "c06",
+    "c07",
+    "c08",
+    "c09",
+    "c10",
+    "c11",
+    "c12",
+    "c13",
+    "c14",
+    "c15",
+    "c16",
+    "c17",
+    "c18",
+    "c19",
+    "c20",
+    "c21",
+    "c22",
+    "c23",
+    "c24",
+    "c25",
+    "c26",
+    "c27",
+    "c28",
+    "c29",
+    "c30",
+    "c31",
+    "c32",
+    "c33",
+    "c34",
+    "c35",
+    "c36",
+    "c37",
+    "c38",
+    "c39",
+    "c40",
+    "c41",
+    "c42",
+    "c43",
+    "c44",
+    "c45",
+    "c46",
+    "c47",
+    "c48",
+    "c49",
+    "c50"
+  ],
+  "variations": [
+    {
+      "id": "repeat-selected",
+      "base_case_id": "c07",
+      "mode": "repeat",
+      "required_ids": [
+        "m07"
+      ],
+      "forbidden_ids": [],
+      "expected_reasons": {
+        "m07": "explicit"
+      }
+    },
+    {
+      "id": "replaced-selected",
+      "base_case_id": "c45",
+      "mode": "replace",
+      "required_ids": [
+        "m45-a"
+      ],
+      "forbidden_ids": [],
+      "expected_reasons": {
+        "m45-a": "lexical"
+      }
+    },
+    {
+      "id": "recall-off-explicit-report",
+      "base_case_id": "c43",
+      "mode": "off",
+      "required_ids": [
+        "m43"
+      ],
+      "forbidden_ids": [],
+      "expected_reasons": {
+        "m43": "explicit"
+      }
+    },
+    {
+      "id": "trace-failure-abstains",
+      "base_case_id": "c01",
+      "mode": "trace_failure",
+      "required_ids": [],
+      "forbidden_ids": [
+        "m01"
+      ],
+      "expected_reasons": {}
+    },
+    {
+      "id": "expired-selected",
+      "base_case_id": "c31",
+      "mode": "repeat",
+      "required_ids": [
+        "m31-active"
+      ],
+      "forbidden_ids": [
+        "m31-expired"
+      ],
+      "expected_reasons": {
+        "m31-active": "lexical"
+      }
+    },
+    {
+      "id": "literal-marker-not-reference",
+      "base_case_id": "c01",
+      "mode": "literal_marker",
+      "required_ids": [
+        "m01"
+      ],
+      "forbidden_ids": [],
+      "expected_reasons": {
+        "m01": "lexical"
+      }
+    }
+  ],
+  "stress_cases": [
+    {
+      "id": "all-sources-large-unicode",
+      "explicit_count": 8,
+      "pinned_count": 8,
+      "automatic_count": 10,
+      "body_repeats": 700,
+      "authored_repeats": 3000,
+      "recall_enabled": true
+    },
+    {
+      "id": "pinned-header-boundary",
+      "explicit_count": 0,
+      "pinned_count": 8,
+      "automatic_count": 0,
+      "body_repeats": 700,
+      "authored_repeats": 1,
+      "recall_enabled": true
+    },
+    {
+      "id": "automatic-header-boundary",
+      "explicit_count": 0,
+      "pinned_count": 0,
+      "automatic_count": 10,
+      "body_repeats": 700,
+      "authored_repeats": 1,
+      "recall_enabled": true
+    },
+    {
+      "id": "deliberate-memory-with-recall-off",
+      "explicit_count": 8,
+      "pinned_count": 8,
+      "automatic_count": 10,
+      "body_repeats": 700,
+      "authored_repeats": 1,
+      "recall_enabled": false
+    }
+  ],
+  "limitations": [
+    "Deterministic memory-ID and byte accounting only; no provider calls or model answer-quality measurements.",
+    "Base retrieval labels and split membership are inherited unchanged from frozen v1; deliberate pin/selection labels are evaluated by source.",
+    "Stress labels enforce independently specified budgets and source precedence, not an implementation-derived number of included memories."
+  ]
+}

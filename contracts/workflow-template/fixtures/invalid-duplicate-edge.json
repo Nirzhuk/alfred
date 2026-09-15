@@ -1,0 +1,5 @@
+{
+  "format": "alfred.workflow-template", "schemaVersion": 1, "minAlfredVersion": "1.0.0", "title": "Duplicate edge", "description": "",
+  "graph": { "nodes": [{ "id": "a", "type": "agent", "data": {}, "position": { "x": 0, "y": 0 } }, { "id": "b", "type": "output", "data": {}, "position": { "x": 1, "y": 1 } }], "edges": [{ "id": "same", "source": "a", "target": "b" }, { "id": "same", "source": "a", "target": "b" }] },
+  "parameters": [], "requirements": [], "starts": []
+}

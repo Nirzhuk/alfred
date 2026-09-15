@@ -14,19 +14,22 @@ mod notifications;
 mod quick_access;
 mod runner;
 mod scheduler;
+mod sharing;
 mod skills;
+mod templates;
 mod tray;
 mod triggers;
 
 use agent_accounts::{AgentAccountResolver, AgentAccountsState};
 use agents::native::{
-    DenyAllToolExecutor, HostApprovalBroker, NativeExecutionRouter, NativeRuntimeRegistry,
+    DenyAllToolExecutor, HostApprovalBroker, MemoryLookupToolExecutor,
+    NativeExecutionRouter, NativeRuntimeMemoryLookupContextAllowance, NativeRuntimeRegistry,
 };
 use commands::managed_runtime::ManagedRuntimeControlPlane;
 use db::Db;
 use integrations::IntegrationsState;
 use licensing::LicensingState;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, State, WindowEvent};
@@ -39,6 +42,32 @@ const QUICK_ACCESS_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 struct GlobalShortcutPreference(Mutex<String>);
 
 struct StartupTrace(Option<Instant>);
+
+static CAPABILITY_MANIFEST: OnceLock<agents::capability_manifest::AgentCapabilityManifest> =
+    OnceLock::new();
+
+pub(crate) fn matching_native_release_entry<'a>(
+    manifest: &'a agents::capability_manifest::AgentCapabilityManifest,
+    descriptor: &agents::native::NativeRuntimeDescriptor,
+) -> Option<&'a agents::capability_manifest::AgentCapabilityEntry> {
+    manifest.is_valid().then_some(())?;
+    manifest.entries.iter().find(|entry| {
+        entry.provider == descriptor.provider
+            && entry.harness == agents::AgentHarness::Alfred
+            && entry.product == Some(descriptor.product)
+            && entry.runtime_id.as_deref() == Some(descriptor.runtime_id.as_str())
+            && entry.runtime_version.as_deref() == Some(descriptor.runtime_version.as_str())
+    })
+}
+
+pub(crate) fn native_release_binding_is_eligible(
+    manifest: &agents::capability_manifest::AgentCapabilityManifest,
+    descriptor: &agents::native::NativeRuntimeDescriptor,
+) -> bool {
+    matching_native_release_entry(manifest, descriptor).is_some_and(|entry| {
+        entry.permits_execution(manifest.platform, manifest.build_kind)
+    })
+}
 
 impl StartupTrace {
     fn mark(&self, stage: &str) {
@@ -204,6 +233,9 @@ pub fn run() {
         StartupTrace(std::env::var_os("ALFRED_STARTUP_TRACE").map(|_| Instant::now()));
     startup_trace.mark("run_enter");
     let database = Db::open().expect("failed to open sqlite database");
+    database
+        .capture_output_recovery_snapshot()
+        .expect("failed to capture output recovery snapshot");
 
     // Native-agent accounts and runtimes. The registry stays empty until a
     // provider plan registers one; until then Alfred-harness steps surface
@@ -221,16 +253,61 @@ pub fn run() {
     // The resolver needs its own handle because the managed `Db` is owned by
     // Tauri state; SQLite is safe to open twice against the same file.
     let resolver_db = Arc::new(Db::open().expect("failed to open sqlite database"));
+    let lookup_service = Arc::new(db::agent_memory_lookup::AgentMemoryLookupService::new(
+        Arc::clone(&resolver_db),
+        resolver_db.artifact_root(),
+    ));
+    let lookup_trace_sink = Arc::new(runner::lookup_trace::DbMemoryLookupTraceSink::new(
+        Arc::clone(&resolver_db),
+    ));
+    let lookup_context_allowance = Arc::new(
+        NativeRuntimeMemoryLookupContextAllowance::new(Arc::clone(&native_registry)),
+    );
+    let memory_lookup_executor = Arc::new(MemoryLookupToolExecutor::new(
+        lookup_service,
+        // Alfred-executed tools stay deny-all until a native runtime supplies
+        // a verified remaining-context allowance and transport.
+        Arc::new(DenyAllToolExecutor),
+        lookup_trace_sink,
+        lookup_context_allowance,
+    ));
+    let permission_db = Arc::clone(&resolver_db);
+    let memory_lookup_permission_resolver: Arc<dyn Fn(&str, &str) -> bool + Send + Sync> =
+        Arc::new(move |run_id, _node_id| {
+            permission_db
+                .with_conn(|conn| {
+                    Ok(conn.query_row(
+                        "SELECT EXISTS(
+                           SELECT 1
+                             FROM runs r
+                             JOIN workflows w ON w.id = r.workflow_id
+                            WHERE r.id = ?1
+                              AND w.memory_lookup_enabled = 1
+                         )",
+                        rusqlite::params![run_id],
+                        |row| row.get::<_, bool>(0),
+                    )?)
+                })
+                .unwrap_or(false)
+        });
+    let release_binding_validator: Arc<
+        dyn Fn(&agents::native::NativeRuntimeDescriptor) -> bool + Send + Sync,
+    > = Arc::new(|descriptor| {
+        CAPABILITY_MANIFEST
+            .get()
+            .is_some_and(|manifest| native_release_binding_is_eligible(manifest, descriptor))
+    });
     let native_router = NativeExecutionRouter::new(
         Arc::clone(&native_registry),
         Arc::new(AgentAccountResolver::new(resolver_db, &agent_accounts)),
-        // Alfred-executed tools stay deny-all. OpenCode decides via the host
-        // broker and executes inside the isolated runtime.
-        Arc::new(DenyAllToolExecutor),
+        memory_lookup_executor,
         Arc::clone(&host_broker) as Arc<dyn agents::native::AlfredApprovalHandler>,
-    );
+    )
+    .with_memory_lookup_permission_resolver(memory_lookup_permission_resolver)
+    .with_release_binding_validator(release_binding_validator);
 
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -246,7 +323,20 @@ pub fn run() {
         .manage(notifications::NotificationPreferences::default())
         .manage(GlobalShortcutPreference::default())
         .manage(TriggerRuntime::default())
+        .manage(scheduler::SchedulerRuntime::new())
         .manage(AppEventRuntime::default());
+
+    // Sharing is opt-in by an explicit service origin. Keeping the state
+    // absent when no origin is configured prevents source builds from
+    // silently publishing to an in-memory or guessed production service.
+    match sharing::SharingState::from_environment() {
+        Ok(Some(sharing_state)) => builder = builder.manage(sharing_state),
+        Ok(None) => builder = builder.manage(sharing::SharingState::disabled()),
+        Err(error) => {
+            eprintln!("workflow sharing disabled: {error}");
+            builder = builder.manage(sharing::SharingState::disabled());
+        }
+    }
 
     #[cfg(desktop)]
     {
@@ -254,12 +344,13 @@ pub fn run() {
         use tauri_plugin_window_state::StateFlags;
 
         builder = builder
-            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
+                let _ = args;
             }))
             .plugin(
                 tauri_plugin_global_shortcut::Builder::new()
@@ -288,6 +379,22 @@ pub fn run() {
     builder
         .setup(|app| {
             app.state::<StartupTrace>().mark("setup_enter");
+            // Resume identity-bearing pending memory reviews left by a prior
+            // process. The runner performs a fresh capability check before
+            // reserving any provider slot; legacy rows were classified by DB
+            // migration and remain unavailable.
+            runner::recover_pending_memory_reviews(app.handle());
+            let output_recovery_handle = app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let Some(db) = output_recovery_handle.try_state::<Db>() else {
+                    return;
+                };
+                if let Err(error) =
+                    runner::output::recover_output_persistence(&output_recovery_handle, db.inner())
+                {
+                    eprintln!("output persistence recovery unavailable: {error}");
+                }
+            });
             if let Some(root) = app.path().app_data_dir().ok() {
                 let resource_root = app.path().resource_dir().ok();
                 let plane = app.state::<Arc<ManagedRuntimeControlPlane>>();
@@ -302,11 +409,12 @@ pub fn run() {
                 }
             }
             let approval_handle = app.handle().clone();
-            app.state::<Arc<HostApprovalBroker>>().set_listener(Arc::new(
-                move |prompt: agents::native::HostApprovalPrompt| {
-                    let _ = approval_handle.emit("native://approval-requested", prompt);
-                },
-            ));
+            app.state::<Arc<HostApprovalBroker>>()
+                .set_listener(Arc::new(
+                    move |prompt: agents::native::HostApprovalPrompt| {
+                        let _ = approval_handle.emit("native://approval-requested", prompt);
+                    },
+                ));
             let resource_root = app.path().resource_dir().ok();
             let capability_manifest = agents::capability_manifest::manifest_for_resource_root(
                 agents::capability_manifest::current_platform(),
@@ -316,6 +424,9 @@ pub fn run() {
             if !capability_manifest.is_valid() {
                 return Err("agent capability manifest is invalid".into());
             }
+            CAPABILITY_MANIFEST
+                .set(capability_manifest.clone())
+                .map_err(|_| "agent capability manifest already initialized".to_string())?;
             app.manage(capability_manifest);
 
             #[cfg(target_os = "macos")]
@@ -482,6 +593,7 @@ pub fn run() {
             commands::get_workflow,
             commands::create_workflow,
             commands::update_workflow,
+            commands::get_memory_lookup_availability,
             commands::delete_workflow,
             commands::reorder_workflows,
             commands::list_workflow_folders,
@@ -511,10 +623,13 @@ pub fn run() {
             commands::list_active_runs,
             commands::list_run_history,
             commands::get_run_history,
+            commands::retry_output_persistence,
             commands::search_history,
             commands::list_schedules,
             commands::get_workflow_schedule,
             commands::upsert_workflow_schedule,
+            commands::list_missed_schedules,
+            commands::resolve_missed_schedule,
             commands::delete_workflow_schedule,
             commands::list_workflow_triggers,
             commands::list_app_trigger_statuses,
@@ -522,6 +637,15 @@ pub fn run() {
             commands::delete_workflow_trigger,
             commands::test_workflow_trigger,
             commands::webhook_base_url,
+            commands::sharing::prepare_workflow_publication,
+            commands::sharing::publish_workflow_template,
+            commands::sharing::list_workflow_publications,
+            commands::sharing::list_pending_workflow_publications,
+            commands::sharing::resume_workflow_publication,
+            commands::sharing::revoke_workflow_publication,
+            commands::sharing::resolve_shared_workflow_link,
+            commands::sharing::check_workflow_template_setup,
+            commands::sharing::import_workflow_template,
             commands::list_memories,
             commands::list_linkable_memories,
             commands::link_memory,
@@ -535,6 +659,7 @@ pub fn run() {
             commands::set_workflow_memory_review,
             commands::list_memory_candidates,
             commands::update_memory_candidate,
+            commands::list_memory_evidence,
             commands::approve_memory_candidate,
             commands::reject_memory_candidate,
             commands::retry_memory_review,

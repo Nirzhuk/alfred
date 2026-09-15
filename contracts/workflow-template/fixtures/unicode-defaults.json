@@ -1,0 +1,17 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Résumé – 日本語",
+  "description": "Unicode text and numeric defaults stay byte stable.",
+  "graph": {
+    "nodes": [
+      { "id": "entree", "type": "input", "data": { "label": "入力", "prompt": "Café — résumé" }, "position": { "x": 0.0, "y": -0.0 } },
+      { "id": "sortie", "type": "output", "data": { "label": "完了", "saveToMemory": false, "pinMemory": false, "asFinalResult": true, "htmlReport": false, "includeFilesChanged": false }, "position": { "x": 10.5, "y": 2 } }
+    ],
+    "edges": [ { "id": "unicode-edge", "source": "entree", "target": "sortie", "sourceHandle": null, "targetHandle": null } ]
+  },
+  "parameters": [],
+  "requirements": [],
+  "starts": []
+}

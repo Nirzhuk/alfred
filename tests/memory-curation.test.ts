@@ -8,6 +8,7 @@ import {
   createMemoryReviewState,
   isMemoryReviewConfigured,
   memoryReviewFailureCopy,
+  memoryReviewDraftFromSettings,
   memoryReviewSavePayload,
   workflowSuggestionGate,
 } from "../src/features/settings/memory-review";
@@ -15,9 +16,13 @@ import {
   applyCandidateUpdate,
   blockedCandidateCopy,
   candidateApprovalRequiresConfirmation,
+  candidateActionErrorCopy,
+  candidateCanReject,
   candidateConfidencePercent,
   candidateEditPayload,
   candidateIsEditable,
+  candidateMemoryTypeChoices,
+  candidateScopeChoices,
   countPendingSuggestions,
   hasCandidateEdits,
   shouldRefreshSuggestions,
@@ -41,6 +46,11 @@ function candidate(
     sourceNodeId: null,
     operation: "create",
     targetMemoryId: null,
+    candidateRevision: 1,
+    expectedTargetMemoryId: null,
+    expectedTargetSemanticRevision: null,
+    expectedTargetContentDigest: null,
+    targetComplete: null,
     scopeType: "workflow",
     scopeKey: "workflow-1",
     memoryType: "preference",
@@ -48,6 +58,36 @@ function candidate(
     body: `Body for ${id}`,
     confidence: 0.8,
     rationale: "the user stated a durable preference",
+    factKey: null,
+    observedAt: null,
+    lastConfirmedAt: null,
+    validFrom: null,
+    expiresAt: null,
+    possibleConflicts: [],
+    curationContractVersion: 1,
+    evidenceState: "verified",
+    evidenceSubject: "user_statement",
+    isInference: false,
+    claimDigest: "claim-digest",
+    evidence: [
+      {
+        ordinal: 0,
+        sourceId: `source-${id}`,
+        fragmentId: `fragment-${id}`,
+        sourceRunId: `run-${id}`,
+        sourceStepId: null,
+        sourceNodeId: "input",
+        origin: "authored_task",
+        producerIdentity: null,
+        sourceLabel: "Run input",
+        quote: `Body for ${id}`,
+        byteStart: 0,
+        byteEnd: 10,
+        normalizationVersion: 1,
+        fragmentDigest: "fragment-digest",
+        sourceRemoved: false,
+      },
+    ],
     status: "pending",
     blockedCode: null,
     createdAt: "2026-08-20T10:00:00.000Z",
@@ -100,8 +140,69 @@ describe("memory review settings", () => {
     expect(MEMORY_REVIEW_ACKNOWLEDGEMENT).toContain("model call");
     expect(MEMORY_REVIEW_ACKNOWLEDGEMENT).toContain("bounded digest");
     expect(MEMORY_REVIEW_ACKNOWLEDGEMENT).toContain("approval");
+    expect(MEMORY_REVIEW_ACKNOWLEDGEMENT).toContain("existing-memory context");
     expect(MEMORY_REVIEW_ACKNOWLEDGEMENT).not.toMatch(/api[_ ]?key/i);
     expect(MEMORY_REVIEW_ACKNOWLEDGEMENT).not.toMatch(/credential/i);
+  });
+
+  test("saved settings restore the draft and preserve an existing opt-in", () => {
+    const disabled = memoryReviewDraftFromSettings(DEFAULT_MEMORY_REVIEW_SETTINGS);
+    expect(disabled).toEqual(DEFAULT_MEMORY_REVIEW_DRAFT);
+    expect(canSaveMemoryReview({ ...disabled, enabled: true, provider: "claude_code" })).toBe(false);
+    const enabled = memoryReviewDraftFromSettings({
+      enabled: true,
+      provider: "claude_code",
+      model: null,
+    });
+    expect(enabled.acknowledged).toBe(true);
+    expect(canSaveMemoryReview({ ...enabled, model: "updated-model" })).toBe(true);
+  });
+
+  test("a rejected settings save keeps the last persisted configuration", async () => {
+    const store = createStore(createMemoryReviewState({
+      api: {
+        getSettings: async () => DEFAULT_MEMORY_REVIEW_SETTINGS,
+        updateSettings: async () => { throw new Error("synthetic failure"); },
+      },
+    }));
+    expect(await store.getState().save({
+      enabled: true, provider: "claude_code", model: null, acknowledged: true,
+    })).toBe(false);
+    expect(store.getState().settings).toEqual(DEFAULT_MEMORY_REVIEW_SETTINGS);
+    expect(store.getState().saving).toBe(false);
+    expect(store.getState().error).toBe("Memory review settings could not be saved.");
+    expect(memoryReviewDraftFromSettings(store.getState().settings)).toEqual(DEFAULT_MEMORY_REVIEW_DRAFT);
+  });
+
+  test("availability gates supported and unavailable provider states", () => {
+    expect(
+      workflowSuggestionGate({
+        enabled: true,
+        provider: "claude_code",
+        availability: {
+          supported: true,
+          reason: null,
+          product: "claude_code",
+          runtimeVersion: "2.1.263",
+          executionMode: "restricted_print",
+          restrictionContractVersion: "memory-review-restricted-v1",
+        },
+      }),
+    ).toBeNull();
+    expect(
+      workflowSuggestionGate({
+        enabled: true,
+        provider: "claude_code",
+        availability: {
+          supported: false,
+          reason: "unknown_runtime_version",
+          product: "claude_code",
+          runtimeVersion: "9.0.0",
+          executionMode: "restricted_print",
+          restrictionContractVersion: "memory-review-restricted-v1",
+        },
+      }),
+    ).toContain("unknown runtime version");
   });
 
   test("save payload round-trips provider and model without credentials", async () => {
@@ -151,12 +252,12 @@ describe("memory review settings", () => {
   });
 
   test("per-workflow switch stays disabled until global review is configured", () => {
-    expect(workflowSuggestionGate({ enabled: false, provider: null })).toContain(
-      "Settings",
-    );
     expect(
-      workflowSuggestionGate({ enabled: true, provider: null }),
-    ).toContain("provider");
+      workflowSuggestionGate({ enabled: false, provider: null }),
+    ).toContain("Settings");
+    expect(workflowSuggestionGate({ enabled: true, provider: null })).toContain(
+      "provider",
+    );
     expect(
       workflowSuggestionGate({ enabled: true, provider: "claude_code" }),
     ).toBeNull();
@@ -166,6 +267,9 @@ describe("memory review settings", () => {
     for (const code of [
       "auth_required",
       "provider_unavailable",
+      "restricted_review_unavailable",
+      "legacy_review_unavailable",
+      "review_queue_full",
       "timeout",
       "invalid_response",
       "internal",
@@ -189,7 +293,8 @@ describe("suggestions queue", () => {
     const approved = { ...candidate("a"), status: "approved" as const };
     expect(applyCandidateUpdate(queue, approved)).toHaveLength(2);
     expect(
-      applyCandidateUpdate(queue, approved).find(({ id }) => id === "a")?.status,
+      applyCandidateUpdate(queue, approved).find(({ id }) => id === "a")
+        ?.status,
     ).toBe("approved");
     expect(countPendingSuggestions(queue)).toBe(2);
     expect(countPendingSuggestions(applyCandidateUpdate(queue, approved))).toBe(
@@ -202,7 +307,10 @@ describe("suggestions queue", () => {
   test("pending-first ordering keeps actionable work on top", () => {
     const ordered = sortSuggestions([
       candidate("approved-old", { status: "approved" }),
-      candidate("blocked-new", { status: "blocked", blockedCode: "target_missing" }),
+      candidate("blocked-new", {
+        status: "blocked",
+        blockedCode: "target_missing",
+      }),
       candidate("pending-new", { createdAt: "2026-08-21T10:00:00.000Z" }),
       candidate("rejected", { status: "rejected" }),
     ]);
@@ -219,6 +327,9 @@ describe("suggestions queue", () => {
     expect(candidateIsEditable(candidate("d", { status: "approved" }))).toBe(
       false,
     );
+    expect(candidateIsEditable(candidate("empty", { evidence: [] }))).toBe(false);
+    expect(candidateCanReject(candidate("legacy", { status: "blocked" }))).toBe(true);
+    expect(candidateCanReject(candidate("done", { status: "approved" }))).toBe(false);
 
     const pending = candidate("p", {
       title: "Editor",
@@ -227,18 +338,71 @@ describe("suggestions queue", () => {
       scopeKey: "local-user",
     });
     const payload = candidateEditPayload(pending, {
+      expectedCandidateRevision: 1,
       title: "Editor choice",
       body: "Uses Neovim daily",
       scopeType: "user",
       memoryType: "preference",
+      validFrom: "",
+      expiresAt: "",
     });
-    expect(payload).toEqual({ id: "p", title: "Editor choice" });
-    expect(hasCandidateEdits(pending, {
-      title: "Editor",
-      body: "Uses Neovim daily",
-      scopeType: "user",
-      memoryType: "preference",
-    })).toBe(false);
+    expect(payload).toEqual({
+      id: "p",
+      expectedCandidateRevision: 1,
+      title: "Editor choice",
+    });
+    expect(
+      hasCandidateEdits(pending, {
+        expectedCandidateRevision: 1,
+        title: "Editor",
+        body: "Uses Neovim daily",
+        scopeType: "user",
+        memoryType: "preference",
+        validFrom: "",
+        expiresAt: "",
+      }),
+    ).toBe(false);
+  });
+
+  test("candidate command errors use stable evidence-aware copy", () => {
+    expect(
+      candidateActionErrorCopy("evidence_reconfirmation_required", "edit"),
+    ).toContain("latest edit");
+    expect(candidateActionErrorCopy(new Error("invalid_body"), "edit")).toContain(
+      "changes are still here",
+    );
+    expect(candidateActionErrorCopy("sqlite internals", "approve")).toBe(
+      "That action could not be completed. Try again.",
+    );
+    expect(
+      candidateActionErrorCopy("e_claim_category_mismatch", "edit"),
+    ).toContain("does not match");
+  });
+
+  test("candidate edit choices preserve the evidence category boundary", () => {
+    const configuration = candidate("config", {
+      evidenceSubject: "workflow_configuration",
+      scopeType: "workflow",
+      memoryType: "constraint",
+    });
+    expect(candidateScopeChoices(configuration)).toEqual(["workflow"]);
+    expect(candidateMemoryTypeChoices(configuration)).toEqual([
+      "fact",
+      "decision",
+      "constraint",
+      "note",
+    ]);
+    const observation = candidate("observation", {
+      evidenceSubject: "recorded_observation",
+      memoryType: "fact",
+    });
+    expect(candidateMemoryTypeChoices(observation)).not.toContain("preference");
+    expect(candidateMemoryTypeChoices(observation)).not.toContain("decision");
+    expect(candidateScopeChoices(observation)).toEqual([
+      "workflow",
+      "workspace",
+      "user",
+    ]);
   });
 
   test("user-scope approval and retract operations require confirmation", () => {
@@ -291,7 +455,9 @@ describe("suggestions queue", () => {
     ]) {
       const copy = blockedCandidateCopy(code);
       expect(copy.length).toBeGreaterThan(10);
-      expect(copy.match(/sqlite|sql|provider|stderr|rusqlite|panicked/i)).toBeNull();
+      expect(
+        copy.match(/sqlite|sql|provider|stderr|rusqlite|panicked/i),
+      ).toBeNull();
     }
   });
 
@@ -340,7 +506,9 @@ describe("history and memories navigation links", () => {
         import.meta.url,
       ),
     ).text();
-    expect(inspector).toContain("onOpenRunHistory(selectedCandidate.reviewRunId)");
+    expect(inspector).toContain(
+      "openRunHistory(selectedCandidate.reviewRunId)",
+    );
     expect(inspector).toContain('aria-live="polite"');
     expect(inspector).toContain('"memory://candidates-changed"');
     expect(inspector).toContain("shouldRefreshSuggestions");
@@ -354,9 +522,7 @@ describe("review job metadata", () => {
     const types = await Bun.file(
       new URL("../src/features/workflow/types.ts", import.meta.url),
     ).text();
-    expect(types).toContain(
-      "never carries raw provider errors or output",
-    );
+    expect(types).toContain("never carries raw provider errors or output");
     const job: Pick<MemoryReviewJob, "errorCode"> = { errorCode: "timeout" };
     expect(job.errorCode).toBe("timeout");
   });

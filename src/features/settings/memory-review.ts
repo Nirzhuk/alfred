@@ -36,10 +36,24 @@ export const DEFAULT_MEMORY_REVIEW_DRAFT: MemoryReviewDraft = {
   acknowledged: false,
 };
 
+export function memoryReviewDraftFromSettings(
+  settings: Pick<MemoryReviewSettings, "enabled" | "provider" | "model">,
+): MemoryReviewDraft {
+  return {
+    enabled: settings.enabled,
+    provider: settings.provider,
+    model: settings.model,
+    acknowledged: settings.enabled,
+  };
+}
+
 /** Stable post-run review failure codes; raw provider errors never exist. */
 export type MemoryReviewFailureCode =
   | "auth_required"
   | "provider_unavailable"
+  | "restricted_review_unavailable"
+  | "legacy_review_unavailable"
+  | "review_queue_full"
   | "timeout"
   | "invalid_response"
   | "internal";
@@ -49,6 +63,12 @@ const FAILURE_COPY: Record<MemoryReviewFailureCode, string> = {
     "The selected agent CLI is not signed in. Sign in with that CLI's own login command, then retry the review.",
   provider_unavailable:
     "The selected agent CLI could not be run. Confirm it is installed and on your PATH, then retry.",
+  restricted_review_unavailable:
+    "Restricted review is unavailable for this provider or CLI version. No provider call was made.",
+  legacy_review_unavailable:
+    "This review was created by an older Alfred version and cannot be resumed safely.",
+  review_queue_full:
+    "The review queue is busy. The run was kept unchanged; retry the review later.",
   timeout:
     "The review took too long and was stopped. Retry it from History when convenient.",
   invalid_response:
@@ -81,11 +101,15 @@ export function isMemoryReviewConfigured(
  * workflow switch may be used.
  */
 export function workflowSuggestionGate(
-  settings: Pick<MemoryReviewSettings, "enabled" | "provider">,
+  settings: Pick<MemoryReviewSettings, "enabled" | "provider" | "availability">,
 ): string | null {
   if (!settings.enabled) return "Enable Memory review in Settings first.";
   if (!settings.provider)
     return "Choose a reviewer provider in Settings first.";
+  if (settings.availability && !settings.availability.supported) {
+    const reason = settings.availability.reason?.replace(/_/g, " ");
+    return `Restricted review is unavailable${reason ? `: ${reason}.` : "."}`;
+  }
   return null;
 }
 
@@ -118,13 +142,13 @@ export function memoryReviewSavePayload(draft: MemoryReviewDraft): {
 
 export const MEMORY_REVIEW_EXPLANATION = [
   "After each eligible completed run, Alfred may make one additional model call with the agent CLI you pick here.",
-  "That CLI receives a bounded digest of the run's persisted text (at most 32 KiB); nothing else leaves this machine beyond what the CLI already sees.",
+  "The review request contains fixed review instructions, a bounded digest of persisted run text (at most 32 KiB), and bounded existing-memory context selected by Alfred; it has no workspace, tools, skills, or session data.",
   "Every suggestion is candidate-only: nothing is written to your memories until you approve it.",
   "Review failures never change a run's status or output.",
 ];
 
 export const MEMORY_REVIEW_ACKNOWLEDGEMENT =
-  "I understand enabling Memory review adds one possible model call after eligible completed runs, sends a bounded digest of persisted run text to the selected CLI, and that every suggestion still requires my approval.";
+  "I understand enabling Memory review adds one possible model call after eligible completed runs, sends fixed review instructions plus a bounded digest of run text and bounded existing-memory context to the selected CLI, and that every suggestion still requires my approval.";
 
 export type MemoryReviewApi = {
   getSettings: () => Promise<MemoryReviewSettings>;

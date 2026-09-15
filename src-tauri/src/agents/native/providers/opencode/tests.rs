@@ -302,6 +302,7 @@ fn request(mode: NativeSessionMode, session_id: Option<&str>) -> NativeTurnReque
             shell: NativeApprovalPolicy::Ask,
             mcp: NativeApprovalPolicy::Deny,
             subagents: NativeApprovalPolicy::Ask,
+            memory_lookup: NativeApprovalPolicy::Deny,
         },
         tool_capabilities: NativeToolCapabilitySet {
             filesystem: true,
@@ -309,6 +310,7 @@ fn request(mode: NativeSessionMode, session_id: Option<&str>) -> NativeTurnReque
             patch: true,
             mcp: false,
             subagents: true,
+            memory_lookup: false,
         },
         session_mode: mode,
         session_id: session_id.map(str::to_owned),
@@ -369,7 +371,11 @@ fn release_manifest_descriptor_and_registration_are_exact_and_fail_closed() {
     let registry = NativeRuntimeRegistry::default();
     let error = register(&registry).expect_err("release must remain blocked");
     assert_eq!(error.code, NativeErrorCode::ProviderUnavailable);
-    for code in [COMMERCIAL_GATE_CODE, PACKAGE_GATE_CODE, LIVE_SMOKE_GATE_CODE] {
+    for code in [
+        COMMERCIAL_GATE_CODE,
+        PACKAGE_GATE_CODE,
+        LIVE_SMOKE_GATE_CODE,
+    ] {
         assert!(error.message.contains(code));
     }
     for code in [

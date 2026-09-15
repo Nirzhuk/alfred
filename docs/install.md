@@ -18,8 +18,11 @@ except that those two automation perks unlock with an optional one-time
 supporter licence — permanent, with no expiry — while manual workflow runs
 and everything else stay free. Official macOS builds are Developer ID
 signed, notarized, and stapled; the Windows installer is an unsigned beta.
-Alfred runs no billing, account, or download backend of its own, and it
-never sends your workflows or workflow data anywhere. See
+Alfred runs no billing, account, or download backend of its own. Local
+workflows stay on this machine unless you explicitly review and publish a
+template through the optional sharing service; an executing workflow still
+sends its configured prompt/data to the provider CLI or connected service it
+uses. See
 [Supporting Alfred](open-source.md#supporting-alfred).
 
 ## Requirements
@@ -165,16 +168,39 @@ binary support.
 - Memory meaning (`preference`, `fact`, `decision`, `constraint`, `lesson`,
   `episode`, `checkpoint`, `note`, `output`, or `artifact`) is separate from
   content kind (`text`, `note`, or `artifact`).
-- Memory lifecycle is `active`, `superseded`, or `retracted`. Only active,
-  unexpired records can enter a run prompt; inactive records remain visible
-  until explicitly deleted.
-- Pinned context is capped at 6,000 UTF-8 bytes, divided softly across user
-  (1,500), workspace (2,000), and workflow/linked (2,500) scope. Overflow is
-  omitted from the prompt with a count-only notice, not deleted from the local
-  library.
+- Memory lifecycle is `active`, `superseded`, or `retracted`. An active record
+  can enter a run prompt from its optional `validFrom` instant (inclusive) until
+  its optional `expiresAt` instant (exclusive). Missing dates do not impose a
+  default expiry. Future, inactive, and expired records remain visible; a pinned
+  future record stays pinned and is omitted until it becomes current.
+- Selected, pinned, and automatically recalled memory share a 12,000-byte
+  UTF-8 limit for each Agent or Custom agent step. Selected memory is allocated
+  first (6,000 total / 1,500 per item), then pins (6,000 total / 1,500 per
+  item), then recall from the remaining space. Pin capacity keeps its user,
+  workspace, and workflow/linked scope order. Headings, trust text, separators,
+  and omission notices count toward the limits.
+- Large memory bodies and artifact files are read as bounded excerpts for agent
+  prompts. A shortened excerpt is labeled; a missing, unreadable, or malformed
+  artifact can use only its stored preview and is labeled incomplete. The
+  original library item and artifact are not changed.
 - Durable memory is reference data, not authorization. It cannot grant
   permission or override your current request, workflow instructions, or safety
   boundaries; instructions embedded in memory text are ignored.
+
+### Saved outputs
+
+Output save choices are read from the graph by backend execution when the
+Output node runs. History records durable `Saved`, `Failed`, and `Deleted`
+receipts alongside pending states; a failed receipt keeps the completed output
+available for a save-only retry. **Retry save** retries persistence of that
+output only, for retryable storage or database failures, and never reruns the
+workflow.
+
+Startup recovery begins immediately and processes pending or interrupted saves
+in batches of at most 32. A larger backlog continues across batches, and a
+failed recovery row remains pending rather than being dropped. A user or
+workspace memory promoted from an output, including its artifact, survives
+clearing the origin workflow.
 
 ### Automatic recall
 
@@ -182,47 +208,89 @@ binary support.
   off after migration until you opt in. Open the workflow's Memories inspector
   and use the Automatic recall switch to enable or disable it at any time; this
   does not rewrite the graph or delete memory.
-- Recall runs locally immediately before each Agent and Custom agent step using
-  that step's current accumulated prompt. It combines exact SQLite FTS5 result
-  position with scope, recency, salience, and confidence, and falls back to
-  recent visible memory when there is no exact match. Utility nodes receive no
-  automatic memory.
+- Recall runs locally immediately before each Agent and Custom agent step. Its
+  bounded query uses authored task/template text and allowlisted message,
+  subject, project, ticket, or document event fields. It excludes model/tool
+  output, memory bodies, identity text, and provider wrappers.
+- SQLite FTS5 matches words disjunctively and gives additional evidence to
+  exact identifiers. Scope, recency, salience, and confidence order matching
+  candidates. There is no recent-only fallback, so an empty or unrelated task
+  succeeds with no recalled memory. Utility nodes receive no automatic memory.
+- Automatic recall includes preference, fact, decision, constraint, and lesson
+  records, plus manually authored or review-approved notes. Episode, checkpoint,
+  output, and artifact records can still be pinned or selected explicitly.
 - Each step can add at most 8 recalled items / 6,000 UTF-8 bytes, with a
-  1,200-byte per-item limit. History records included memory ids, reasons,
-  ranks, scores, and rendered sizes without copying bodies or the search query.
+  1,200-byte per-item limit inside the shared 12,000-byte memory limit. History
+  records selected, pinned, and recalled ids, reasons, ranks, rendered sizes,
+  policy versions, final memory bytes, omission counts, and trace availability
+  without copying bodies or the search query.
 - Recall failure is non-fatal: the workflow continues without recalled context
-  and keeps its pinned core context. V1 uses no embeddings, network retrieval,
+  and keeps its pinned core context. Recall uses no embeddings, network retrieval,
   or model download.
 
+### Allow agents to look up memory
+
+**Allow agents to look up memory** is a separate, default-off workflow
+permission from **Automatic recall**. The current release has no
+release-enabled native runtime for this path. Enabling the permission cannot
+make an unavailable runtime available, and Alfred never falls back to Provider
+CLI.
+
+When a verified runtime exists, lookup is read-only and exposes exactly four
+bounded operations: `memory.search`, `memory.get`, `history.search`, and
+`history.get`. Each call rechecks permission and scope; opaque references and
+cursors are bound to the run, node, workflow, workspace, and source version.
+Per-step calls, response bytes, body pages, and the deadline are bounded (at
+most 8 calls / 16,000 returned bytes in 5 seconds). Accepted deliveries leave
+scoped, body-free evidence metadata; lookup bodies and raw search queries are
+not copied into evidence traces.
 
 ### Memory review (optional, off by default)
 
-Memory review lets an agent CLI you already use propose memory changes after a
-completed run. It is **off by default**, both globally (Settings → Memory
-review) and per workflow (Memories inspector → "Suggest memories after runs").
+Memory review is candidate-only and **off by default**, both globally (Settings
+→ Memory review) and per workflow (Memories inspector → "Suggest memories after
+runs"). Ordinary Provider CLI execution is not a reviewer. The restricted
+reviewer is currently unavailable until its exact activation gate passes: exact
+Claude Code runtime `2.1.263`, restriction contract
+`memory-review-restricted-v1`, required restricted flags, verified managed-policy
+assurance, and an authorized synthetic live-activation check on an
+already-authorized account. The installed `2.1.271` runtime does not satisfy the
+exact-runtime gate. Until the gate is recorded, review jobs are marked
+unavailable/skipped with zero provider calls; there is no ordinary CLI fallback.
 
-- **Consent** — enabling it requires picking one supported CLI as the reviewer
-  and ticking an acknowledgement before the setting can be saved. Alfred never
-  stores credentials; the CLI uses its own existing login.
-- **Cost** — at most **one additional model invocation** happens after each
-  eligible completed run. Failed and cancelled runs are never reviewed, and
-  there are no automatic retries; if a review fails you can retry it once from
+- **Consent** — when capability is available, enabling it requires choosing the
+  restricted reviewer and ticking an acknowledgement that each eligible
+  completed run may trigger at most one additional model invocation. Alfred
+  never stores credentials; the restricted transport uses its own login.
+- **Invocation** — at most **one additional model invocation** happens after
+  each eligible completed run. Failed and cancelled runs are never reviewed,
+  there are no automatic retries, and a failed review can be retried once from
   History or the Suggestions queue.
-- **Privacy** — the selected CLI receives a bounded digest of the run's
+- **Privacy** — the restricted transport receives a bounded digest of the run's
   persisted text (at most 32 KiB) plus up to 12 relevant existing memories,
-  within the same local CLI boundary you already use for normal runs. Nothing
-  else is uploaded anywhere by Alfred itself.
+  together with fixed review instructions. It has no workspace, skills,
+  session, or tool configuration. Authentication and billing remain
+  CLI-owned.
 - **Candidate-only** — suggestions never touch your saved memories directly.
-  Each one shows its operation, proposed scope/type, confidence, rationale, and
-  source run, and you can edit it while pending. Approving user-scope changes or
-  retractions always asks for confirmation; stale suggestions become "blocked"
-  with a plain-language reason instead of being applied anyway.
+  Each one shows its operation, proposed scope/type, confidence, rationale,
+  source run, supported dates, and the exact reviewed target version. Candidate
+  edits and approvals require the displayed revision. Approval rechecks the
+  candidate and target in one transaction, so a stale or incomplete destructive
+  suggestion becomes "blocked" with a plain-language reason instead of being
+  retargeted or applied. External artifact targets are treated as incomplete.
+  Future-effective corrections remain pending and do not supersede a current
+  claim early. Approving user-scope changes or retractions always asks for
+  confirmation.
+- **Evidence and relationships** — observation and validity dates must be
+  supported by quoted source text or host timestamps; review does not invent an
+  expiry. Exact duplicate checks collapse whitespace while preserving case.
+  Looser matches appear only as possible relationships for you to inspect.
 - **Recovery** — turn review off globally or per workflow at any time; that
   stops all future reviews immediately without deleting anything. Decided
-  suggestion history can be physically deleted under Settings → Data &
+  suggestion history can be physically deleted through Settings → Data &
   storage → "Clear decided suggestions". Review failures show stable reasons
-  (such as `auth_required` or `timeout`) and never change a run's status or
-  output.
+  (such as `auth_required`, `restricted_review_unavailable`, or `timeout`) and
+  never change a run's status or output.
 
 ## Troubleshooting
 
@@ -233,6 +301,7 @@ review) and per workflow (Memories inspector → "Suggest memories after runs").
 | Alfred harness is blocked or unavailable | Keep using Provider CLI, or explicitly switch that node back to Provider CLI after confirming the account/billing difference; there is no automatic fallback |
 | Native account is expired or stuck disconnecting | This zero-native release cannot refresh or reconnect it; use Settings → Native agent accounts to disconnect, or revoke/rotate at the provider before removing local recovery metadata |
 | Schedule never fires | Keep Alfred running (tray is enough); confirm the schedule is enabled |
+| A scheduled run didn’t happen while Alfred was closed | Open the workflow’s Schedule… dialog and check “If Alfred was closed at the scheduled time”: run when Alfred opens, skip the missed run, or ask per schedule |
 | Webhook not reachable from another device | By design — binds to `127.0.0.1` only |
 | macOS won’t open the app | Prefer a notarized build, or allow it under Privacy & Security |
 

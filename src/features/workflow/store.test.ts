@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 /**
  * Saved-workflow safety for the pro perks (Plan 008 Step 4): a workflow that
@@ -8,6 +8,9 @@ import { describe, expect, mock, test } from "bun:test";
  */
 
 let mutations: string[] = [];
+let resolutions: string[] = [];
+let resolveFailure: string | null = null;
+let savedScheduleInputs: unknown[] = [];
 
 const WORKFLOW = {
   id: "wf-1",
@@ -21,6 +24,7 @@ const SAVED_SCHEDULE = {
   cron: "0 0 7 * * *",
   enabled: true,
   nextRunAt: null,
+  onMissed: "run",
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
 };
@@ -52,6 +56,23 @@ const SAVED_TRIGGERS = [
   },
 ];
 
+const MISSED_RUNS = [
+  {
+    scheduleId: "sched-morning",
+    workflowId: "wf-1",
+    workflowName: WORKFLOW.name,
+    cron: "0 0 7 * * *",
+    missedAt: "2026-09-14T07:00:00Z",
+  },
+  {
+    scheduleId: "sched-hourly",
+    workflowId: "wf-2",
+    workflowName: "Inbox sweep",
+    cron: "0 0 * * * *",
+    missedAt: "2026-09-14T11:00:00Z",
+  },
+];
+
 function scheduleRow() {
   return { ...SAVED_SCHEDULE, workflowName: WORKFLOW.name };
 }
@@ -60,6 +81,11 @@ mock.module("./api", () => ({
   listWorkflows: async () => [WORKFLOW],
   listWorkflowFolders: async () => [],
   listSchedules: async () => [scheduleRow()],
+  listMissedSchedules: async () => MISSED_RUNS,
+  resolveMissedSchedule: async (scheduleId: string, decision: string) => {
+    if (resolveFailure) throw new Error(resolveFailure);
+    resolutions.push(`${decision}:${scheduleId}`);
+  },
   listActiveRuns: async () => [],
   getWorkflow: async () => WORKFLOW,
   getWorkflowSchedule: async () => SAVED_SCHEDULE,
@@ -68,8 +94,9 @@ mock.module("./api", () => ({
   webhookBaseUrl: async () => "http://127.0.0.1:8787",
   listAppTriggerStatuses: async () => [],
   listMemories: async () => [],
-  upsertWorkflowSchedule: async () => {
+  upsertWorkflowSchedule: async (input: unknown) => {
     mutations.push("upsertWorkflowSchedule");
+    savedScheduleInputs.push(input);
     return SAVED_SCHEDULE;
   },
   deleteWorkflowSchedule: async () => {
@@ -151,5 +178,67 @@ describe("loading a workflow that uses pro capabilities under a locked licence",
     expect(state.schedule).toMatchObject({ cron: "0 0 7 * * *", enabled: true });
     expect(state.triggers).toHaveLength(2);
     expect(mutations).toEqual([]);
+  });
+});
+
+/**
+ * Missed scheduled runs: Alfred was closed when the schedule was due and the
+ * schedule is set to ask. Each answer must reach the backend for its own
+ * schedule, and a rejected answer must leave that schedule waiting.
+ */
+describe("missed scheduled runs waiting on the user", () => {
+  beforeEach(() => {
+    resolutions = [];
+    resolveFailure = null;
+    savedScheduleInputs = [];
+    useWorkflowStore.setState({ missedSchedules: [], error: null });
+  });
+
+  test("the open-time prompt lists every run waiting on an answer", async () => {
+    await useWorkflowStore.getState().loadMissedSchedules();
+    expect(useWorkflowStore.getState().missedSchedules).toEqual(MISSED_RUNS);
+  });
+
+  test("answering one schedule decides only that schedule", async () => {
+    await useWorkflowStore.getState().loadMissedSchedules();
+    await useWorkflowStore
+      .getState()
+      .resolveMissedSchedule("sched-hourly", "skip");
+
+    expect(resolutions).toEqual(["skip:sched-hourly"]);
+    expect(
+      useWorkflowStore.getState().missedSchedules.map((item) => item.scheduleId),
+    ).toEqual(["sched-morning"]);
+  });
+
+  test("a rejected answer keeps the schedule listed and reports the error", async () => {
+    await useWorkflowStore.getState().loadMissedSchedules();
+    resolveFailure = "This workflow is already running";
+    const error = await useWorkflowStore
+      .getState()
+      .resolveMissedSchedule("sched-morning", "run");
+
+    expect(error).toContain("already running");
+    expect(
+      useWorkflowStore.getState().missedSchedules.map((item) => item.scheduleId),
+    ).toEqual(["sched-morning", "sched-hourly"]);
+  });
+
+  test("saving a schedule stores the missed-run choice the user picked", async () => {
+    await useWorkflowStore.getState().saveSchedule({
+      workflowId: "wf-1",
+      cron: "0 0 7 * * *",
+      enabled: true,
+      onMissed: "ask",
+    });
+
+    expect(savedScheduleInputs).toEqual([
+      {
+        workflowId: "wf-1",
+        cron: "0 0 7 * * *",
+        enabled: true,
+        onMissed: "ask",
+      },
+    ]);
   });
 });

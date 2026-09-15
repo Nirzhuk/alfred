@@ -1,0 +1,619 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "exact_duplicate"
+      },
+      "group": "exact_duplicate_rejection",
+      "id": "correction-exact-create",
+      "measured": {
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "exact_duplicate",
+        "prior_row_preserved": true,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "The same currently valid claim in the same scope and type needs no second canonical row.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "exact_duplicate"
+      },
+      "group": "exact_duplicate_rejection",
+      "id": "correction-reflow-create",
+      "measured": {
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "exact_duplicate",
+        "prior_row_preserved": true,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Whitespace reflow does not change this claim.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "no_op"
+      },
+      "group": "exact_duplicate_rejection",
+      "id": "correction-supersede-noop",
+      "measured": {
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "no_op",
+        "prior_row_preserved": true,
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Replacing a target with its unchanged body and semantic fields is a no-op.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "new_canonical_rows": 0,
+        "outcome": "approved",
+        "target_status": "retracted"
+      },
+      "group": "operation_specific_duplicates",
+      "id": "correction-retract-own-body",
+      "measured": {
+        "approval_canonical_mutations": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": false,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": "retracted",
+        "unrelated_scope_unchanged": false
+      },
+      "rationale": "A retraction can quote the target without colliding with the target's own duplicate hash.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "new_canonical_rows": 1,
+        "outcome": "approved",
+        "prior_row_preserved": true
+      },
+      "group": "legitimate_separate_claims",
+      "id": "correction-expired-prior",
+      "measured": {
+        "approval_canonical_mutations": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-17T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "An expired row does not block a newly supported current fact.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "new_canonical_rows": 1,
+        "outcome": "approved",
+        "unrelated_scope_unchanged": true
+      },
+      "group": "legitimate_separate_claims",
+      "id": "correction-distinct-scope",
+      "measured": {
+        "approval_canonical_mutations": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-17T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Equal text in another workflow is not an in-scope duplicate.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "new_canonical_rows": 1,
+        "outcome": "approved",
+        "prior_row_preserved": true
+      },
+      "group": "legitimate_separate_claims",
+      "id": "correction-distinct-type",
+      "measured": {
+        "approval_canonical_mutations": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-17T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "A fact and a decision have separate typed identities; similarity cannot silently merge them.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "additional_provider_calls": 0,
+        "maximum_target_bytes": 12000,
+        "maximum_targets": 12,
+        "required_target_ids": [
+          "route"
+        ]
+      },
+      "group": "old_target_discovery",
+      "id": "correction-old-target",
+      "measured": {
+        "additional_provider_calls": 0,
+        "canonical_mutations": 0,
+        "discovery_error": null,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "maximum_target_bytes": 361,
+        "maximum_targets": 1,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "prior_row_preserved": true,
+        "required_target_ids": [
+          "route"
+        ],
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "A stable identifier in independent evidence should find the older routing fact behind 22 unrelated recent rows.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "additional_provider_calls": 0,
+        "maximum_target_bytes": 12000,
+        "maximum_targets": 12,
+        "required_target_ids": [
+          "route",
+          "other-route"
+        ]
+      },
+      "group": "old_target_discovery",
+      "id": "correction-two-subjects",
+      "measured": {
+        "additional_provider_calls": 0,
+        "canonical_mutations": 0,
+        "discovery_error": null,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "maximum_target_bytes": 725,
+        "maximum_targets": 2,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "prior_row_preserved": true,
+        "required_target_ids": [
+          "other-route",
+          "route"
+        ],
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Fair source allocation should retain comparison material for both independent subjects.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "new_canonical_rows": 1,
+        "outcome": "approved",
+        "prior_row_preserved": true
+      },
+      "group": "legitimate_separate_claims",
+      "id": "correction-shared-words",
+      "measured": {
+        "approval_canonical_mutations": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-17T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Shared report vocabulary does not make two different offices the same subject or prove a contradiction.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "target_snapshot_unavailable"
+      },
+      "group": "unsupported_corrections_blocked",
+      "id": "correction-incomplete-target",
+      "measured": {
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "target_snapshot_unavailable",
+        "prior_row_preserved": true,
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "A destructive proposal cannot rely on a target preview that was not shown completely.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "approval_canonical_mutations": 0,
+        "edited_body_preserved": true,
+        "outcome": "target_changed"
+      },
+      "group": "stale_approvals_prevented",
+      "id": "correction-target-body-changed",
+      "measured": {
+        "approval_canonical_mutations": 0,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": true,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "target_changed",
+        "prior_row_preserved": false,
+        "raw_approval_outcome": "target_changed",
+        "source_text_removed": false,
+        "target_status": "active",
+        "unrelated_scope_unchanged": false
+      },
+      "rationale": "Semantic revision must catch a same-timestamp target edit without overwriting the new claim.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "approval_canonical_mutations": 0,
+        "outcome": "target_changed"
+      },
+      "group": "stale_approvals_prevented",
+      "id": "correction-target-date-changed",
+      "measured": {
+        "approval_canonical_mutations": 0,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "target_changed",
+        "prior_row_preserved": false,
+        "raw_approval_outcome": "target_changed",
+        "source_text_removed": false,
+        "target_status": "active",
+        "unrelated_scope_unchanged": false
+      },
+      "rationale": "Validity dates are semantic fields even when the target text and wall-clock edit timestamp stay unchanged.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "candidate_remains_pending": true,
+        "canonical_mutations": 0,
+        "outcome": "candidate_changed"
+      },
+      "group": "stale_approvals_prevented",
+      "id": "correction-candidate-changed",
+      "measured": {
+        "approval_canonical_mutations": 0,
+        "candidate_remains_pending": true,
+        "candidate_retained": true,
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "candidate_changed",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "candidate_changed",
+        "source_text_removed": false,
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Approval requires the candidate revision actually displayed, even for a title edit.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "evidence_unavailable",
+        "source_text_removed": true
+      },
+      "group": "unsupported_corrections_blocked",
+      "id": "correction-evidence-deleted",
+      "measured": {
+        "approval_canonical_mutations": 0,
+        "candidate_remains_pending": false,
+        "candidate_retained": false,
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "evidence_unavailable",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "candidate_not_found",
+        "source_text_removed": true,
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "A retained proposal cannot approve a correction after its independently recorded source was deleted.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "candidate_remains_pending": true,
+        "canonical_mutations": 0,
+        "outcome": "validity_not_started",
+        "target_status": "active"
+      },
+      "group": "temporal_correctness",
+      "id": "correction-future-effective",
+      "measured": {
+        "approval_canonical_mutations": 0,
+        "candidate_remains_pending": true,
+        "candidate_retained": true,
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "validity_not_started",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "validity_not_started",
+        "source_text_removed": false,
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "A future correction cannot supersede today's routing fact early or activate without a later explicit approval.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "new_canonical_rows": 1,
+        "normalized_valid_from": "2026-08-19T00:00:00Z",
+        "outcome": "approved",
+        "target_status": "superseded"
+      },
+      "group": "temporal_correctness",
+      "id": "correction-effective-boundary",
+      "measured": {
+        "approval_canonical_mutations": 2,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 2,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-17T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": "2026-08-19T00:00:00Z",
+        "outcome": "approved",
+        "prior_row_preserved": false,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": "superseded",
+        "unrelated_scope_unchanged": false
+      },
+      "rationale": "The start boundary is inclusive, and an explicit UTC offset denotes the same instant.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "expired",
+        "target_status": "active"
+      },
+      "group": "temporal_correctness",
+      "id": "correction-expired-pending",
+      "measured": {
+        "approval_canonical_mutations": 0,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "expired",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "proposal_expired",
+        "source_text_removed": false,
+        "target_status": "active",
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "The end boundary is exclusive; a proposal already expired at approval cannot replace the current claim.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-01T09:00:00Z",
+        "new_canonical_rows": 1,
+        "outcome": "approved"
+      },
+      "group": "temporal_correctness",
+      "id": "correction-old-observation",
+      "measured": {
+        "approval_canonical_mutations": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 1,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-01T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": true,
+        "raw_approval_outcome": "approved",
+        "source_text_removed": false,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Approval today does not invent a new confirmation time or expiry for an observation recorded earlier.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "canonical_mutations": 0,
+        "outcome": "unsupported_validity_date"
+      },
+      "group": "unsupported_corrections_blocked",
+      "id": "correction-unsupported-date",
+      "measured": {
+        "canonical_mutations": 0,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": null,
+        "new_canonical_rows": 0,
+        "normalized_valid_from": null,
+        "outcome": "unsupported_validity_date",
+        "prior_row_preserved": true,
+        "target_status": null,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "A model-provided expiry with no supporting quote cannot become canonical metadata.",
+      "violations": []
+    },
+    {
+      "expected": {
+        "approved_count": 1,
+        "new_canonical_rows": 1,
+        "second_approval_canonical_mutations": 0,
+        "target_status": "superseded"
+      },
+      "group": "stale_approvals_prevented",
+      "id": "correction-two-approvals",
+      "measured": {
+        "approval_canonical_mutations": 2,
+        "approved_count": 1,
+        "candidate_remains_pending": false,
+        "candidate_retained": true,
+        "canonical_mutations": 2,
+        "edited_body_preserved": false,
+        "expires_at": null,
+        "last_confirmed_at": "2026-08-17T09:00:00Z",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": null,
+        "outcome": "approved",
+        "prior_row_preserved": false,
+        "raw_approval_outcome": "approved",
+        "raw_second_approval_outcome": "target_superseded",
+        "second_approval_canonical_mutations": 0,
+        "second_outcome": "target_superseded",
+        "source_text_removed": false,
+        "target_status": "superseded",
+        "unrelated_scope_unchanged": false
+      },
+      "rationale": "Two candidates targeting the same snapshot cannot both commit the same canonical correction.",
+      "violations": []
+    }
+  ],
+  "evaluator_version": "memory-correction-eval-1",
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "fixture_digest": "c370db4160f7f33cb3bd86f344b87b4fa7e61b7c8e793ebc47490ee50407abf9",
+  "fixture_version": "correction-v1",
+  "groups": {
+    "exact_duplicate_rejection": {
+      "cases": 3,
+      "passed": 3
+    },
+    "legitimate_separate_claims": {
+      "cases": 4,
+      "passed": 4
+    },
+    "old_target_discovery": {
+      "cases": 2,
+      "passed": 2
+    },
+    "operation_specific_duplicates": {
+      "cases": 1,
+      "passed": 1
+    },
+    "stale_approvals_prevented": {
+      "cases": 4,
+      "passed": 4
+    },
+    "temporal_correctness": {
+      "cases": 4,
+      "passed": 4
+    },
+    "unsupported_corrections_blocked": {
+      "cases": 3,
+      "passed": 3
+    }
+  },
+  "limitations": [
+    "Synthetic deterministic DB policy evaluation; no live provider or native UI acceptance.",
+    "The two-review race uses controlled production validation/finalization interleaving."
+  ],
+  "passed": 21,
+  "total": 21
+}

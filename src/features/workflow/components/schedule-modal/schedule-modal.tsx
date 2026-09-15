@@ -19,10 +19,11 @@ import {
   type SchedulePickerValue,
   type ScheduleRepeat,
 } from "../../schedule-picker";
-import { useWorkflowCapability } from "../../capability";
+import { useScheduleGate, useWorkflowCapability } from "../../capability";
 import { useWorkflowStore } from "../../store";
+import * as api from "../../api";
 import type { CapabilityDecision } from "../../../licensing";
-import type { Schedule } from "../../types";
+import type { OnMissed, Schedule, ScheduleListItem } from "../../types";
 
 type Props = {
   workflowId: string;
@@ -42,8 +43,29 @@ function toggleDay(days: number[], day: number): number[] {
 }
 
 export function ScheduleModal({ workflowId, workflowName, onClose, decision }: Props) {
-  const resolved = useWorkflowCapability("schedules");
+  const workflowSchedules = useWorkflowStore((s) => s.workflowSchedules);
+  const baseCapability = useWorkflowCapability("schedules");
+  // The store list can miss rows another surface wrote, which would wrongly
+  // grant the free slot. The database list is the gate's source of truth.
+  const [gateRows, setGateRows] = useState<ScheduleListItem[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    setGateRows(null);
+    void api.listSchedules().then(
+      (list) => {
+        if (live) setGateRows(list);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [workflowId]);
+  const resolved = useScheduleGate(workflowId, gateRows ?? workflowSchedules);
   const gate = decision ?? resolved;
+  // While the truth loads on a locked build, Save stays off so a stale store
+  // list can never sneak an extra schedule past the gate.
+  const gateListPending = !baseCapability.available && gateRows === null;
   const schedule = useWorkflowStore((s) => s.schedule);
   const loading = useWorkflowStore((s) => s.loading);
   const loadSchedule = useWorkflowStore((s) => s.loadSchedule);
@@ -54,6 +76,7 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
   const [picker, setPicker] = useState<SchedulePickerValue>(DEFAULT_SCHEDULE_PICKER);
   const [cronMode, setCronMode] = useState(false);
   const [customCron, setCustomCron] = useState("");
+  const [onMissed, setOnMissed] = useState<OnMissed>("run");
 
   useEffect(() => {
     void loadSchedule(workflowId);
@@ -65,10 +88,12 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
       setPicker(DEFAULT_SCHEDULE_PICKER);
       setCronMode(false);
       setCustomCron("");
+      setOnMissed("run");
       return;
     }
 
     setEnabled(schedule.enabled);
+    setOnMissed(schedule.onMissed ?? "run");
     const parsed = cronToPicker(schedule.cron);
     if (parsed) {
       setPicker(parsed);
@@ -235,6 +260,25 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
             </div>
           ) : null}
 
+          <label className="field">
+            <span>If Alfred was closed at the scheduled time</span>
+            <SelectControl
+              value={onMissed}
+              onChange={(e) => setOnMissed(e.target.value as OnMissed)}
+            >
+              <option value="run">Run when Alfred opens</option>
+              <option value="skip">Skip the missed run</option>
+              <option value="ask">Ask me each time</option>
+            </SelectControl>
+          </label>
+          <p className="hint">
+            {onMissed === "run"
+              ? "The run starts as soon as Alfred opens."
+              : onMissed === "skip"
+                ? "The missed run is dropped; the schedule keeps its cadence."
+                : "Missed runs wait in a list where you choose per schedule."}
+          </p>
+
           <label className="field checkbox-field">
             <input
               type="checkbox"
@@ -258,10 +302,10 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
             <button
               type="button"
               className="primary"
-              disabled={loading || !cron}
+              disabled={loading || !cron || gateListPending}
               onClick={() => {
                 void (async () => {
-                  await saveSchedule({ workflowId, cron, enabled });
+                  await saveSchedule({ workflowId, cron, enabled, onMissed });
                   if (!useWorkflowStore.getState().error) onClose();
                 })();
               }}
@@ -286,7 +330,11 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
           </div>
         </div>
       ) : (
-        <ScheduleLockedContent savedSchedule={scheduleForWorkflow} />
+        <ScheduleLockedContent
+          savedSchedule={scheduleForWorkflow}
+          workflowId={workflowId}
+          onClose={onClose}
+        />
       )}
     </Modal>
   );
@@ -300,9 +348,18 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
  */
 export function ScheduleLockedContent({
   savedSchedule,
+  workflowId,
+  onClose,
 }: {
   savedSchedule: Schedule | null;
+  /** When present with a saved schedule, the lock stays delete-only: the one
+   * interaction an over-limit schedule always allows. Omitted in static tests. */
+  workflowId?: string;
+  onClose?: () => void;
 }) {
+  const clearSchedule = useWorkflowStore((s) => s.clearSchedule);
+  const loading = useWorkflowStore((s) => s.loading);
+  const canRemove = Boolean(savedSchedule && workflowId);
   return (
     <div className="schedule-modal-body" data-locked-capability="schedules">
       <LockedCapability
@@ -310,11 +367,31 @@ export function ScheduleLockedContent({
         description="Run this workflow automatically on a cron cadence while Alfred is open. Manual runs stay free in every build."
       />
       {savedSchedule ? (
-        <p className="muted">
-          Saved schedule kept (
-          {savedSchedule.enabled ? "enabled" : "paused"}):{" "}
-          <code>{savedSchedule.cron}</code>. Nothing was removed.
-        </p>
+        <>
+          <p className="muted">
+            Saved schedule kept (
+            {savedSchedule.enabled ? "enabled" : "paused"}):{" "}
+            <code>{savedSchedule.cron}</code>. Nothing was removed.
+          </p>
+          {canRemove ? (
+            <div className="schedule-actions">
+              <button
+                type="button"
+                className="ghost"
+                disabled={loading}
+                aria-label={`Remove schedule for ${savedSchedule.workflowId}`}
+                onClick={() => {
+                  void (async () => {
+                    await clearSchedule(workflowId as string);
+                    if (!useWorkflowStore.getState().error) onClose?.();
+                  })();
+                }}
+              >
+                Remove schedule
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

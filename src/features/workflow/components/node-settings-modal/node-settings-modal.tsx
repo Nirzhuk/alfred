@@ -8,7 +8,6 @@ import {
 } from "../../../../components/menu";
 import { Modal, ModalHeader } from "../../../../components/modal";
 import { AppActionSettings } from "../../../integrations/app-action-settings";
-import * as api from "../../api";
 import {
   isFastModel,
   modelIdForFastToggle,
@@ -27,7 +26,6 @@ import {
   type AgentCapabilityManifest,
 } from "../../agent-capabilities";
 import { useWorkflowStore } from "../../store";
-import { isMemoryPromptEligible } from "../../memories";
 import {
   mergeAttachments,
   pickFileAttachments,
@@ -47,6 +45,7 @@ import {
   isGitHostNodeData,
   isGitStatusNodeData,
   isHttpNodeData,
+  isIdentityNodeData,
   isMemoryNodeData,
   isNotifyNodeData,
   isOutputNodeData,
@@ -60,7 +59,6 @@ import {
   type AgentHarness,
   type InputAttachment,
   type InputScript,
-  type OutputMemory,
   type OutputNodeData,
   type PromptNodeData,
   type ScriptRef,
@@ -69,6 +67,8 @@ import {
 import { InputAttachmentList } from "../input-attachment-list";
 import { agentLabel } from "../../../../components/agent-mark";
 import { SkillPicker } from "../skill-picker";
+import { IdentitySettings } from "./identity-settings";
+import { MemoryNodeSettings } from "./memory-node-settings";
 import {
   CustomAgentSettings,
   FileInjectSettings,
@@ -111,31 +111,9 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
     workflows.find((workflow) => workflow.id === activeWorkflowId)
       ?.workingDirectory?.trim() ?? "";
 
-  const [linkable, setLinkable] = useState<OutputMemory[]>([]);
-  const [linkQuery, setLinkQuery] = useState("");
-
   useEffect(() => {
     if (!node) onClose();
   }, [node, onClose]);
-
-  useEffect(() => {
-    if (!node || !isMemoryNodeData(node.data) || !activeWorkflowId) {
-      setLinkable([]);
-      return;
-    }
-    let cancelled = false;
-    void api.listLinkableMemories(activeWorkflowId).then((rows) => {
-      if (!cancelled) setLinkable(rows);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    node?.id,
-    node && isMemoryNodeData(node.data) ? node.data.memoryIds.join(",") : "",
-    activeWorkflowId,
-    memories.length,
-  ]);
 
   if (!node) return null;
 
@@ -171,6 +149,13 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
       />
 
       <div className="node-settings-modal-body">
+        {isIdentityNodeData(node.data) ? (
+          <IdentitySettings
+            data={node.data}
+            onUpdate={(patch) => updateNodeData(node.id, patch)}
+          />
+        ) : null}
+
         {isPromptNodeData(node.data) ? (
           <InputSettings
             label={node.data.label}
@@ -183,16 +168,20 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
         ) : null}
 
         {isMemoryNodeData(node.data) ? (
-          <MemorySettings
+          <MemoryNodeSettings
+            key={`${activeWorkflowId}:${node.id}`}
             label={node.data.label}
             memoryIds={node.data.memoryIds ?? []}
             memories={memories}
-            linkable={linkable}
-            linkQuery={linkQuery}
             activeWorkflowId={activeWorkflowId}
-            onLinkQueryChange={setLinkQuery}
             onUpdate={(patch) => updateNodeData(node.id, patch)}
             onLinkMemory={linkMemory}
+            onOpenLibrary={() => {
+              onClose();
+              requestAnimationFrame(() => {
+                window.dispatchEvent(new CustomEvent("alfred:open-memories"));
+              });
+            }}
           />
         ) : null}
 
@@ -566,127 +555,6 @@ function OutputSettings({ data, onUpdate }: OutputSettingsProps) {
         />
         <span>Include changed files in output</span>
       </label>
-    </>
-  );
-}
-
-type MemorySettingsProps = {
-  label: string;
-  memoryIds: string[];
-  memories: OutputMemory[];
-  linkable: OutputMemory[];
-  linkQuery: string;
-  activeWorkflowId: string | null;
-  onLinkQueryChange: (value: string) => void;
-  onUpdate: (patch: { label?: string; memoryIds?: string[] }) => void;
-  onLinkMemory: (memoryId: string) => Promise<unknown>;
-};
-
-function MemorySettings({
-  label,
-  memoryIds,
-  memories,
-  linkable,
-  linkQuery,
-  activeWorkflowId,
-  onLinkQueryChange,
-  onUpdate,
-  onLinkMemory,
-}: MemorySettingsProps) {
-  const selectedIds = new Set(memoryIds);
-  const available = [
-    ...memories.filter(
-      (memory) =>
-        memory.origin !== "linkable" && isMemoryPromptEligible(memory),
-    ),
-    ...linkable.filter(
-      (memory) =>
-        !selectedIds.has(memory.id) && isMemoryPromptEligible(memory),
-    ),
-  ];
-  const q = linkQuery.trim().toLowerCase();
-  const filtered = available.filter((m) => {
-    if (!q) return true;
-    return (
-      m.title.toLowerCase().includes(q) ||
-      m.body.toLowerCase().includes(q) ||
-      (m.sourceWorkflowName ?? "").toLowerCase().includes(q)
-    );
-  });
-
-  const toggle = async (memory: OutputMemory) => {
-    const ids = [...memoryIds];
-    const index = ids.indexOf(memory.id);
-    if (index >= 0) {
-      ids.splice(index, 1);
-      onUpdate({ memoryIds: ids });
-      return;
-    }
-    if (
-      memory.workflowId !== activeWorkflowId &&
-      !memories.some((m) => m.id === memory.id)
-    ) {
-      await onLinkMemory(memory.id);
-    }
-    ids.push(memory.id);
-    onUpdate({ memoryIds: ids });
-  };
-
-  return (
-    <>
-      <label className="field">
-        <span>Label</span>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onUpdate({ label: e.target.value })}
-        />
-      </label>
-      <p className="hint">
-        Selected memories are injected into the run context. Memories from
-        other workflows are linked into this workflow’s library.
-      </p>
-      <label className="field">
-        <span>Search</span>
-        <input
-          type="search"
-          value={linkQuery}
-          placeholder="Filter by title or workflow…"
-          onChange={(e) => onLinkQueryChange(e.target.value)}
-        />
-      </label>
-      <div className="memory-picker">
-        {filtered.length === 0 ? (
-          <p className="muted">No memories available to select.</p>
-        ) : (
-          filtered.map((memory) => {
-            const checked = selectedIds.has(memory.id);
-            const fromOther =
-              memory.workflowId !== activeWorkflowId ||
-              memory.origin === "linked" ||
-              memory.origin === "linkable";
-            return (
-              <label key={memory.id} className="memory-picker-row">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => void toggle(memory)}
-                />
-                <span className="memory-picker-copy">
-                  <span className="memory-picker-title">{memory.title}</span>
-                  {fromOther && memory.sourceWorkflowName ? (
-                    <span className="memory-origin-badge">
-                      From {memory.sourceWorkflowName}
-                    </span>
-                  ) : (
-                    <span className="memory-picker-meta">This workflow</span>
-                  )}
-                </span>
-              </label>
-            );
-          })
-        )}
-      </div>
     </>
   );
 }

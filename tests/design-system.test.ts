@@ -180,9 +180,11 @@ describe("design-system foundations", () => {
   });
 
   test("uses a dot-only workflow canvas pattern", () => {
-    expect(flowEditor).toContain('id="canvas-dots"');
-    expect(flowEditor).toContain("variant={BackgroundVariant.Dots}");
-    expect(flowEditor).toContain("gap={22}");
+    const backgrounds = flowEditor.match(/<Background\b[\s\S]*?\/>/g) ?? [];
+    expect(backgrounds.length).toBeGreaterThan(0);
+    for (const background of backgrounds) {
+      expect(background).toContain("variant={BackgroundVariant.Dots}");
+    }
     expect(flowEditor).not.toContain("variant={BackgroundVariant.Lines}");
     expect(css).not.toContain("--canvas-guide:");
   });

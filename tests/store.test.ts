@@ -205,6 +205,7 @@ function workflow(id: string, nodeId: string): Workflow {
     id,
     name: id,
     description: "",
+    memoryLookupEnabled: false,
     graph: {
       nodes: [
         {

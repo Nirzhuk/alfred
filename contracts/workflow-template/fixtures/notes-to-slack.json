@@ -1,0 +1,30 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Summarize notes to Slack",
+  "description": "Read a recipient-selected notes folder, summarize it, and send the update to their Slack channel.",
+  "graph": {
+    "nodes": [
+      { "id": "notes", "type": "input", "data": { "label": "Notes", "prompt": "Summarize the selected notes folder.", "attachments": [] }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent", "type": "agent", "data": { "label": "Summarizer", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 240, "y": 0 } },
+      { "id": "slack", "type": "appAction", "data": { "type": "appAction", "label": "Send update", "providerId": "slack", "actionId": "slack.send_message", "connectionId": "", "input": { "conversation": null, "text": "{{output}}" } }, "position": { "x": 480, "y": 0 } }
+    ],
+    "edges": [
+      { "id": "notes-agent", "source": "notes", "target": "agent" },
+      { "id": "agent-slack", "source": "agent", "target": "slack" }
+    ]
+  },
+  "parameters": [
+    { "key": "notes.attachments", "label": "Notes folder", "kind": "folder", "required": true, "target": { "kind": "node", "nodeId": "notes", "field": "attachments" } },
+    { "key": "agent.account", "label": "Agent account", "kind": "agentAccount", "required": true, "allowedProvider": "claude_code", "target": { "kind": "node", "nodeId": "agent", "field": "accountRef" } },
+    { "key": "slack.connection", "label": "Slack account", "kind": "appConnection", "required": true, "allowedProvider": "slack", "allowedAction": "slack.send_message", "target": { "kind": "node", "nodeId": "slack", "field": "connectionId" } },
+    { "key": "slack.conversation", "label": "Update channel", "kind": "appResource", "required": true, "allowedProvider": "slack", "allowedAction": "slack.send_message", "target": { "kind": "node", "nodeId": "slack", "field": "input.conversation" } }
+  ],
+  "requirements": [
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" },
+    { "kind": "harness", "name": "cli", "provider": "claude_code" },
+    { "kind": "appAction", "name": "slack.send_message", "provider": "slack", "capability": "execute" }
+  ],
+  "starts": []
+}

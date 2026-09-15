@@ -1,0 +1,1685 @@
+{
+  "fixture_version": "composition-v1",
+  "evaluator_version": "memory-composition-eval-1",
+  "fixture_digest": "8f9b0807258986793c4b748c00a291ad56b66a251d88ebcbe0bcc1fcdfdf318f",
+  "base_fixture_digest": "f19b5e3ef701b31aaaed9aae8ab55f80d1a305a286b6c7e43c468bcc9e063d8e",
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "final_composition_evaluated": true,
+  "limits": {
+    "shared_bytes": 12000,
+    "explicit_bytes": 6000,
+    "pinned_bytes": 6000,
+    "automatic_bytes": 6000,
+    "explicit_item_bytes": 1500,
+    "pinned_item_bytes": 1500,
+    "automatic_item_bytes": 1200,
+    "automatic_items": 8
+  },
+  "cases": [
+    {
+      "id": "c01",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m01"
+      ],
+      "reasons": {
+        "m01": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 395,
+      "non_memory_prompt_bytes": 40,
+      "measured_memory_bytes": 355,
+      "recorded_memory_bytes": 355,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 349,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 40,
+      "violations": []
+    },
+    {
+      "id": "c02",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m02"
+      ],
+      "reasons": {
+        "m02": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 351,
+      "non_memory_prompt_bytes": 28,
+      "measured_memory_bytes": 323,
+      "recorded_memory_bytes": 323,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 317,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 28,
+      "violations": []
+    },
+    {
+      "id": "c03",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m03"
+      ],
+      "reasons": {
+        "m03": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 371,
+      "non_memory_prompt_bytes": 26,
+      "measured_memory_bytes": 345,
+      "recorded_memory_bytes": 345,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 339,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 26,
+      "violations": []
+    },
+    {
+      "id": "c04",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m04"
+      ],
+      "reasons": {
+        "m04": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 374,
+      "non_memory_prompt_bytes": 33,
+      "measured_memory_bytes": 341,
+      "recorded_memory_bytes": 341,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 335,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 33,
+      "violations": []
+    },
+    {
+      "id": "c05",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m05"
+      ],
+      "reasons": {
+        "m05": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 390,
+      "non_memory_prompt_bytes": 39,
+      "measured_memory_bytes": 351,
+      "recorded_memory_bytes": 351,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 345,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 39,
+      "violations": []
+    },
+    {
+      "id": "c06",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m06"
+      ],
+      "reasons": {
+        "m06": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 408,
+      "non_memory_prompt_bytes": 41,
+      "measured_memory_bytes": 367,
+      "recorded_memory_bytes": 367,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 361,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 41,
+      "violations": []
+    },
+    {
+      "id": "c07",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m07"
+      ],
+      "reasons": {
+        "m07": "explicit"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 440,
+      "non_memory_prompt_bytes": 39,
+      "measured_memory_bytes": 401,
+      "recorded_memory_bytes": 401,
+      "explicit_bytes": 346,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 1,
+      "utility_bytes": 388,
+      "violations": []
+    },
+    {
+      "id": "c08",
+      "split": "development",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 19,
+      "non_memory_prompt_bytes": 19,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 19,
+      "violations": []
+    },
+    {
+      "id": "c09",
+      "split": "development",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 21,
+      "non_memory_prompt_bytes": 21,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 21,
+      "violations": []
+    },
+    {
+      "id": "c10",
+      "split": "development",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 18,
+      "non_memory_prompt_bytes": 18,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 18,
+      "violations": []
+    },
+    {
+      "id": "c11",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [
+        "m11-required"
+      ],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 14033,
+      "non_memory_prompt_bytes": 14033,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 14033,
+      "violations": []
+    },
+    {
+      "id": "c12",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m12-required",
+        "m12-old"
+      ],
+      "reasons": {
+        "m12-old": "lexical",
+        "m12-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [
+        "m12-old"
+      ],
+      "final_prompt_bytes": 520,
+      "non_memory_prompt_bytes": 27,
+      "measured_memory_bytes": 493,
+      "recorded_memory_bytes": 493,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 487,
+      "automatic_count": 2,
+      "omitted_count": 0,
+      "utility_bytes": 27,
+      "violations": []
+    },
+    {
+      "id": "c13",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m13-required",
+        "m13-old"
+      ],
+      "reasons": {
+        "m13-old": "lexical",
+        "m13-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [
+        "m13-old"
+      ],
+      "final_prompt_bytes": 511,
+      "non_memory_prompt_bytes": 26,
+      "measured_memory_bytes": 485,
+      "recorded_memory_bytes": 485,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 479,
+      "automatic_count": 2,
+      "omitted_count": 0,
+      "utility_bytes": 26,
+      "violations": []
+    },
+    {
+      "id": "c14",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m14-required",
+        "m14-old"
+      ],
+      "reasons": {
+        "m14-old": "lexical",
+        "m14-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [
+        "m14-old"
+      ],
+      "final_prompt_bytes": 501,
+      "non_memory_prompt_bytes": 28,
+      "measured_memory_bytes": 473,
+      "recorded_memory_bytes": 473,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 467,
+      "automatic_count": 2,
+      "omitted_count": 0,
+      "utility_bytes": 28,
+      "violations": []
+    },
+    {
+      "id": "c15",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m15-required",
+        "m15-old"
+      ],
+      "reasons": {
+        "m15-old": "lexical",
+        "m15-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [
+        "m15-old"
+      ],
+      "final_prompt_bytes": 504,
+      "non_memory_prompt_bytes": 28,
+      "measured_memory_bytes": 476,
+      "recorded_memory_bytes": 476,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 470,
+      "automatic_count": 2,
+      "omitted_count": 0,
+      "utility_bytes": 28,
+      "violations": []
+    },
+    {
+      "id": "c16",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m16"
+      ],
+      "reasons": {
+        "m16": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 375,
+      "non_memory_prompt_bytes": 33,
+      "measured_memory_bytes": 342,
+      "recorded_memory_bytes": 342,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 336,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 33,
+      "violations": []
+    },
+    {
+      "id": "c17",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m17"
+      ],
+      "reasons": {
+        "m17": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 365,
+      "non_memory_prompt_bytes": 28,
+      "measured_memory_bytes": 337,
+      "recorded_memory_bytes": 337,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 331,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 28,
+      "violations": []
+    },
+    {
+      "id": "c18",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m18"
+      ],
+      "reasons": {
+        "m18": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 385,
+      "non_memory_prompt_bytes": 30,
+      "measured_memory_bytes": 355,
+      "recorded_memory_bytes": 355,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 349,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 30,
+      "violations": []
+    },
+    {
+      "id": "c19",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m19"
+      ],
+      "reasons": {
+        "m19": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 378,
+      "non_memory_prompt_bytes": 39,
+      "measured_memory_bytes": 339,
+      "recorded_memory_bytes": 339,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 333,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 39,
+      "violations": []
+    },
+    {
+      "id": "c20",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m20"
+      ],
+      "reasons": {
+        "m20": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 381,
+      "non_memory_prompt_bytes": 34,
+      "measured_memory_bytes": 347,
+      "recorded_memory_bytes": 347,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 341,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 34,
+      "violations": []
+    },
+    {
+      "id": "c21",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m21"
+      ],
+      "reasons": {
+        "m21": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 355,
+      "non_memory_prompt_bytes": 26,
+      "measured_memory_bytes": 329,
+      "recorded_memory_bytes": 329,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 323,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 26,
+      "violations": []
+    },
+    {
+      "id": "c22",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m22"
+      ],
+      "reasons": {
+        "m22": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 386,
+      "non_memory_prompt_bytes": 32,
+      "measured_memory_bytes": 354,
+      "recorded_memory_bytes": 354,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 348,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 32,
+      "violations": []
+    },
+    {
+      "id": "c23",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [
+        "m23"
+      ],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 33,
+      "non_memory_prompt_bytes": 33,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 33,
+      "violations": []
+    },
+    {
+      "id": "c24",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m24"
+      ],
+      "reasons": {
+        "m24": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 367,
+      "non_memory_prompt_bytes": 27,
+      "measured_memory_bytes": 340,
+      "recorded_memory_bytes": 340,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 334,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 27,
+      "violations": []
+    },
+    {
+      "id": "c25",
+      "split": "development",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 17,
+      "non_memory_prompt_bytes": 17,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 17,
+      "violations": []
+    },
+    {
+      "id": "c26",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m26-visible"
+      ],
+      "reasons": {
+        "m26-visible": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 409,
+      "non_memory_prompt_bytes": 29,
+      "measured_memory_bytes": 380,
+      "recorded_memory_bytes": 380,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 374,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 29,
+      "violations": []
+    },
+    {
+      "id": "c27",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m27-visible"
+      ],
+      "reasons": {
+        "m27-visible": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 387,
+      "non_memory_prompt_bytes": 38,
+      "measured_memory_bytes": 349,
+      "recorded_memory_bytes": 349,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 343,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 38,
+      "violations": []
+    },
+    {
+      "id": "c28",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m28-linked"
+      ],
+      "reasons": {
+        "m28-linked": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 404,
+      "non_memory_prompt_bytes": 29,
+      "measured_memory_bytes": 375,
+      "recorded_memory_bytes": 375,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 369,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 29,
+      "violations": []
+    },
+    {
+      "id": "c29",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m29"
+      ],
+      "reasons": {
+        "m29": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 403,
+      "non_memory_prompt_bytes": 46,
+      "measured_memory_bytes": 357,
+      "recorded_memory_bytes": 357,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 351,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 46,
+      "violations": []
+    },
+    {
+      "id": "c30",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m30"
+      ],
+      "reasons": {
+        "m30": "explicit"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 434,
+      "non_memory_prompt_bytes": 39,
+      "measured_memory_bytes": 395,
+      "recorded_memory_bytes": 395,
+      "explicit_bytes": 340,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 1,
+      "utility_bytes": 386,
+      "violations": []
+    },
+    {
+      "id": "c31",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m31-active"
+      ],
+      "reasons": {
+        "m31-active": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 438,
+      "non_memory_prompt_bytes": 36,
+      "measured_memory_bytes": 402,
+      "recorded_memory_bytes": 402,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 344,
+      "automatic_count": 1,
+      "omitted_count": 1,
+      "utility_bytes": 36,
+      "violations": []
+    },
+    {
+      "id": "c32",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m32-current"
+      ],
+      "reasons": {
+        "m32-current": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 392,
+      "non_memory_prompt_bytes": 31,
+      "measured_memory_bytes": 361,
+      "recorded_memory_bytes": 361,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 355,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 31,
+      "violations": []
+    },
+    {
+      "id": "c33",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m33-valid"
+      ],
+      "reasons": {
+        "m33-valid": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 364,
+      "non_memory_prompt_bytes": 24,
+      "measured_memory_bytes": 340,
+      "recorded_memory_bytes": 340,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 334,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 24,
+      "violations": []
+    },
+    {
+      "id": "c34",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m34-active"
+      ],
+      "reasons": {
+        "m34-active": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 376,
+      "non_memory_prompt_bytes": 24,
+      "measured_memory_bytes": 352,
+      "recorded_memory_bytes": 352,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 346,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 24,
+      "violations": []
+    },
+    {
+      "id": "c35",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m35-valid"
+      ],
+      "reasons": {
+        "m35-valid": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 398,
+      "non_memory_prompt_bytes": 30,
+      "measured_memory_bytes": 368,
+      "recorded_memory_bytes": 368,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 362,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 30,
+      "violations": []
+    },
+    {
+      "id": "c36",
+      "split": "development",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m36-current"
+      ],
+      "reasons": {
+        "m36-current": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 395,
+      "non_memory_prompt_bytes": 29,
+      "measured_memory_bytes": 366,
+      "recorded_memory_bytes": 366,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 360,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 29,
+      "violations": []
+    },
+    {
+      "id": "c37",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m37-required"
+      ],
+      "reasons": {
+        "m37-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 379,
+      "non_memory_prompt_bytes": 26,
+      "measured_memory_bytes": 353,
+      "recorded_memory_bytes": 353,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 347,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 26,
+      "violations": []
+    },
+    {
+      "id": "c38",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [
+        "m38-required"
+      ],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 32,
+      "non_memory_prompt_bytes": 32,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 32,
+      "violations": []
+    },
+    {
+      "id": "c39",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m39-required"
+      ],
+      "reasons": {
+        "m39-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 372,
+      "non_memory_prompt_bytes": 25,
+      "measured_memory_bytes": 347,
+      "recorded_memory_bytes": 347,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 341,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 25,
+      "violations": []
+    },
+    {
+      "id": "c40",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m40-required"
+      ],
+      "reasons": {
+        "m40-required": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 381,
+      "non_memory_prompt_bytes": 29,
+      "measured_memory_bytes": 352,
+      "recorded_memory_bytes": 352,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 346,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 29,
+      "violations": []
+    },
+    {
+      "id": "c41",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 42,
+      "non_memory_prompt_bytes": 42,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 42,
+      "violations": []
+    },
+    {
+      "id": "c42",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 45,
+      "non_memory_prompt_bytes": 45,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 45,
+      "violations": []
+    },
+    {
+      "id": "c43",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m43"
+      ],
+      "reasons": {
+        "m43": "explicit"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 439,
+      "non_memory_prompt_bytes": 37,
+      "measured_memory_bytes": 402,
+      "recorded_memory_bytes": 402,
+      "explicit_bytes": 347,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 1,
+      "utility_bytes": 385,
+      "violations": []
+    },
+    {
+      "id": "c44",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [
+        "m44"
+      ],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 34,
+      "non_memory_prompt_bytes": 34,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 34,
+      "violations": []
+    },
+    {
+      "id": "c45",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m45-a",
+        "m45-b"
+      ],
+      "reasons": {
+        "m45-a": "explicit",
+        "m45-b": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [
+        "m45-b"
+      ],
+      "final_prompt_bytes": 726,
+      "non_memory_prompt_bytes": 27,
+      "measured_memory_bytes": 699,
+      "recorded_memory_bytes": 699,
+      "explicit_bytes": 346,
+      "pinned_bytes": 0,
+      "automatic_bytes": 347,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 374,
+      "violations": []
+    },
+    {
+      "id": "c46",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 2,
+      "included_ids": [
+        "m46-b",
+        "m46-a"
+      ],
+      "reasons": {
+        "m46-a": "lexical",
+        "m46-b": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 534,
+      "non_memory_prompt_bytes": 34,
+      "measured_memory_bytes": 500,
+      "recorded_memory_bytes": 500,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 494,
+      "automatic_count": 2,
+      "omitted_count": 0,
+      "utility_bytes": 34,
+      "violations": []
+    },
+    {
+      "id": "c47",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 30,
+      "non_memory_prompt_bytes": 30,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 30,
+      "violations": []
+    },
+    {
+      "id": "c48",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 19,
+      "non_memory_prompt_bytes": 19,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 19,
+      "violations": []
+    },
+    {
+      "id": "c49",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 18,
+      "non_memory_prompt_bytes": 18,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 18,
+      "violations": []
+    },
+    {
+      "id": "c50",
+      "split": "validation",
+      "kind": "base",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 19,
+      "non_memory_prompt_bytes": 19,
+      "measured_memory_bytes": 0,
+      "recorded_memory_bytes": 0,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 0,
+      "utility_bytes": 19,
+      "violations": []
+    },
+    {
+      "id": "repeat-selected",
+      "split": "development",
+      "kind": "repeat",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m07"
+      ],
+      "reasons": {
+        "m07": "explicit"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 480,
+      "non_memory_prompt_bytes": 78,
+      "measured_memory_bytes": 402,
+      "recorded_memory_bytes": 402,
+      "explicit_bytes": 346,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 2,
+      "utility_bytes": 776,
+      "violations": []
+    },
+    {
+      "id": "replaced-selected",
+      "split": "validation",
+      "kind": "replace",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m45-a",
+        "m45-b"
+      ],
+      "reasons": {
+        "m45-a": "lexical",
+        "m45-b": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [
+        "m45-b"
+      ],
+      "final_prompt_bytes": 507,
+      "non_memory_prompt_bytes": 27,
+      "measured_memory_bytes": 480,
+      "recorded_memory_bytes": 480,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 474,
+      "automatic_count": 2,
+      "omitted_count": 0,
+      "utility_bytes": 27,
+      "violations": []
+    },
+    {
+      "id": "recall-off-explicit-report",
+      "split": "validation",
+      "kind": "off",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m43"
+      ],
+      "reasons": {
+        "m43": "explicit"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 439,
+      "non_memory_prompt_bytes": 37,
+      "measured_memory_bytes": 402,
+      "recorded_memory_bytes": 402,
+      "explicit_bytes": 347,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 1,
+      "utility_bytes": 385,
+      "violations": []
+    },
+    {
+      "id": "trace-failure-abstains",
+      "split": "development",
+      "kind": "trace_failure",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 0,
+      "included_ids": [],
+      "reasons": {},
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 115,
+      "non_memory_prompt_bytes": 40,
+      "measured_memory_bytes": 75,
+      "recorded_memory_bytes": 75,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 1,
+      "utility_bytes": 40,
+      "violations": []
+    },
+    {
+      "id": "expired-selected",
+      "split": "development",
+      "kind": "repeat",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m31-active"
+      ],
+      "reasons": {
+        "m31-active": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 487,
+      "non_memory_prompt_bytes": 72,
+      "measured_memory_bytes": 415,
+      "recorded_memory_bytes": 415,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 344,
+      "automatic_count": 1,
+      "omitted_count": 2,
+      "utility_bytes": 72,
+      "violations": []
+    },
+    {
+      "id": "literal-marker-not-reference",
+      "split": "development",
+      "kind": "literal_marker",
+      "required_count": 1,
+      "recovered_count": 1,
+      "allowed_returned_count": 1,
+      "included_ids": [
+        "m01"
+      ],
+      "reasons": {
+        "m01": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 431,
+      "non_memory_prompt_bytes": 76,
+      "measured_memory_bytes": 355,
+      "recorded_memory_bytes": 355,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 349,
+      "automatic_count": 1,
+      "omitted_count": 0,
+      "utility_bytes": 76,
+      "violations": []
+    },
+    {
+      "id": "all-sources-large-unicode",
+      "split": "stress",
+      "kind": "stress",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 7,
+      "included_ids": [
+        "all-sources-large-unicode-explicit-00",
+        "all-sources-large-unicode-explicit-01",
+        "all-sources-large-unicode-explicit-02",
+        "all-sources-large-unicode-pinned-00",
+        "all-sources-large-unicode-pinned-01",
+        "all-sources-large-unicode-pinned-02",
+        "all-sources-large-unicode-automatic-00"
+      ],
+      "reasons": {
+        "all-sources-large-unicode-automatic-00": "lexical",
+        "all-sources-large-unicode-explicit-00": "explicit",
+        "all-sources-large-unicode-explicit-01": "explicit",
+        "all-sources-large-unicode-explicit-02": "explicit",
+        "all-sources-large-unicode-pinned-00": "pinned",
+        "all-sources-large-unicode-pinned-01": "pinned",
+        "all-sources-large-unicode-pinned-02": "pinned"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 64967,
+      "non_memory_prompt_bytes": 54000,
+      "measured_memory_bytes": 10967,
+      "recorded_memory_bytes": 10967,
+      "explicit_bytes": 4719,
+      "pinned_bytes": 4722,
+      "automatic_bytes": 1420,
+      "automatic_count": 1,
+      "omitted_count": 19,
+      "utility_bytes": 140776,
+      "violations": []
+    },
+    {
+      "id": "pinned-header-boundary",
+      "split": "stress",
+      "kind": "stress",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 3,
+      "included_ids": [
+        "pinned-header-boundary-pinned-00",
+        "pinned-header-boundary-pinned-01",
+        "pinned-header-boundary-pinned-02"
+      ],
+      "reasons": {
+        "pinned-header-boundary-pinned-00": "pinned",
+        "pinned-header-boundary-pinned-01": "pinned",
+        "pinned-header-boundary-pinned-02": "pinned"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 4806,
+      "non_memory_prompt_bytes": 18,
+      "measured_memory_bytes": 4788,
+      "recorded_memory_bytes": 4788,
+      "explicit_bytes": 0,
+      "pinned_bytes": 4725,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 5,
+      "utility_bytes": 18,
+      "violations": []
+    },
+    {
+      "id": "automatic-header-boundary",
+      "split": "stress",
+      "kind": "stress",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 4,
+      "included_ids": [
+        "automatic-header-boundary-automatic-00",
+        "automatic-header-boundary-automatic-01",
+        "automatic-header-boundary-automatic-02",
+        "automatic-header-boundary-automatic-03"
+      ],
+      "reasons": {
+        "automatic-header-boundary-automatic-00": "lexical",
+        "automatic-header-boundary-automatic-01": "lexical",
+        "automatic-header-boundary-automatic-02": "lexical",
+        "automatic-header-boundary-automatic-03": "lexical"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 5103,
+      "non_memory_prompt_bytes": 18,
+      "measured_memory_bytes": 5085,
+      "recorded_memory_bytes": 5085,
+      "explicit_bytes": 0,
+      "pinned_bytes": 0,
+      "automatic_bytes": 5020,
+      "automatic_count": 4,
+      "omitted_count": 6,
+      "utility_bytes": 18,
+      "violations": []
+    },
+    {
+      "id": "deliberate-memory-with-recall-off",
+      "split": "stress",
+      "kind": "off",
+      "required_count": 0,
+      "recovered_count": 0,
+      "allowed_returned_count": 6,
+      "included_ids": [
+        "deliberate-memory-with-recall-off-explicit-00",
+        "deliberate-memory-with-recall-off-explicit-01",
+        "deliberate-memory-with-recall-off-explicit-02",
+        "deliberate-memory-with-recall-off-pinned-00",
+        "deliberate-memory-with-recall-off-pinned-01",
+        "deliberate-memory-with-recall-off-pinned-02"
+      ],
+      "reasons": {
+        "deliberate-memory-with-recall-off-explicit-00": "explicit",
+        "deliberate-memory-with-recall-off-explicit-01": "explicit",
+        "deliberate-memory-with-recall-off-explicit-02": "explicit",
+        "deliberate-memory-with-recall-off-pinned-00": "pinned",
+        "deliberate-memory-with-recall-off-pinned-01": "pinned",
+        "deliberate-memory-with-recall-off-pinned-02": "pinned"
+      },
+      "known_misses": [],
+      "irrelevant_ids": [],
+      "final_prompt_bytes": 9547,
+      "non_memory_prompt_bytes": 18,
+      "measured_memory_bytes": 9529,
+      "recorded_memory_bytes": 9529,
+      "explicit_bytes": 4719,
+      "pinned_bytes": 4725,
+      "automatic_bytes": 0,
+      "automatic_count": 0,
+      "omitted_count": 10,
+      "utility_bytes": 86858,
+      "violations": []
+    }
+  ],
+  "aggregate": {
+    "base": {
+      "allowed": 37,
+      "cases": 50,
+      "precision": 0.8809523809523809,
+      "recall": 0.9,
+      "recovered": 36,
+      "required": 40,
+      "returned": 42
+    },
+    "development": {
+      "allowed": 25,
+      "cases": 30,
+      "precision": 0.8928571428571429,
+      "recall": 0.9615384615384616,
+      "recovered": 25,
+      "required": 26,
+      "returned": 28
+    },
+    "hard_violations": 0,
+    "maximum_measured_memory_bytes": 10967,
+    "maximum_recorded_memory_bytes": 10967,
+    "notes": "Composition metrics include deliberate pins and selections; compare automatic-only policy metrics in the separate frozen v2 report.",
+    "total_cases": 60,
+    "validation": {
+      "allowed": 12,
+      "cases": 20,
+      "precision": 0.8571428571428571,
+      "recall": 0.7857142857142857,
+      "recovered": 11,
+      "required": 14,
+      "returned": 14
+    }
+  },
+  "limitations": [
+    "Deterministic memory-ID and byte accounting only; no provider calls or model answer-quality measurements.",
+    "Base retrieval labels and split membership are inherited unchanged from frozen v1; deliberate pin/selection labels are evaluated by source.",
+    "Stress labels enforce independently specified budgets and source precedence, not an implementation-derived number of included memories."
+  ]
+}

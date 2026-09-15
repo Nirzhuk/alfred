@@ -2104,7 +2104,11 @@ mod tests {
         // as the package executable. Staging it 0o600 breaks the sidecar.
         fs::create_dir_all(source.join("libexec")).unwrap();
         fs::write(source.join("libexec/tool"), b"#!/bin/sh\nexit 0\n").unwrap();
-        fs::set_permissions(source.join("libexec/tool"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(
+            source.join("libexec/tool"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
         verification.manifest.targets[0]
             .resources
             .push(RuntimeArtifactManifest {

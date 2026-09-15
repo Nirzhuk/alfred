@@ -56,6 +56,31 @@ For user-interface work, read and follow `docs/design-system.md`.
 - Normalize form controls through the shared CSS patterns; do not depend on a
   browser or OS default appearance for application-owned controls.
 
+## Shared search controls
+
+- Changes to shared search styles or containing form/modal defaults must run the
+  actual-consumer browser audit in `tests/ui/README.md`, including both themes,
+  stylesheet order, disabled/read-only states, and physical pressed states.
+  Keep `tests/ui/search-consumers.ts` and its real-screen scenarios complete.
+
+- Verify shared controls inside their actual consumers, especially modal and
+  nested-dialog containers. Standalone previews do not prove CSS integration.
+  Container input defaults must exclude `.ui-search-input` so the shared
+  component owns its transparent inner field.
+
+- Use `SearchInput` from `src/components/search-input` for every search field,
+  including Memories, link pickers, settings, and text-based combobox searches.
+  Do not create raw search inputs or feature-local search icons/clear buttons.
+- Keep search field styling in `search-input.css`. Consumer classes may control
+  only layout, such as width, flex, and margins. Preserve native input refs,
+  accessible names, keyboard handlers, debounce, and filtering in the caller.
+- When replacing a control, migrate every consumer and delete its unused markup,
+  helpers, and CSS. Check references before removing code. A shared component
+  is not a completed migration until existing screens actually use it.
+- Follow `docs/search-input.md` for usage and the migration checklist. Run
+  `bun test tests/search-input.test.tsx src/components/search-input` to check
+  ownership and component behavior.
+
 ## Sidebar invariant
 
 - Item text: `14px`, weight `400`.

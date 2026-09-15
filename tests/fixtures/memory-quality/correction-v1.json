@@ -1,0 +1,1465 @@
+{
+  "version": "correction-v1",
+  "evaluator_version": "memory-correction-eval-1",
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "fixture_scope": "Synthetic deterministic policy evaluation; does not establish model quality or live provider activation.",
+  "label_method": "Coordinator-authored expectations from Plan 050 product rules before the correction integration; no similarity function generated the labels.",
+  "case_schema_notes": [
+    "Each case has explicit expected outcomes and rationale. Outcome labels describe policy semantics; the evaluator may map precise stable API error codes to these labels without weakening them.",
+    "Use the actual in-memory schema, evidence capture, candidate validation, canonical writers, and approval transaction. Do not return these labels from a fixture-only implementation.",
+    "Capture reviewed target revision/digest before any listed mutation. Build citations from the exact host-captured evidence bytes.",
+    "Discovery cases may call only the existing single injected reviewer; local comparison discovery must add zero provider calls.",
+    "Report every case and each group separately. Do not overwrite v1, baseline-v1, baseline-v2, composition-v1, or baseline-composition-v1."
+  ],
+  "cases": [
+    {
+      "id": "correction-exact-create",
+      "group": "exact_duplicate_rejection",
+      "scenario": "create",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "exact_duplicate",
+        "canonical_mutations": 0
+      },
+      "rationale": "The same currently valid claim in the same scope and type needs no second canonical row."
+    },
+    {
+      "id": "correction-reflow-create",
+      "group": "exact_duplicate_rejection",
+      "scenario": "create",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821  deploys\n to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "exact_duplicate",
+        "canonical_mutations": 0
+      },
+      "rationale": "Whitespace reflow does not change this claim."
+    },
+    {
+      "id": "correction-supersede-noop",
+      "group": "exact_duplicate_rejection",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "no_op",
+        "canonical_mutations": 0
+      },
+      "rationale": "Replacing a target with its unchanged body and semantic fields is a no-op."
+    },
+    {
+      "id": "correction-retract-own-body",
+      "group": "operation_specific_duplicates",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 no longer deploys to staging; that routing policy has been withdrawn."
+        },
+        "proposal": {
+          "operation": "retract",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "target_status": "retracted",
+        "new_canonical_rows": 0
+      },
+      "rationale": "A retraction can quote the target without colliding with the target's own duplicate hash."
+    },
+    {
+      "id": "correction-expired-prior",
+      "group": "legitimate_separate_claims",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": "2026-08-17T00:00:00Z"
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "new_canonical_rows": 1,
+        "prior_row_preserved": true
+      },
+      "rationale": "An expired row does not block a newly supported current fact."
+    },
+    {
+      "id": "correction-distinct-scope",
+      "group": "legitimate_separate_claims",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-unrelated",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "new_canonical_rows": 1,
+        "unrelated_scope_unchanged": true
+      },
+      "rationale": "Equal text in another workflow is not an in-scope duplicate."
+    },
+    {
+      "id": "correction-distinct-type",
+      "group": "legitimate_separate_claims",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "decision",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "new_canonical_rows": 1,
+        "prior_row_preserved": true
+      },
+      "rationale": "A fact and a decision have separate typed identities; similarity cannot silently merge them."
+    },
+    {
+      "id": "correction-old-target",
+      "group": "old_target_discovery",
+      "scenario": "discover",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-1",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-1 contains 3 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:00:00Z",
+            "updated_at": "2026-08-17T10:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-2",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-2 contains 4 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:01:00Z",
+            "updated_at": "2026-08-17T10:01:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-3",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-3 contains 5 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:02:00Z",
+            "updated_at": "2026-08-17T10:02:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-4",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-4 contains 6 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:03:00Z",
+            "updated_at": "2026-08-17T10:03:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-5",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-5 contains 7 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:04:00Z",
+            "updated_at": "2026-08-17T10:04:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-6",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-6 contains 8 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:05:00Z",
+            "updated_at": "2026-08-17T10:05:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-7",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-7 contains 9 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:06:00Z",
+            "updated_at": "2026-08-17T10:06:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-8",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-8 contains 10 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:07:00Z",
+            "updated_at": "2026-08-17T10:07:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-9",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-9 contains 11 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:08:00Z",
+            "updated_at": "2026-08-17T10:08:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-10",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-10 contains 12 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:09:00Z",
+            "updated_at": "2026-08-17T10:09:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-11",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-11 contains 13 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:10:00Z",
+            "updated_at": "2026-08-17T10:10:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-12",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-12 contains 14 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:11:00Z",
+            "updated_at": "2026-08-17T10:11:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-13",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-13 contains 15 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:12:00Z",
+            "updated_at": "2026-08-17T10:12:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-14",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-14 contains 16 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:13:00Z",
+            "updated_at": "2026-08-17T10:13:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-15",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-15 contains 17 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:14:00Z",
+            "updated_at": "2026-08-17T10:14:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-16",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-16 contains 18 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:15:00Z",
+            "updated_at": "2026-08-17T10:15:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-17",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-17 contains 19 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:16:00Z",
+            "updated_at": "2026-08-17T10:16:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-18",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-18 contains 20 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:17:00Z",
+            "updated_at": "2026-08-17T10:17:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-19",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-19 contains 21 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:18:00Z",
+            "updated_at": "2026-08-17T10:18:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-20",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-20 contains 22 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:19:00Z",
+            "updated_at": "2026-08-17T10:19:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-21",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-21 contains 23 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:20:00Z",
+            "updated_at": "2026-08-17T10:20:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "distractor-22",
+            "title": "Inventory observation",
+            "body": "Warehouse INVENTORY-22 contains 24 spare units.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-17T10:21:00Z",
+            "updated_at": "2026-08-17T10:21:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "required_target_ids": [
+          "route"
+        ],
+        "maximum_targets": 12,
+        "maximum_target_bytes": 12000,
+        "additional_provider_calls": 0
+      },
+      "rationale": "A stable identifier in independent evidence should find the older routing fact behind 22 unrelated recent rows."
+    },
+    {
+      "id": "correction-two-subjects",
+      "group": "old_target_discovery",
+      "scenario": "discover",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          },
+          {
+            "id": "other-route",
+            "title": "Routing policy",
+            "body": "BETA-204 deploys to testing.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": [
+          {
+            "origin": "host_recorded_observation",
+            "subject": "recorded_observation",
+            "recorded_at": "2026-08-17T09:00:00Z",
+            "quote": "ALFRED-4821 now deploys to production."
+          },
+          {
+            "origin": "host_recorded_observation",
+            "subject": "recorded_observation",
+            "recorded_at": "2026-08-17T09:00:00Z",
+            "quote": "BETA-204 now deploys to staging."
+          }
+        ],
+        "proposal": null
+      },
+      "expected": {
+        "required_target_ids": [
+          "route",
+          "other-route"
+        ],
+        "maximum_targets": 12,
+        "maximum_target_bytes": 12000,
+        "additional_provider_calls": 0
+      },
+      "rationale": "Fair source allocation should retain comparison material for both independent subjects."
+    },
+    {
+      "id": "correction-shared-words",
+      "group": "legitimate_separate_claims",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "paris",
+            "title": "Routing policy",
+            "body": "The Paris office receives the staging report.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "The Madrid office receives the staging report."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "The Madrid office receives the staging report.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "new_canonical_rows": 1,
+        "prior_row_preserved": true
+      },
+      "rationale": "Shared report vocabulary does not make two different offices the same subject or prove a contradiction."
+    },
+    {
+      "id": "correction-incomplete-target",
+      "group": "unsupported_corrections_blocked",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "target_snapshot_unavailable",
+        "canonical_mutations": 0
+      },
+      "rationale": "A destructive proposal cannot rely on a target preview that was not shown completely."
+    },
+    {
+      "id": "correction-target-body-changed",
+      "group": "stale_approvals_prevented",
+      "scenario": "mutate_then_approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        },
+        "mutation": {
+          "kind": "canonical_edit",
+          "memory_id": "route",
+          "body": "ALFRED-4821 deploys to a canary environment.",
+          "preserve_updated_at": true
+        }
+      },
+      "expected": {
+        "outcome": "target_changed",
+        "approval_canonical_mutations": 0,
+        "edited_body_preserved": true
+      },
+      "rationale": "Semantic revision must catch a same-timestamp target edit without overwriting the new claim."
+    },
+    {
+      "id": "correction-target-date-changed",
+      "group": "stale_approvals_prevented",
+      "scenario": "mutate_then_approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        },
+        "mutation": {
+          "kind": "canonical_edit",
+          "memory_id": "route",
+          "valid_from": "2026-08-10T00:00:00Z",
+          "preserve_updated_at": true
+        }
+      },
+      "expected": {
+        "outcome": "target_changed",
+        "approval_canonical_mutations": 0
+      },
+      "rationale": "Validity dates are semantic fields even when the target text and wall-clock edit timestamp stay unchanged."
+    },
+    {
+      "id": "correction-candidate-changed",
+      "group": "stale_approvals_prevented",
+      "scenario": "mutate_then_approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        },
+        "mutation": {
+          "kind": "candidate_edit",
+          "title": "Corrected routing policy",
+          "evidence_confirmed": true
+        },
+        "displayed_candidate_revision": 1
+      },
+      "expected": {
+        "outcome": "candidate_changed",
+        "canonical_mutations": 0,
+        "candidate_remains_pending": true
+      },
+      "rationale": "Approval requires the candidate revision actually displayed, even for a title edit."
+    },
+    {
+      "id": "correction-evidence-deleted",
+      "group": "unsupported_corrections_blocked",
+      "scenario": "mutate_then_approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        },
+        "mutation": {
+          "kind": "delete_source_run"
+        }
+      },
+      "expected": {
+        "outcome": "evidence_unavailable",
+        "canonical_mutations": 0,
+        "source_text_removed": true
+      },
+      "rationale": "A retained proposal cannot approve a correction after its independently recorded source was deleted."
+    },
+    {
+      "id": "correction-future-effective",
+      "group": "temporal_correctness",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to production from 2026-08-19T00:00:00Z."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": "2026-08-19T00:00:00Z",
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "validity_not_started",
+        "canonical_mutations": 0,
+        "target_status": "active",
+        "candidate_remains_pending": true
+      },
+      "rationale": "A future correction cannot supersede today's routing fact early or activate without a later explicit approval."
+    },
+    {
+      "id": "correction-effective-boundary",
+      "group": "temporal_correctness",
+      "scenario": "approve",
+      "clock": "2026-08-19T00:00:00Z",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to production from 2026-08-19T02:00:00+02:00."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": "2026-08-19T02:00:00+02:00",
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "target_status": "superseded",
+        "new_canonical_rows": 1,
+        "normalized_valid_from": "2026-08-19T00:00:00Z"
+      },
+      "rationale": "The start boundary is inclusive, and an explicit UTC offset denotes the same instant."
+    },
+    {
+      "id": "correction-expired-pending",
+      "group": "temporal_correctness",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to production until 2026-08-18T12:00:00Z."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": "2026-08-18T12:00:00Z"
+        }
+      },
+      "expected": {
+        "outcome": "expired",
+        "canonical_mutations": 0,
+        "target_status": "active"
+      },
+      "rationale": "The end boundary is exclusive; a proposal already expired at approval cannot replace the current claim."
+    },
+    {
+      "id": "correction-old-observation",
+      "group": "temporal_correctness",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-01T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "outcome": "approved",
+        "new_canonical_rows": 1,
+        "last_confirmed_at": "2026-08-01T09:00:00Z",
+        "expires_at": null
+      },
+      "rationale": "Approval today does not invent a new confirmation time or expiry for an observation recorded earlier."
+    },
+    {
+      "id": "correction-unsupported-date",
+      "group": "unsupported_corrections_blocked",
+      "scenario": "approve",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 deploys to staging."
+        },
+        "proposal": {
+          "operation": "create",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to staging.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": null,
+          "target_shown_completely": false,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": "2026-09-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "outcome": "unsupported_validity_date",
+        "canonical_mutations": 0
+      },
+      "rationale": "A model-provided expiry with no supporting quote cannot become canonical metadata."
+    },
+    {
+      "id": "correction-two-approvals",
+      "group": "stale_approvals_prevented",
+      "scenario": "approve_two_candidates",
+      "input": {
+        "workflow_id": "wf-correction",
+        "working_directory": "/fixture/correction",
+        "canonical": [
+          {
+            "id": "route",
+            "title": "Routing policy",
+            "body": "ALFRED-4821 deploys to staging.",
+            "scope_type": "workflow",
+            "scope_key": "wf-correction",
+            "memory_type": "fact",
+            "source": "manual",
+            "status": "active",
+            "semantic_revision": 1,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "observed_at": null,
+            "valid_from": null,
+            "expires_at": null
+          }
+        ],
+        "evidence": {
+          "origin": "host_recorded_observation",
+          "subject": "recorded_observation",
+          "recorded_at": "2026-08-17T09:00:00Z",
+          "quote": "ALFRED-4821 now deploys to production."
+        },
+        "proposal": {
+          "operation": "supersede",
+          "title": "Routing policy",
+          "body": "ALFRED-4821 deploys to production.",
+          "memory_type": "fact",
+          "scope_type": "workflow",
+          "scope_key": "wf-correction",
+          "target_memory_id": "route",
+          "target_shown_completely": true,
+          "observed_at": null,
+          "valid_from": null,
+          "expires_at": null
+        }
+      },
+      "expected": {
+        "approved_count": 1,
+        "new_canonical_rows": 1,
+        "target_status": "superseded",
+        "second_approval_canonical_mutations": 0
+      },
+      "rationale": "Two candidates targeting the same snapshot cannot both commit the same canonical correction."
+    }
+  ]
+}

@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ReactFlowProvider } from "@xyflow/react";
+import { FolderPlus } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 import { AppTitlebar } from "../app-title-bar";
 import { ConfirmDialog } from "../../../../components/confirm-dialog";
+import { Icon } from "../../../../components/icon";
+import { WorkflowResourcesPanel } from "../workflow-resources-panel/workflow-resources-panel";
 import { openLatestDownload } from "../../../licensing/download-latest";
 import { SettingsPage } from "../../../settings/components/settings-page";
 import {
@@ -14,7 +17,11 @@ import {
 import { SchedulesPage } from "../schedules-page";
 import { SidebarFolderContext } from "../sidebar-folder-context";
 import { HistoryPage } from "../history-page";
-import { historyNavigation } from "../history-page/history-format";
+import {
+  historyNavigation,
+  navigateWorkflowMemory,
+  type WorkflowMemoryNavigationRequest,
+} from "../history-page/history-format";
 import { SidebarBottomBar } from "../sidebar-bottom-bar";
 import { SidebarNav, type SidebarView } from "../sidebar-nav";
 import { AgentUsageBar } from "../agent-usage-bar";
@@ -32,6 +39,7 @@ import { RunActivityPanel } from "../run-activity-panel";
 import { RenameWorkflowModal } from "../rename-workflow-modal";
 import { ScheduleModal } from "../schedule-modal";
 import { TriggersModal } from "../triggers-modal";
+import { ShareDialog } from "../../../sharing";
 import { useWorkflowStore } from "../../store";
 import { getWorkflowStatusLabel } from "../../status-label";
 import {
@@ -49,26 +57,6 @@ function FolderGlyph() {
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function FolderAddGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 6.5h6l2 2H21v8.75A1.75 1.75 0 0 1 19.25 19H4.75A1.75 1.75 0 0 1 3 17.25V6.5Z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M15 11.5v5M12.5 14h5"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -120,6 +108,17 @@ export function WorkflowCanvas() {
   const activeWorkingDirectory =
     activeWorkflow?.workingDirectory?.trim() ?? "";
   const [showWorkflowLoading, setShowWorkflowLoading] = useState(false);
+  const memoryNavigationGeneration = useRef(0);
+  const cancelPendingMemoryNavigation = useCallback(() => {
+    memoryNavigationGeneration.current += 1;
+  }, []);
+  const selectWorkflowFromUi = useCallback(
+    (workflowId: string) => {
+      cancelPendingMemoryNavigation();
+      return selectWorkflow(workflowId);
+    },
+    [cancelPendingMemoryNavigation, selectWorkflow],
+  );
   const workflowStatusLabel = getWorkflowStatusLabel({
     activeWorkflowId,
     activeRunStatus: activeRun?.status,
@@ -223,6 +222,12 @@ export function WorkflowCanvas() {
     id: string;
     name: string;
   } | null>(null);
+  const [shareWorkflowId, setShareWorkflowId] = useState<string | null>(null);
+  const saveBeforeShare = useCallback(async () => {
+    if (shareWorkflowId && useWorkflowStore.getState().activeWorkflowId === shareWorkflowId) {
+      await saveActiveWorkflow();
+    }
+  }, [saveActiveWorkflow, shareWorkflowId]);
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [memoriesFocusId, setMemoriesFocusId] = useState<string | null>(null);
   const [memoriesMode, setMemoriesMode] =
@@ -246,10 +251,26 @@ export function WorkflowCanvas() {
       return false;
     }
   });
+  const [resourcesOpen, setResourcesOpen] = useState(() => {
+    try {
+      return localStorage.getItem("alfred:resources-open") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleResources = (open: boolean) => {
+    setResourcesOpen(open);
+    try {
+      localStorage.setItem("alfred:resources-open", open ? "1" : "0");
+    } catch {
+      // The panel still works when preferences cannot be saved.
+    }
+  };
 
   const navigateHistory = (
     action: Parameters<typeof historyNavigation>[0],
   ) => {
+    cancelPendingMemoryNavigation();
     const next = historyNavigation(action);
     setHistoryRunId(next.runId);
     setView(next.view);
@@ -334,6 +355,7 @@ export function WorkflowCanvas() {
 
   useEffect(() => {
     const openSchedule = () => {
+      cancelPendingMemoryNavigation();
       const { activeWorkflowId: id, workflows: list } =
         useWorkflowStore.getState();
       if (!id) {
@@ -344,6 +366,7 @@ export function WorkflowCanvas() {
       setScheduleTarget({ id, name });
     };
     const openDelete = () => {
+      cancelPendingMemoryNavigation();
       const { activeWorkflowId: id, workflows: list } =
         useWorkflowStore.getState();
       if (!id) {
@@ -354,13 +377,27 @@ export function WorkflowCanvas() {
       setDeleteTarget({ id, name });
     };
     const openMemories = (event: Event) => {
-      const detail = (event as CustomEvent<{ memoryId?: string }>).detail;
-      setMemoriesFocusId(detail?.memoryId ?? null);
-      setMemoriesMode("memories");
-      setSuggestionsFocusRunId(null);
-      setMemoriesOpen(true);
+      const detail =
+        (event as CustomEvent<WorkflowMemoryNavigationRequest>).detail ?? {};
+      const generation = ++memoryNavigationGeneration.current;
+      void navigateWorkflowMemory(detail, {
+        activeWorkflowId: () =>
+          useWorkflowStore.getState().activeWorkflowId,
+        loadWorkflowContext: (workflowId) =>
+          useWorkflowStore
+            .getState()
+            .ensureWorkflowMemoryContext(workflowId),
+        isCurrent: () => generation === memoryNavigationGeneration.current,
+        openMemory: (memoryId) => {
+          setMemoriesFocusId(memoryId);
+          setMemoriesMode("memories");
+          setSuggestionsFocusRunId(null);
+          setMemoriesOpen(true);
+        },
+      });
     };
     const openSuggestions = (event: Event) => {
+      cancelPendingMemoryNavigation();
       const runId =
         (event as CustomEvent<{ runId?: string }>).detail?.runId ?? null;
       setMemoriesFocusId(null);
@@ -369,6 +406,7 @@ export function WorkflowCanvas() {
       setMemoriesOpen(true);
     };
     const openSettings = (event: Event) => {
+      cancelPendingMemoryNavigation();
       const section = (
         event as CustomEvent<{ section?: SettingsSectionId }>
       ).detail?.section;
@@ -377,10 +415,12 @@ export function WorkflowCanvas() {
       setMemoriesOpen(false);
     };
     const openSchedules = () => {
+      cancelPendingMemoryNavigation();
       setView("schedules");
       setSchedulesTick((tick) => tick + 1);
     };
     const renameWorkflow = () => {
+      cancelPendingMemoryNavigation();
       const { activeWorkflowId: id, workflows: list } =
         useWorkflowStore.getState();
       if (!id) {
@@ -428,9 +468,10 @@ export function WorkflowCanvas() {
         ?.workflowId;
       if (!workflowId) return;
       setView("canvas");
-      void selectWorkflow(workflowId);
+      void selectWorkflowFromUi(workflowId);
     };
     const openActivity = () => {
+      cancelPendingMemoryNavigation();
       setView("canvas");
       openRunPanel(null);
     };
@@ -446,13 +487,30 @@ export function WorkflowCanvas() {
       setView("canvas");
       setMemoriesOpen(false);
       void (async () => {
-        await selectWorkflow(detail.workflowId!);
+        await selectWorkflowFromUi(detail.workflowId!);
         openOutput({
           title: detail.title || "Final output",
           body: detail.body!,
           nodeId: null,
         });
       })();
+    };
+    const openShare = (event: Event) => {
+      const requestedId = (event as CustomEvent<{ workflowId?: string }>).detail?.workflowId;
+      const id = requestedId ?? useWorkflowStore.getState().activeWorkflowId;
+      if (!id) {
+        window.alert("Select a workflow first.");
+        return;
+      }
+      setView("canvas");
+      if (requestedId && requestedId !== useWorkflowStore.getState().activeWorkflowId) {
+        void selectWorkflowFromUi(requestedId).then(() =>
+          setShareWorkflowId(requestedId),
+        );
+      } else {
+        cancelPendingMemoryNavigation();
+        setShareWorkflowId(id);
+      }
     };
     window.addEventListener("alfred:open-schedule", openSchedule);
     window.addEventListener("alfred:delete-workflow", openDelete);
@@ -467,7 +525,9 @@ export function WorkflowCanvas() {
     window.addEventListener("alfred:open-workflow", openWorkflow);
     window.addEventListener("alfred:open-activity", openActivity);
     window.addEventListener("alfred:open-run-output", openRunOutput);
+    window.addEventListener("alfred:share-workflow", openShare);
     return () => {
+      memoryNavigationGeneration.current += 1;
       window.removeEventListener("alfred:open-schedule", openSchedule);
       window.removeEventListener("alfred:delete-workflow", openDelete);
       window.removeEventListener("alfred:open-memories", openMemories);
@@ -481,6 +541,7 @@ export function WorkflowCanvas() {
       window.removeEventListener("alfred:open-workflow", openWorkflow);
       window.removeEventListener("alfred:open-activity", openActivity);
       window.removeEventListener("alfred:open-run-output", openRunOutput);
+      window.removeEventListener("alfred:share-workflow", openShare);
     };
   }, []);
 
@@ -544,9 +605,15 @@ export function WorkflowCanvas() {
           if (runPanelOpen) closeRunPanel();
           else openRunPanel(null);
         }}
-        onSelectTab={(id) => void selectWorkflow(id)}
-        onCloseTab={(id) => void closeWorkflowTab(id)}
-        onNewTab={() => void createWorkflow()}
+        onSelectTab={(id) => void selectWorkflowFromUi(id)}
+        onCloseTab={(id) => {
+          cancelPendingMemoryNavigation();
+          void closeWorkflowTab(id);
+        }}
+        onNewTab={() => {
+          cancelPendingMemoryNavigation();
+          void createWorkflow();
+        }}
         onRenameTab={(id, name) => setRenameTarget({ id, name })}
       />
 
@@ -619,7 +686,7 @@ export function WorkflowCanvas() {
                       aria-label="New folder"
                       onClick={() => setFolderModal({ mode: "create" })}
                     >
-                      <FolderAddGlyph />
+                      <FolderPlus aria-hidden="true" strokeWidth={1.75} />
                     </button>
                   </div>
                 </div>
@@ -635,7 +702,7 @@ export function WorkflowCanvas() {
                     runningProviderByWorkflowId={runningProviderByWorkflowId}
                     onSelect={(id) => {
                       setView("canvas");
-                      void selectWorkflow(id);
+                      void selectWorkflowFromUi(id);
                     }}
                     onOpenMenu={({ id, name, x, y }) => {
                       setWorkflowMenu({ id, name, x, y });
@@ -675,7 +742,7 @@ export function WorkflowCanvas() {
             onClose={() => setView("canvas")}
             onOpenWorkflow={(id) => {
               setView("canvas");
-              void selectWorkflow(id);
+              void selectWorkflowFromUi(id);
             }}
             onEditSchedule={(id, name) => {
               setScheduleTarget({ id, name });
@@ -683,136 +750,164 @@ export function WorkflowCanvas() {
           />
         ) : (
           <>
-            <section className="canvas-pane">
-              <header className="canvas-toolbar">
-                <div className="toolbar-left">
-                  <div>
-                    <p className="status">
-                      {workflowStatusLabel}
-                    </p>
-                  </div>
-                  {error ? <span className="error">{error}</span> : null}
-                </div>
-
-                {activeWorkflowId ? (
-                  <div className="toolbar-cwd">
-                    <label
-                      htmlFor="workflow-cwd-input"
-                      className="toolbar-cwd-label"
-                      title="Working directory — agent CLIs run in this folder"
-                    >
-                      <FolderGlyph />
-                      <span>Folder</span>
-                    </label>
-                    <input
-                      id="workflow-cwd-input"
-                      type="text"
-                      className="toolbar-cwd-input user-select-text"
-                      spellCheck={false}
-                      placeholder="/path/to/project"
-                      defaultValue={activeWorkingDirectory}
-                      key={`${activeWorkflowId}:${activeWorkingDirectory}`}
-                      title={
-                        activeWorkingDirectory || "Set a working directory"
-                      }
-                      onBlur={(e) => {
-                        const next = e.target.value.trim();
-                        if (next !== activeWorkingDirectory) {
-                          void setWorkingDirectory(activeWorkflowId, next);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          (e.target as HTMLInputElement).blur();
-                        }
-                      }}
-                    />
+            <div className="workflow-workspace">
+              {resourcesOpen && activeWorkflowId && !workflowLoading ? (
+                <WorkflowResourcesPanel
+                  key={activeWorkflowId}
+                  workflowId={activeWorkflowId}
+                  workflowName={activeWorkflow?.name ?? "Workflow"}
+                  onClose={() => {
+                    toggleResources(false);
+                    document.getElementById("workflow-resources-toggle")?.focus();
+                  }}
+                  onOpenMemories={(memoryId) => {
+                    setMemoriesFocusId(memoryId ?? null);
+                    setMemoriesMode("memories");
+                    setSuggestionsFocusRunId(null);
+                    setMemoriesOpen(true);
+                  }}
+                  onOpenRunHistory={(runId) => navigateHistory({ type: "open-run", runId })}
+                />
+              ) : null}
+              <section className="canvas-pane">
+                <header className="canvas-toolbar">
+                  <div className="toolbar-left">
                     <button
+                      id="workflow-resources-toggle"
                       type="button"
-                      className="ghost toolbar-cwd-browse"
-                      title="Choose folder"
-                      aria-label="Choose working directory"
-                      onClick={() => {
-                        void chooseWorkingDirectory(activeWorkflowId);
-                      }}
+                      className="ghost resources-toggle"
+                      disabled={!activeWorkflowId || workflowLoading}
+                      aria-expanded={resourcesOpen && Boolean(activeWorkflowId)}
+                      aria-controls="workflow-resources"
+                      title={resourcesOpen ? "Close workflow resources" : "Open workflow resources"}
+                      onClick={() => toggleResources(!resourcesOpen)}
                     >
-                      …
+                      <Icon name="sidebar-simple" size={14} />
+                      Resources
                     </button>
+                    <div>
+                      <p className="status">
+                        {workflowStatusLabel}
+                      </p>
+                    </div>
+                    {error ? <span className="error">{error}</span> : null}
                   </div>
-                ) : (
-                  <div className="toolbar-cwd is-empty" aria-hidden />
-                )}
 
-                <div className="toolbar-right">
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={!activeWorkflowId}
-                    title="Inspect and organize memories"
-                    onClick={() => {
-                      setMemoriesFocusId(null);
-                      setMemoriesOpen(true);
-                    }}
-                  >
-                    Memories
-                    {memories.length > 0 ? (
-                      <span className="toolbar-count">{memories.length}</span>
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost danger"
-                    disabled={!activeWorkflowId || loading || workflowLoading}
-                    onClick={() => {
-                      if (activeWorkflowId) requestDelete(activeWorkflowId);
-                    }}
-                  >
-                    Delete
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={!activeWorkflowId || loading || workflowLoading}
-                    onClick={() => void saveActiveWorkflow()}
-                  >
-                    Save
-                  </button>
-                  {activeRun?.status === "running" ? (
+                  {activeWorkflowId ? (
+                    <div className="toolbar-cwd">
+                      <label
+                        htmlFor="workflow-cwd-input"
+                        className="toolbar-cwd-label"
+                        title="Working directory — agent CLIs run in this folder"
+                      >
+                        <FolderGlyph />
+                        <span>Folder</span>
+                      </label>
+                      <input
+                        id="workflow-cwd-input"
+                        type="text"
+                        className="toolbar-cwd-input user-select-text"
+                        spellCheck={false}
+                        placeholder="/path/to/project"
+                        defaultValue={activeWorkingDirectory}
+                        key={`${activeWorkflowId}:${activeWorkingDirectory}`}
+                        title={
+                          activeWorkingDirectory || "Set a working directory"
+                        }
+                        onBlur={(e) => {
+                          const next = e.target.value.trim();
+                          if (next !== activeWorkingDirectory) {
+                            void setWorkingDirectory(activeWorkflowId, next);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="ghost toolbar-cwd-browse"
+                        title="Choose folder"
+                        aria-label="Choose working directory"
+                        onClick={() => {
+                          void chooseWorkingDirectory(activeWorkflowId);
+                        }}
+                      >
+                        …
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="toolbar-cwd is-empty" aria-hidden />
+                  )}
+
+                  <div className="toolbar-right">
                     <button
                       type="button"
                       className="ghost danger"
-                      onClick={() => void cancelActiveRun()}
+                      disabled={!activeWorkflowId || loading || workflowLoading}
+                      onClick={() => {
+                        if (activeWorkflowId) requestDelete(activeWorkflowId);
+                      }}
                     >
-                      Stop
+                      Delete
                     </button>
-                  ) : (
                     <button
                       type="button"
-                      className="primary"
+                      className="ghost"
                       disabled={!activeWorkflowId || loading || workflowLoading}
-                      onClick={() => void runActiveWorkflow()}
+                      onClick={() => void saveActiveWorkflow()}
                     >
-                      Run
+                      Save
                     </button>
-                  )}
-                </div>
-              </header>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={!activeWorkflowId || loading || workflowLoading}
+                      onClick={() => {
+                        if (activeWorkflowId) setShareWorkflowId(activeWorkflowId);
+                      }}
+                    >
+                      Share
+                    </button>
+                    {activeRun?.status === "running" ? (
+                      <button
+                        type="button"
+                        className="ghost danger"
+                        onClick={() => void cancelActiveRun()}
+                      >
+                        Stop
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={!activeWorkflowId || loading || workflowLoading}
+                        onClick={() => void runActiveWorkflow()}
+                      >
+                        Run
+                      </button>
+                    )}
+                  </div>
+                </header>
 
-              <div className="canvas">
-                <ReactFlowProvider>
-                  <FlowEditor displayNodes={displayNodes} />
-                </ReactFlowProvider>
-                <div className="canvas-usage-dock">
-                  <AgentUsageBar
-                    workflowKey={activeWorkflowId ?? "no-workflow"}
-                    providers={usedProviders}
-                    usage={agentUsage}
-                    refreshing={usageLoading}
-                    onRefresh={() => void loadAgentUsage(usedProviders)}
-                  />
+                <div className="canvas">
+                  <ReactFlowProvider>
+                    <FlowEditor displayNodes={displayNodes} />
+                  </ReactFlowProvider>
+                  <div className="canvas-usage-dock">
+                    <AgentUsageBar
+                      workflowKey={activeWorkflowId ?? "no-workflow"}
+                      providers={usedProviders}
+                      usage={agentUsage}
+                      refreshing={usageLoading}
+                      onRefresh={() => void loadAgentUsage(usedProviders)}
+                    />
+                  </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            </div>
 
             {runPanelMounted ? <RunActivityPanel /> : null}
 
@@ -832,6 +927,7 @@ export function WorkflowCanvas() {
           navigateHistory({ type: "open-run", runId });
         }}
         onClose={() => {
+          cancelPendingMemoryNavigation();
           setMemoriesOpen(false);
           setMemoriesFocusId(null);
         }}
@@ -871,18 +967,23 @@ export function WorkflowCanvas() {
             void moveWorkflowToFolder(workflowMenu.id, folderId);
           }}
           onSchedule={() => {
-            void selectWorkflow(workflowMenu.id);
+            void selectWorkflowFromUi(workflowMenu.id);
             setScheduleTarget({
               id: workflowMenu.id,
               name: workflowMenu.name,
             });
           }}
           onTriggers={() => {
-            void selectWorkflow(workflowMenu.id);
+            void selectWorkflowFromUi(workflowMenu.id);
             setTriggersTarget({
               id: workflowMenu.id,
               name: workflowMenu.name,
             });
+          }}
+          onShare={() => {
+            const id = workflowMenu.id;
+            setWorkflowMenu(null);
+            void selectWorkflowFromUi(id).then(() => setShareWorkflowId(id));
           }}
           onDelete={() => {
             requestDelete(workflowMenu.id, workflowMenu.name);
@@ -981,6 +1082,13 @@ export function WorkflowCanvas() {
             setDeleteFolderTarget(null);
             void deleteWorkflowFolder(id);
           }}
+        />
+      ) : null}
+      {shareWorkflowId ? (
+        <ShareDialog
+          workflowId={shareWorkflowId}
+          saveBeforeShare={saveBeforeShare}
+          onClose={() => setShareWorkflowId(null)}
         />
       ) : null}
     </div>

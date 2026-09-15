@@ -455,6 +455,17 @@ impl ActionRegistry {
             .map(|registration| registration.descriptor.clone())
     }
 
+    pub(crate) fn validate_setup(
+        &self,
+        db: &Db,
+        request: ActionRequest,
+    ) -> Result<(), ActionError> {
+        let registration = self.registration(&request.provider_id, &request.action_id)?;
+        load_compatible_connection(db, &request, &registration.descriptor)?;
+        validate_request(request, &registration.descriptor)?;
+        Ok(())
+    }
+
     pub async fn execute(
         &self,
         db: &Db,
@@ -517,6 +528,56 @@ impl ActionRegistry {
         query: &str,
         page_token: Option<&str>,
     ) -> Result<ActionResourcePage, ActionError> {
+        self.list_resources_with_cache(
+            db,
+            store,
+            connection_id,
+            provider_id,
+            action_id,
+            field_key,
+            query,
+            page_token,
+            true,
+        )
+        .await
+    }
+
+    pub(crate) async fn list_resources_for_setup(
+        &self,
+        db: &Db,
+        store: Arc<dyn TokenStore>,
+        connection_id: &str,
+        provider_id: &str,
+        action_id: &str,
+        field_key: &str,
+        page_token: Option<&str>,
+    ) -> Result<ActionResourcePage, ActionError> {
+        self.list_resources_with_cache(
+            db,
+            store,
+            connection_id,
+            provider_id,
+            action_id,
+            field_key,
+            "",
+            page_token,
+            false,
+        )
+        .await
+    }
+
+    async fn list_resources_with_cache(
+        &self,
+        db: &Db,
+        store: Arc<dyn TokenStore>,
+        connection_id: &str,
+        provider_id: &str,
+        action_id: &str,
+        field_key: &str,
+        query: &str,
+        page_token: Option<&str>,
+        use_cache: bool,
+    ) -> Result<ActionResourcePage, ActionError> {
         if query.len() > MAX_RESOURCE_QUERY_BYTES
             || page_token.is_some_and(|token| token.len() > MAX_RESOURCE_PAGE_TOKEN_BYTES)
         {
@@ -549,8 +610,10 @@ impl ActionRegistry {
             query: query.into(),
             page_token: page_token.map(str::to_owned),
         };
-        if let Some(page) = self.cached_resource_page(&cache_key) {
-            return Ok(page);
+        if use_cache {
+            if let Some(page) = self.cached_resource_page(&cache_key) {
+                return Ok(page);
+            }
         }
 
         let tokens = TokenAccessCapability::load(store, connection.credential_ref.clone()).await?;
@@ -569,7 +632,9 @@ impl ActionRegistry {
             _ = cancellation.wait() => Err(ActionError::new(ActionErrorCode::Cancelled)),
         }?;
         validate_resource_page(&result, &tokens)?;
-        self.cache_resource_page(cache_key, result.clone());
+        if use_cache {
+            self.cache_resource_page(cache_key, result.clone());
+        }
         Ok(result)
     }
 

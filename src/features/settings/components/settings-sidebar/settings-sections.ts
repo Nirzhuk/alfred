@@ -7,6 +7,7 @@ export type SettingsSectionId =
   | "license-billing"
   | "native-agents"
   | "connected-apps"
+  | "sharing"
   | "data";
 
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
@@ -18,5 +19,6 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
   "license-billing": "License & Billing",
   "native-agents": "Native Agents",
   "connected-apps": "Connected apps",
+  sharing: "Shared workflows",
   data: "Data & storage",
 };

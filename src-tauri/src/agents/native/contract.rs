@@ -1,4 +1,4 @@
-use super::{NativeEvent, NativeEventLimits};
+use super::{MemoryLookupContextAllowance, NativeEvent, NativeEventLimits};
 use crate::agent_accounts::models::AgentProductId;
 use crate::agents::{AgentHarness, AgentProvider, OpaqueAgentAccountRef};
 use serde::Serialize;
@@ -29,6 +29,7 @@ pub enum NativeCapability {
     Patch,
     Mcp,
     Subagents,
+    MemoryLookup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,7 +57,9 @@ pub struct NativeCapabilities {
     pub supports_patch: bool,
     pub supports_mcp: bool,
     pub supports_subagents: bool,
+    pub supports_memory_lookup: bool,
 }
+
 
 impl Default for NativeCapabilities {
     fn default() -> Self {
@@ -75,6 +78,7 @@ impl Default for NativeCapabilities {
             supports_patch: false,
             supports_mcp: false,
             supports_subagents: false,
+            supports_memory_lookup: false,
         }
     }
 }
@@ -95,6 +99,31 @@ impl NativeCapabilities {
             NativeCapability::Patch => self.supports_patch,
             NativeCapability::Mcp => self.supports_mcp,
             NativeCapability::Subagents => self.supports_subagents,
+            NativeCapability::MemoryLookup => self.supports_memory_lookup,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLookupAvailability {
+    pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl NativeLookupAvailability {
+    pub fn available() -> Self {
+        Self {
+            available: true,
+            reason: None,
+        }
+    }
+
+    pub fn unavailable(reason: impl Into<String>) -> Self {
+        Self {
+            available: false,
+            reason: Some(reason.into()),
         }
     }
 }
@@ -155,6 +184,7 @@ pub struct NativePermissionProfile {
     pub shell: NativeApprovalPolicy,
     pub mcp: NativeApprovalPolicy,
     pub subagents: NativeApprovalPolicy,
+    pub memory_lookup: NativeApprovalPolicy,
 }
 
 impl Default for NativePermissionProfile {
@@ -164,6 +194,7 @@ impl Default for NativePermissionProfile {
             shell: NativeApprovalPolicy::Ask,
             mcp: NativeApprovalPolicy::Deny,
             subagents: NativeApprovalPolicy::Deny,
+            memory_lookup: NativeApprovalPolicy::Deny,
         }
     }
 }
@@ -176,6 +207,7 @@ pub struct NativeToolCapabilitySet {
     pub patch: bool,
     pub mcp: bool,
     pub subagents: bool,
+    pub memory_lookup: bool,
 }
 
 impl Default for NativeToolCapabilitySet {
@@ -186,6 +218,7 @@ impl Default for NativeToolCapabilitySet {
             patch: false,
             mcp: false,
             subagents: false,
+            memory_lookup: false,
         }
     }
 }
@@ -431,6 +464,30 @@ pub trait NativeAgentRuntime: Send + Sync {
         request: &NativeTurnRequest,
         host: &mut dyn NativeTurnHost,
     ) -> Result<NativeTurnOutcome, NativeRuntimeError>;
+
+    /// Reports whether this concrete registered runtime can carry Alfred's
+    /// bounded memory lookup callback and result path. A descriptor flag only
+    /// declares the protocol shape. This hook is the runtime-specific,
+    /// fail-closed availability check.
+    /// Implementations must also return unavailable when the selected model's
+    /// context bound is unknown; the host cannot synthesize a run, model
+    /// window, or provider probe merely to answer readiness.
+    fn memory_lookup_availability(&self) -> NativeLookupAvailability {
+        NativeLookupAvailability::unavailable(
+            "native runtime has no verified Alfred memory lookup transport",
+        )
+    }
+
+    /// Returns the runtime-owned, shared reservation ledger for this process.
+    /// `None` is an explicit claim that remaining model context is unknown or
+    /// cannot be reserved safely; callers must deny lookup reads in that case.
+    /// Implementations must return the same ledger object for the lifetime of
+    /// the registered runtime so reservations cover all traffic, not only
+    /// memory lookup calls.
+    fn memory_lookup_context_allowance(&self) -> Option<Arc<dyn MemoryLookupContextAllowance>> {
+        None
+    }
+
     fn cancel(&self, cancellation: &NativeCancellation) -> Result<(), NativeRuntimeError> {
         cancellation.cancel();
         Ok(())

@@ -1,0 +1,11 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Invalid literal app event",
+  "description": "A publisher connection and resource must never be retained.",
+  "graph": {"nodes": [], "edges": []},
+  "parameters": [],
+  "requirements": [],
+  "starts": [{"kind": "appEvent", "config": {"event": "slack.app_mention", "providerId": "slack", "connectionId": "publisher-connection", "filters": {"channelId": "C123"}}}]
+}

@@ -78,5 +78,14 @@
         }
       }
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "alfred-workflows"
+        ]
+      }
+    }
   }
 }

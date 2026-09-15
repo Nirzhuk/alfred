@@ -14,7 +14,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("./assets/fonts/geist-variable.woff2") format("woff2");
+  src: url("../assets/fonts/geist-variable.woff2") format("woff2");
 }
 
 @font-face {
@@ -22,7 +22,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("./assets/fonts/geist-mono-variable.woff2") format("woff2");
+  src: url("../assets/fonts/geist-mono-variable.woff2") format("woff2");
 }
 
 :root {
@@ -82,6 +82,7 @@
     0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
   /* Canvas node identity hues: header gradient tint + icon color. */
   --node-accent-input: #2563eb;
+  --node-accent-identity: #9333ea;
   --node-accent-agent: #7c3aed;
   --node-accent-custom-agent: #4f46e5;
   --node-accent-app-action: #0891b2;
@@ -97,7 +98,7 @@
   --node-accent-write-file: #16a34a;
   --node-accent-git-host: #059669;
   --canvas: linear-gradient(180deg, var(--bg-wash), transparent 45%), var(--bg);
-  --canvas-dot: rgba(16, 16, 16, 0.12);
+  --canvas-dot: rgba(16, 16, 16, 0.2);
   --menu: rgba(255, 255, 255, 0.96);
   --danger: #bb1a1e;
   --danger-strong: #a11619;
@@ -308,6 +309,7 @@
     0 1px 2px rgba(0, 0, 0, 0.35);
   /* Canvas node identity hues: header gradient tint + icon color. */
   --node-accent-input: #60a5fa;
+  --node-accent-identity: #c084fc;
   --node-accent-agent: #a78bfa;
   --node-accent-custom-agent: #818cf8;
   --node-accent-app-action: #22d3ee;
@@ -323,7 +325,7 @@
   --node-accent-write-file: #4ade80;
   --node-accent-git-host: #34d399;
   --canvas: linear-gradient(180deg, var(--bg-wash), transparent 45%), var(--bg);
-  --canvas-dot: rgba(255, 255, 255, 0.1);
+  --canvas-dot: rgba(255, 255, 255, 0.22);
   --menu: rgba(28, 28, 28, 0.96);
   --danger: #e55e5f;
   --danger-strong: #c74449;

@@ -14,6 +14,7 @@ export type MenuActions = {
   onToggleActivity: () => void;
   onFitCanvas: () => void;
   onDownloadLatest: () => void;
+  onImportWorkflow: () => void;
   onShowShortcuts: () => void;
 };
 
@@ -92,6 +93,11 @@ export async function installAppMenu(
         id: "workflow-schedule",
         text: "Schedule…",
         action: () => actions.onScheduleWorkflow(),
+      }),
+      await MenuItem.new({
+        id: "workflow-import-link",
+        text: "Import from Link…",
+        action: () => actions.onImportWorkflow(),
       }),
       await MenuItem.new({
         id: "workflow-schedules",

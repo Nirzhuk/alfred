@@ -38,8 +38,25 @@ const FOCUSABLE_SELECTOR = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "details > summary:first-of-type",
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
+
+function isTabbable(element: HTMLElement): boolean {
+  if (
+    element.tabIndex < 0 ||
+    element.matches(":disabled") ||
+    element.closest('[inert], [aria-hidden="true"]') ||
+    element.getClientRects().length === 0
+  ) return false;
+  const visibility = window.getComputedStyle(element).visibility;
+  return visibility !== "hidden" && visibility !== "collapse";
+}
+
+function modalTabStops(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    .filter(isTabbable);
+}
 
 /**
  * Shared modal shell: portal to `document.body`, backdrop dismiss, Escape,
@@ -81,9 +98,10 @@ export function Modal({
     const focusPanel = window.requestAnimationFrame(() => {
       const panel = panelRef.current;
       if (!panel || panel.contains(document.activeElement)) return;
-      const preferred =
-        panel.querySelector<HTMLElement>("[autofocus]") ??
-        panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      const autofocus = panel.querySelector<HTMLElement>("[autofocus]");
+      const preferred = autofocus && isTabbable(autofocus)
+        ? autofocus
+        : modalTabStops(panel)[0];
       (preferred ?? panel).focus();
     });
 
@@ -103,9 +121,7 @@ export function Modal({
       if (e.key !== "Tab") return;
       const panel = panelRef.current;
       if (!panel || !panel.contains(document.activeElement)) return;
-      const focusable = Array.from(
-        panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      ).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      const focusable = modalTabStops(panel);
 
       if (focusable.length === 0) {
         e.preventDefault();

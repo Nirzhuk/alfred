@@ -6,8 +6,9 @@
 
 use super::sdk_protocol::{
     empty_params, login_id_params, login_start_params, CodexSdkAccount, CodexSdkInbound,
-    CodexSdkLoginKind, CodexSdkLoginKindDto, CodexSdkLoginPrompt, CodexSdkLoginWait, CodexSdkLogout,
-    CodexSdkMethod, CodexSdkProtocol, CodexSdkProtocolError, CodexSdkResponse, CodexSdkStreamEvent,
+    CodexSdkLoginKind, CodexSdkLoginKindDto, CodexSdkLoginPrompt, CodexSdkLoginWait,
+    CodexSdkLogout, CodexSdkMethod, CodexSdkProtocol, CodexSdkProtocolError, CodexSdkResponse,
+    CodexSdkStreamEvent,
 };
 use super::{
     validate_codex_sdk_selection, CODEX_SDK_HOST_APPROVAL_BLOCKER, CODEX_SDK_RUNTIME_VERSION,
@@ -292,7 +293,13 @@ pub(crate) fn launch_codex_sdk_candidate(
     cancellation: ManagedRuntimeCancellation,
 ) -> RuntimeResult<CodexSdkConnection> {
     validate_codex_sdk_account(account, profile)?;
-    launch_codex_sdk_process(supervisor, package, profile, working_directory, cancellation)
+    launch_codex_sdk_process(
+        supervisor,
+        package,
+        profile,
+        working_directory,
+        cancellation,
+    )
 }
 
 /// First-login launch. ChatGPT OAuth has to start before any persisted
@@ -311,7 +318,13 @@ pub(crate) fn launch_codex_sdk_login(
     {
         return Err(runtime_error(CodexSdkRuntimeErrorCode::ProfileMismatch));
     }
-    launch_codex_sdk_process(supervisor, package, profile, working_directory, cancellation)
+    launch_codex_sdk_process(
+        supervisor,
+        package,
+        profile,
+        working_directory,
+        cancellation,
+    )
 }
 
 fn launch_codex_sdk_process(
@@ -464,9 +477,10 @@ impl CodexSdkConnection {
             CodexSdkMethod::LoginStart,
             login_start_params(CodexSdkLoginKind::Browser),
         )?;
-        let response = self.wait_for_response("login_start_1", CodexSdkMethod::LoginStart, timeout)?;
-        let prompt: CodexSdkLoginPrompt = super::sdk_protocol::parse_result(&response)
-            .map_err(map_protocol_error)?;
+        let response =
+            self.wait_for_response("login_start_1", CodexSdkMethod::LoginStart, timeout)?;
+        let prompt: CodexSdkLoginPrompt =
+            super::sdk_protocol::parse_result(&response).map_err(map_protocol_error)?;
         prompt
             .validate()
             .map_err(|_| runtime_error(CodexSdkRuntimeErrorCode::ProtocolRejected))?;
@@ -513,8 +527,8 @@ impl CodexSdkConnection {
                 Some(CodexSdkInbound::Response(response))
                     if response.method == CodexSdkMethod::LoginWait.as_str() =>
                 {
-                    let wait: CodexSdkLoginWait = super::sdk_protocol::parse_result(&response)
-                        .map_err(map_protocol_error)?;
+                    let wait: CodexSdkLoginWait =
+                        super::sdk_protocol::parse_result(&response).map_err(map_protocol_error)?;
                     wait.validate()
                         .map_err(|_| runtime_error(CodexSdkRuntimeErrorCode::ProtocolRejected))?;
                     if wait.login_id != login_id {
@@ -522,10 +536,11 @@ impl CodexSdkConnection {
                     }
                 }
                 Some(CodexSdkInbound::Event {
-                    event: CodexSdkStreamEvent::LoginCompleted {
-                        login_id: completed_id,
-                        success,
-                    },
+                    event:
+                        CodexSdkStreamEvent::LoginCompleted {
+                            login_id: completed_id,
+                            success,
+                        },
                     ..
                 }) => {
                     if success && completed_id == login_id {
@@ -540,8 +555,8 @@ impl CodexSdkConnection {
                 Some(CodexSdkInbound::Response(response))
                     if response.method == CodexSdkMethod::Account.as_str() =>
                 {
-                    let account: CodexSdkAccount = super::sdk_protocol::parse_result(&response)
-                        .map_err(map_protocol_error)?;
+                    let account: CodexSdkAccount =
+                        super::sdk_protocol::parse_result(&response).map_err(map_protocol_error)?;
                     account
                         .validate()
                         .map_err(|_| runtime_error(CodexSdkRuntimeErrorCode::ProtocolRejected))?;
@@ -560,13 +575,10 @@ impl CodexSdkConnection {
             return Ok(None);
         }
         self.send("account_1", CodexSdkMethod::Account, empty_params())?;
-        let response = self.wait_for_response(
-            "account_1",
-            CodexSdkMethod::Account,
-            Duration::from_secs(5),
-        )?;
-        let account: CodexSdkAccount = super::sdk_protocol::parse_result(&response)
-            .map_err(map_protocol_error)?;
+        let response =
+            self.wait_for_response("account_1", CodexSdkMethod::Account, Duration::from_secs(5))?;
+        let account: CodexSdkAccount =
+            super::sdk_protocol::parse_result(&response).map_err(map_protocol_error)?;
         account
             .validate()
             .map_err(|_| runtime_error(CodexSdkRuntimeErrorCode::ProtocolRejected))?;
@@ -775,7 +787,6 @@ fn proxy_tcp(left: TcpStream, right: TcpStream) {
         let _ = left_writer.shutdown(Shutdown::Write);
     });
 }
-
 
 pub struct CodexSdkLogoutReceipt {
     profile_ref: RuntimeProfileRef,

@@ -9,8 +9,8 @@
 //! digest or `{verified:true}` JSON never mints a sealed package selection.
 
 use super::runtime_package::{
-    PublisherVerificationScheme, RuntimePlatformPublisherEvidence, RuntimePlatformPublisherRequest,
-    RuntimePlatformPublisherVerifier, RuntimePackageErrorCode, RuntimeTargetManifest,
+    PublisherVerificationScheme, RuntimePackageErrorCode, RuntimePlatformPublisherEvidence,
+    RuntimePlatformPublisherRequest, RuntimePlatformPublisherVerifier, RuntimeTargetManifest,
 };
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::Value;
@@ -61,7 +61,8 @@ impl RuntimePlatformPublisherVerifier for AlfredEd25519PackageVerifier {
             .manifest
             .select_target(request.expectation.target())
             .map_err(|_| RuntimePackageErrorCode::PublisherUnverified)?;
-        if target.publisher_verification.scheme != PublisherVerificationScheme::PlatformPackageSignature
+        if target.publisher_verification.scheme
+            != PublisherVerificationScheme::PlatformPackageSignature
             || target.publisher_verification.publisher != OPENCODE_PUBLISHER
             || !target.publisher_verification.required
         {
@@ -171,8 +172,8 @@ fn verify_apple_developer_id_package(
         return Err(RuntimePackageErrorCode::PublisherUnverified);
     }
     let executable = request.package_root.join(&target.executable.relative_path);
-    let metadata = fs::symlink_metadata(&executable)
-        .map_err(|_| RuntimePackageErrorCode::ArtifactMissing)?;
+    let metadata =
+        fs::symlink_metadata(&executable).map_err(|_| RuntimePackageErrorCode::ArtifactMissing)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(RuntimePackageErrorCode::ArtifactInvalid);
     }
@@ -206,7 +207,8 @@ fn publisher_signed_binary(
         .map(|resource| resource.relative_path.as_str())
         .unwrap_or(target.executable.relative_path.as_str());
     let path = package_root.join(relative);
-    let metadata = fs::symlink_metadata(&path).map_err(|_| RuntimePackageErrorCode::ArtifactMissing)?;
+    let metadata =
+        fs::symlink_metadata(&path).map_err(|_| RuntimePackageErrorCode::ArtifactMissing)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(RuntimePackageErrorCode::ArtifactInvalid);
     }
@@ -296,8 +298,8 @@ struct EvidenceRecord {
 }
 
 fn parse_evidence_record(bytes: &[u8]) -> Result<EvidenceRecord, RuntimePackageErrorCode> {
-    let value: Value = serde_json::from_slice(bytes)
-        .map_err(|_| RuntimePackageErrorCode::PublisherUnverified)?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|_| RuntimePackageErrorCode::PublisherUnverified)?;
     let object = value
         .as_object()
         .ok_or(RuntimePackageErrorCode::PublisherUnverified)?;
@@ -406,7 +408,9 @@ mod tests {
         let expectation =
             RuntimePackageExpectation::for_product(AgentProductId::OpencodeGo, &target)
                 .expect("expectation");
-        let selected = manifest.select_target(expectation.target()).expect("target");
+        let selected = manifest
+            .select_target(expectation.target())
+            .expect("target");
         let payload = canonical_package_payload(
             expectation.runtime_id().as_str(),
             OPENCODE_RUNTIME_VERSION,

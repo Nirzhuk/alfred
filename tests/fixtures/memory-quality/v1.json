@@ -1,0 +1,4124 @@
+{
+  "version": "v1",
+  "evaluator_version": "memory-eval-1",
+  "policy_version": "lexical-plus-recent-v1",
+  "fixed_clock": "2026-08-18T12:00:00Z",
+  "source_types": [
+    "task",
+    "event",
+    "query"
+  ],
+  "typed_source_cases": [
+    "c01",
+    "c02",
+    "c03",
+    "c04",
+    "c05",
+    "c06",
+    "c07",
+    "c08",
+    "c09",
+    "c10",
+    "c11",
+    "c12",
+    "c13",
+    "c14",
+    "c15",
+    "c16",
+    "c17",
+    "c18",
+    "c19",
+    "c20",
+    "c21",
+    "c22",
+    "c23",
+    "c24",
+    "c25",
+    "c26",
+    "c27",
+    "c28",
+    "c29",
+    "c30",
+    "c31",
+    "c32",
+    "c33",
+    "c34",
+    "c35",
+    "c36",
+    "c37",
+    "c38",
+    "c39",
+    "c40",
+    "c41",
+    "c42",
+    "c43",
+    "c44",
+    "c45",
+    "c46",
+    "c47",
+    "c48",
+    "c49",
+    "c50"
+  ],
+  "cohorts": {
+    "lexical": [
+      "c01",
+      "c02",
+      "c03",
+      "c04",
+      "c06",
+      "c07",
+      "c16",
+      "c17",
+      "c18",
+      "c19",
+      "c20"
+    ],
+    "identifier": [
+      "c16",
+      "c17",
+      "c18",
+      "c19",
+      "c20"
+    ],
+    "paraphrase": [
+      "c05",
+      "c11"
+    ],
+    "stale_distractor": [
+      "c11",
+      "c12",
+      "c13",
+      "c14",
+      "c15"
+    ],
+    "renderer": [
+      "c07",
+      "c30",
+      "c31",
+      "c43",
+      "c45"
+    ],
+    "empty": [
+      "c08",
+      "c09",
+      "c10",
+      "c25",
+      "c41",
+      "c42",
+      "c47",
+      "c48",
+      "c49",
+      "c50"
+    ]
+  },
+  "cases": [
+    {
+      "id": "c01",
+      "category": "natural_wording",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c01",
+      "working_directory": "/fixture/c01",
+      "run_id": "run-c01",
+      "node_id": "agent",
+      "query_text": "stable rollout branch",
+      "task_question": "Which branch should receive the rollout?",
+      "expected_answer_facts": [
+        "The rollout uses the stable branch."
+      ],
+      "memories": [
+        {
+          "id": "m01",
+          "title": "Release branch",
+          "body": "The production rollout uses the stable branch.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m01"
+      ],
+      "allowed_ids": [
+        "m01"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which branch should receive the rollout?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c01 completed"
+        },
+        {
+          "kind": "query",
+          "text": "stable rollout branch"
+        }
+      ],
+      "prompt_input": "Which branch should receive the rollout?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c02",
+      "category": "natural_wording",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c02",
+      "working_directory": "/fixture/c02",
+      "run_id": "run-c02",
+      "node_id": "agent",
+      "query_text": "where checks execute",
+      "task_question": "Where do the checks execute?",
+      "expected_answer_facts": [
+        "CI executes on Linux."
+      ],
+      "memories": [
+        {
+          "id": "m02",
+          "title": "CI host",
+          "body": "CI executes on Linux.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m02"
+      ],
+      "allowed_ids": [
+        "m02"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Where do the checks execute?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c02 completed"
+        },
+        {
+          "kind": "query",
+          "text": "where checks execute"
+        }
+      ],
+      "prompt_input": "Where do the checks execute?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c03",
+      "category": "natural_wording",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c03",
+      "working_directory": "/fixture/c03",
+      "run_id": "run-c03",
+      "node_id": "agent",
+      "query_text": "preferred editor",
+      "task_question": "Which editor is preferred?",
+      "expected_answer_facts": [
+        "The preferred editor is Neovim."
+      ],
+      "memories": [
+        {
+          "id": "m03",
+          "title": "Editor preference",
+          "body": "The preferred editor is Neovim.",
+          "scope_type": "user",
+          "memory_type": "preference",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m03"
+      ],
+      "allowed_ids": [
+        "m03"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which editor is preferred?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c03 completed"
+        },
+        {
+          "kind": "query",
+          "text": "preferred editor"
+        }
+      ],
+      "prompt_input": "Which editor is preferred?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c04",
+      "category": "natural_wording",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c04",
+      "working_directory": "/fixture/c04",
+      "run_id": "run-c04",
+      "node_id": "agent",
+      "query_text": "database migration order",
+      "task_question": "What order should migrations use?",
+      "expected_answer_facts": [
+        "Migrations run before indexing."
+      ],
+      "memories": [
+        {
+          "id": "m04",
+          "title": "Migration order",
+          "body": "Migrations run before indexing.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m04"
+      ],
+      "allowed_ids": [
+        "m04"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What order should migrations use?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c04 completed"
+        },
+        {
+          "kind": "query",
+          "text": "database migration order"
+        }
+      ],
+      "prompt_input": "What order should migrations use?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c05",
+      "category": "natural_wording",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c05",
+      "working_directory": "/fixture/c05",
+      "run_id": "run-c05",
+      "node_id": "agent",
+      "query_text": "May we ship this?",
+      "task_question": "May we authorize the production change?",
+      "expected_answer_facts": [
+        "A second person must sign before shipping."
+      ],
+      "memories": [
+        {
+          "id": "m05",
+          "title": "Authentication",
+          "body": "A second person must sign before shipping.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m05"
+      ],
+      "allowed_ids": [
+        "m05"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "May we authorize the production change?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c05 completed"
+        },
+        {
+          "kind": "query",
+          "text": "May we ship this?"
+        }
+      ],
+      "prompt_input": "How does this integration authenticate?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c06",
+      "category": "natural_wording",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c06",
+      "working_directory": "/fixture/c06",
+      "run_id": "run-c06",
+      "node_id": "agent",
+      "query_text": "customer export format",
+      "task_question": "What format does the customer export use?",
+      "expected_answer_facts": [
+        "Exports use CSV."
+      ],
+      "memories": [
+        {
+          "id": "m06",
+          "title": "Export format",
+          "body": "Customer exports use CSV with UTF-8 encoding.",
+          "scope_type": "workspace",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m06"
+      ],
+      "allowed_ids": [
+        "m06"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What format does the customer export use?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c06 completed"
+        },
+        {
+          "kind": "query",
+          "text": "customer export format"
+        }
+      ],
+      "prompt_input": "What format does the customer export use?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c07",
+      "category": "natural_wording",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c07",
+      "working_directory": "/fixture/c07",
+      "run_id": "run-c07",
+      "node_id": "agent",
+      "query_text": "incident escalation contact",
+      "task_question": "Who is the incident escalation contact?",
+      "expected_answer_facts": [
+        "Escalate incidents to the on-call team."
+      ],
+      "memories": [
+        {
+          "id": "m07",
+          "title": "Incident escalation",
+          "body": "Escalate incidents to the on-call team.",
+          "scope_type": "workflow",
+          "pinned": true,
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active"
+        }
+      ],
+      "required_ids": [
+        "m07"
+      ],
+      "allowed_ids": [
+        "m07"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "pinned_ids": [
+        "m07"
+      ],
+      "explicit_selection_ids": [
+        "m07"
+      ],
+      "context_template_inputs": {
+        "node": "agent"
+      },
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Who is the incident escalation contact?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c07 completed"
+        },
+        {
+          "kind": "query",
+          "text": "incident escalation contact"
+        }
+      ],
+      "prompt_input": "Who is the incident escalation contact?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval",
+        "renderer_pinned",
+        "renderer_explicit"
+      ],
+      "renderer_required_pinned_ids": [
+        "m07"
+      ],
+      "renderer_required_explicit_ids": [
+        "m07"
+      ],
+      "renderer_allowed_pinned_ids": [
+        "m07"
+      ],
+      "renderer_allowed_explicit_ids": [
+        "m07"
+      ]
+    },
+    {
+      "id": "c08",
+      "category": "no_memory",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c08",
+      "working_directory": "/fixture/c08",
+      "run_id": "run-c08",
+      "node_id": "agent",
+      "query_text": "missing fact delta",
+      "task_question": "What is fact delta?",
+      "expected_answer_facts": [
+        "There is no stored fact delta."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact delta?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c08 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact delta"
+        }
+      ],
+      "prompt_input": "What is fact delta?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c09",
+      "category": "no_memory",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c09",
+      "working_directory": "/fixture/c09",
+      "run_id": "run-c09",
+      "node_id": "agent",
+      "query_text": "missing fact epsilon",
+      "task_question": "What is fact epsilon?",
+      "expected_answer_facts": [
+        "There is no stored fact epsilon."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact epsilon?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c09 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact epsilon"
+        }
+      ],
+      "prompt_input": "What is fact epsilon?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c10",
+      "category": "no_memory",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c10",
+      "working_directory": "/fixture/c10",
+      "run_id": "run-c10",
+      "node_id": "agent",
+      "query_text": "missing fact zeta",
+      "task_question": "What is fact zeta?",
+      "expected_answer_facts": [
+        "There is no stored fact zeta."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact zeta?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c10 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact zeta"
+        }
+      ],
+      "prompt_input": "What is fact zeta?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c11",
+      "category": "stale_distractors",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c11",
+      "working_directory": "/fixture/c11",
+      "run_id": "run-c11",
+      "node_id": "agent",
+      "query_text": "May we authorize this change? context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ  now",
+      "task_question": "May we authorize the production change after reviewing this long task context?",
+      "expected_answer_facts": [
+        "A second person must sign before shipping."
+      ],
+      "memories": [
+        {
+          "id": "m11-required",
+          "title": "Current release region",
+          "body": "A second person must sign before shipping.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-17T10:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-old",
+          "title": "Old release region",
+          "body": "An old release once used us-east-1.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d1",
+          "title": "Recent unrelated note 1",
+          "body": "Recent unrelated note 1.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T11:00:00Z",
+          "updated_at": "2026-08-18T11:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d2",
+          "title": "Recent unrelated note 2",
+          "body": "Recent unrelated note 2.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T10:00:00Z",
+          "updated_at": "2026-08-18T10:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d3",
+          "title": "Recent unrelated note 3",
+          "body": "Recent unrelated note 3.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T09:00:00Z",
+          "updated_at": "2026-08-18T09:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d4",
+          "title": "Recent unrelated note 4",
+          "body": "Recent unrelated note 4.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T08:00:00Z",
+          "updated_at": "2026-08-18T08:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d5",
+          "title": "Recent unrelated note 5",
+          "body": "Recent unrelated note 5.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T07:00:00Z",
+          "updated_at": "2026-08-18T07:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d6",
+          "title": "Recent unrelated note 6",
+          "body": "Recent unrelated note 6.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T06:00:00Z",
+          "updated_at": "2026-08-18T06:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d7",
+          "title": "Recent unrelated note 7",
+          "body": "Recent unrelated note 7.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T05:00:00Z",
+          "updated_at": "2026-08-18T05:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d8",
+          "title": "Recent unrelated note 8",
+          "body": "Recent unrelated note 8.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T04:00:00Z",
+          "updated_at": "2026-08-18T04:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d9",
+          "title": "Recent unrelated note 9",
+          "body": "Recent unrelated note 9.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T03:00:00Z",
+          "updated_at": "2026-08-18T03:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d10",
+          "title": "Recent unrelated note 10",
+          "body": "Recent unrelated note 10.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T02:00:00Z",
+          "updated_at": "2026-08-18T02:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m11-d11",
+          "title": "Recent unrelated note 11",
+          "body": "Recent unrelated note 11.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T01:00:00Z",
+          "updated_at": "2026-08-18T01:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m11-required"
+      ],
+      "allowed_ids": [
+        "m11-required"
+      ],
+      "forbidden_ids": [
+        "m11-old"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "May we authorize the production change after reviewing this long task context?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c11 completed"
+        },
+        {
+          "kind": "query",
+          "text": "May we authorize this change? context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ context λ  now"
+        }
+      ],
+      "prompt_input": "production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context production approval context Should this change be authorized?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c12",
+      "category": "stale_distractors",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c12",
+      "working_directory": "/fixture/c12",
+      "run_id": "run-c12",
+      "node_id": "agent",
+      "query_text": "support hours",
+      "task_question": "What are the support hours?",
+      "expected_answer_facts": [
+        "Support is available 09:00 to 17:00 UTC."
+      ],
+      "memories": [
+        {
+          "id": "m12-required",
+          "title": "Support hours",
+          "body": "Support is available 09:00 to 17:00 UTC.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-old",
+          "title": "Old support hours",
+          "body": "Support was once available 08:00 to 16:00 UTC.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2025-01-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d1",
+          "title": "Recent distractor 1",
+          "body": "Recent unrelated distractor 1.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T11:00:00Z",
+          "updated_at": "2026-08-18T11:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d2",
+          "title": "Recent distractor 2",
+          "body": "Recent unrelated distractor 2.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T10:00:00Z",
+          "updated_at": "2026-08-18T10:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d3",
+          "title": "Recent distractor 3",
+          "body": "Recent unrelated distractor 3.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T09:00:00Z",
+          "updated_at": "2026-08-18T09:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d4",
+          "title": "Recent distractor 4",
+          "body": "Recent unrelated distractor 4.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T08:00:00Z",
+          "updated_at": "2026-08-18T08:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d5",
+          "title": "Recent distractor 5",
+          "body": "Recent unrelated distractor 5.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T07:00:00Z",
+          "updated_at": "2026-08-18T07:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d6",
+          "title": "Recent distractor 6",
+          "body": "Recent unrelated distractor 6.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T06:00:00Z",
+          "updated_at": "2026-08-18T06:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d7",
+          "title": "Recent distractor 7",
+          "body": "Recent unrelated distractor 7.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T05:00:00Z",
+          "updated_at": "2026-08-18T05:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d8",
+          "title": "Recent distractor 8",
+          "body": "Recent unrelated distractor 8.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T04:00:00Z",
+          "updated_at": "2026-08-18T04:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d9",
+          "title": "Recent distractor 9",
+          "body": "Recent unrelated distractor 9.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T03:00:00Z",
+          "updated_at": "2026-08-18T03:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d10",
+          "title": "Recent distractor 10",
+          "body": "Recent unrelated distractor 10.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T02:00:00Z",
+          "updated_at": "2026-08-18T02:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m12-required-d11",
+          "title": "Recent distractor 11",
+          "body": "Recent unrelated distractor 11.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T01:00:00Z",
+          "updated_at": "2026-08-18T01:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m12-required"
+      ],
+      "allowed_ids": [
+        "m12-required"
+      ],
+      "forbidden_ids": [
+        "m12-old"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What are the support hours?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c12 completed"
+        },
+        {
+          "kind": "query",
+          "text": "support hours"
+        }
+      ],
+      "prompt_input": "What are the support hours?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c13",
+      "category": "stale_distractors",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c13",
+      "working_directory": "/fixture/c13",
+      "run_id": "run-c13",
+      "node_id": "agent",
+      "query_text": "primary queue",
+      "task_question": "What is the primary queue?",
+      "expected_answer_facts": [
+        "The primary queue is critical-events."
+      ],
+      "memories": [
+        {
+          "id": "m13-required",
+          "title": "Primary queue",
+          "body": "The primary queue is critical-events.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-old",
+          "title": "Retired queue",
+          "body": "The retired primary queue was default-events.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2025-02-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d1",
+          "title": "Recent distractor 1",
+          "body": "Recent unrelated distractor 1.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T11:00:00Z",
+          "updated_at": "2026-08-18T11:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d2",
+          "title": "Recent distractor 2",
+          "body": "Recent unrelated distractor 2.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T10:00:00Z",
+          "updated_at": "2026-08-18T10:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d3",
+          "title": "Recent distractor 3",
+          "body": "Recent unrelated distractor 3.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T09:00:00Z",
+          "updated_at": "2026-08-18T09:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d4",
+          "title": "Recent distractor 4",
+          "body": "Recent unrelated distractor 4.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T08:00:00Z",
+          "updated_at": "2026-08-18T08:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d5",
+          "title": "Recent distractor 5",
+          "body": "Recent unrelated distractor 5.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T07:00:00Z",
+          "updated_at": "2026-08-18T07:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d6",
+          "title": "Recent distractor 6",
+          "body": "Recent unrelated distractor 6.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T06:00:00Z",
+          "updated_at": "2026-08-18T06:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d7",
+          "title": "Recent distractor 7",
+          "body": "Recent unrelated distractor 7.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T05:00:00Z",
+          "updated_at": "2026-08-18T05:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d8",
+          "title": "Recent distractor 8",
+          "body": "Recent unrelated distractor 8.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T04:00:00Z",
+          "updated_at": "2026-08-18T04:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d9",
+          "title": "Recent distractor 9",
+          "body": "Recent unrelated distractor 9.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T03:00:00Z",
+          "updated_at": "2026-08-18T03:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d10",
+          "title": "Recent distractor 10",
+          "body": "Recent unrelated distractor 10.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T02:00:00Z",
+          "updated_at": "2026-08-18T02:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m13-required-d11",
+          "title": "Recent distractor 11",
+          "body": "Recent unrelated distractor 11.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T01:00:00Z",
+          "updated_at": "2026-08-18T01:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m13-required"
+      ],
+      "allowed_ids": [
+        "m13-required"
+      ],
+      "forbidden_ids": [
+        "m13-old"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is the primary queue?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c13 completed"
+        },
+        {
+          "kind": "query",
+          "text": "primary queue"
+        }
+      ],
+      "prompt_input": "What is the primary queue?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c14",
+      "category": "stale_distractors",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c14",
+      "working_directory": "/fixture/c14",
+      "run_id": "run-c14",
+      "node_id": "agent",
+      "query_text": "backup cadence",
+      "task_question": "How often are backups taken?",
+      "expected_answer_facts": [
+        "Backups run every six hours."
+      ],
+      "memories": [
+        {
+          "id": "m14-required",
+          "title": "Backup cadence",
+          "body": "Backups run every six hours.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-old",
+          "title": "Old backup cadence",
+          "body": "Backups previously ran once per day.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2025-03-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d1",
+          "title": "Recent distractor 1",
+          "body": "Recent unrelated distractor 1.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T11:00:00Z",
+          "updated_at": "2026-08-18T11:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d2",
+          "title": "Recent distractor 2",
+          "body": "Recent unrelated distractor 2.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T10:00:00Z",
+          "updated_at": "2026-08-18T10:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d3",
+          "title": "Recent distractor 3",
+          "body": "Recent unrelated distractor 3.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T09:00:00Z",
+          "updated_at": "2026-08-18T09:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d4",
+          "title": "Recent distractor 4",
+          "body": "Recent unrelated distractor 4.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T08:00:00Z",
+          "updated_at": "2026-08-18T08:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d5",
+          "title": "Recent distractor 5",
+          "body": "Recent unrelated distractor 5.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T07:00:00Z",
+          "updated_at": "2026-08-18T07:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d6",
+          "title": "Recent distractor 6",
+          "body": "Recent unrelated distractor 6.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T06:00:00Z",
+          "updated_at": "2026-08-18T06:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d7",
+          "title": "Recent distractor 7",
+          "body": "Recent unrelated distractor 7.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T05:00:00Z",
+          "updated_at": "2026-08-18T05:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d8",
+          "title": "Recent distractor 8",
+          "body": "Recent unrelated distractor 8.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T04:00:00Z",
+          "updated_at": "2026-08-18T04:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d9",
+          "title": "Recent distractor 9",
+          "body": "Recent unrelated distractor 9.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T03:00:00Z",
+          "updated_at": "2026-08-18T03:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d10",
+          "title": "Recent distractor 10",
+          "body": "Recent unrelated distractor 10.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T02:00:00Z",
+          "updated_at": "2026-08-18T02:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m14-required-d11",
+          "title": "Recent distractor 11",
+          "body": "Recent unrelated distractor 11.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T01:00:00Z",
+          "updated_at": "2026-08-18T01:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m14-required"
+      ],
+      "allowed_ids": [
+        "m14-required"
+      ],
+      "forbidden_ids": [
+        "m14-old"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "How often are backups taken?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c14 completed"
+        },
+        {
+          "kind": "query",
+          "text": "backup cadence"
+        }
+      ],
+      "prompt_input": "How often are backups taken?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c15",
+      "category": "stale_distractors",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c15",
+      "working_directory": "/fixture/c15",
+      "run_id": "run-c15",
+      "node_id": "agent",
+      "query_text": "default timeout",
+      "task_question": "What is the default timeout?",
+      "expected_answer_facts": [
+        "The default timeout is 45 seconds."
+      ],
+      "memories": [
+        {
+          "id": "m15-required",
+          "title": "Default timeout",
+          "body": "The default timeout is 45 seconds.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-old",
+          "title": "Old timeout",
+          "body": "The old default timeout was 90 seconds.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2025-04-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d1",
+          "title": "Recent distractor 1",
+          "body": "Recent unrelated distractor 1.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T11:00:00Z",
+          "updated_at": "2026-08-18T11:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d2",
+          "title": "Recent distractor 2",
+          "body": "Recent unrelated distractor 2.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T10:00:00Z",
+          "updated_at": "2026-08-18T10:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d3",
+          "title": "Recent distractor 3",
+          "body": "Recent unrelated distractor 3.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T09:00:00Z",
+          "updated_at": "2026-08-18T09:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d4",
+          "title": "Recent distractor 4",
+          "body": "Recent unrelated distractor 4.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T08:00:00Z",
+          "updated_at": "2026-08-18T08:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d5",
+          "title": "Recent distractor 5",
+          "body": "Recent unrelated distractor 5.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T07:00:00Z",
+          "updated_at": "2026-08-18T07:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d6",
+          "title": "Recent distractor 6",
+          "body": "Recent unrelated distractor 6.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T06:00:00Z",
+          "updated_at": "2026-08-18T06:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d7",
+          "title": "Recent distractor 7",
+          "body": "Recent unrelated distractor 7.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T05:00:00Z",
+          "updated_at": "2026-08-18T05:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d8",
+          "title": "Recent distractor 8",
+          "body": "Recent unrelated distractor 8.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T04:00:00Z",
+          "updated_at": "2026-08-18T04:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d9",
+          "title": "Recent distractor 9",
+          "body": "Recent unrelated distractor 9.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T03:00:00Z",
+          "updated_at": "2026-08-18T03:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d10",
+          "title": "Recent distractor 10",
+          "body": "Recent unrelated distractor 10.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T02:00:00Z",
+          "updated_at": "2026-08-18T02:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m15-required-d11",
+          "title": "Recent distractor 11",
+          "body": "Recent unrelated distractor 11.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T01:00:00Z",
+          "updated_at": "2026-08-18T01:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m15-required"
+      ],
+      "allowed_ids": [
+        "m15-required"
+      ],
+      "forbidden_ids": [
+        "m15-old"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is the default timeout?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c15 completed"
+        },
+        {
+          "kind": "query",
+          "text": "default timeout"
+        }
+      ],
+      "prompt_input": "What is the default timeout?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c16",
+      "category": "exact_identifier",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c16",
+      "working_directory": "/fixture/c16",
+      "run_id": "run-c16",
+      "node_id": "agent",
+      "query_text": "ALFRED-4821",
+      "task_question": "What is recorded for ALFRED-4821?",
+      "expected_answer_facts": [
+        "ALFRED-4821 tracks the import retry."
+      ],
+      "memories": [
+        {
+          "id": "m16",
+          "title": "ALFRED-4821",
+          "body": "ALFRED-4821 tracks the import retry.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m16"
+      ],
+      "allowed_ids": [
+        "m16"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is recorded for ALFRED-4821?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c16 completed"
+        },
+        {
+          "kind": "query",
+          "text": "ALFRED-4821"
+        }
+      ],
+      "prompt_input": "What is recorded for ALFRED-4821?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c17",
+      "category": "exact_identifier",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c17",
+      "working_directory": "/fixture/c17",
+      "run_id": "run-c17",
+      "node_id": "agent",
+      "query_text": "svc_9f3a",
+      "task_question": "What does svc_9f3a refer to?",
+      "expected_answer_facts": [
+        "svc_9f3a is the ingestion service."
+      ],
+      "memories": [
+        {
+          "id": "m17",
+          "title": "svc_9f3a",
+          "body": "svc_9f3a is the ingestion service.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m17"
+      ],
+      "allowed_ids": [
+        "m17"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What does svc_9f3a refer to?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c17 completed"
+        },
+        {
+          "kind": "query",
+          "text": "svc_9f3a"
+        }
+      ],
+      "prompt_input": "What does svc_9f3a refer to?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c18",
+      "category": "exact_identifier",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c18",
+      "working_directory": "/fixture/c18",
+      "run_id": "run-c18",
+      "node_id": "agent",
+      "query_text": "ERR_MEMORY_017",
+      "task_question": "What does ERR_MEMORY_017 mean?",
+      "expected_answer_facts": [
+        "ERR_MEMORY_017 means the index is unavailable."
+      ],
+      "memories": [
+        {
+          "id": "m18",
+          "title": "ERR_MEMORY_017",
+          "body": "ERR_MEMORY_017 means the index is unavailable.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m18"
+      ],
+      "allowed_ids": [
+        "m18"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What does ERR_MEMORY_017 mean?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c18 completed"
+        },
+        {
+          "kind": "query",
+          "text": "ERR_MEMORY_017"
+        }
+      ],
+      "prompt_input": "What does ERR_MEMORY_017 mean?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c19",
+      "category": "exact_identifier",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c19",
+      "working_directory": "/fixture/c19",
+      "run_id": "run-c19",
+      "node_id": "agent",
+      "query_text": "2026-Q3",
+      "task_question": "Which quarter does this decision cover?",
+      "expected_answer_facts": [
+        "The decision covers 2026-Q3."
+      ],
+      "memories": [
+        {
+          "id": "m19",
+          "title": "2026-Q3 decision",
+          "body": "The decision covers 2026-Q3.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m19"
+      ],
+      "allowed_ids": [
+        "m19"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which quarter does this decision cover?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c19 completed"
+        },
+        {
+          "kind": "query",
+          "text": "2026-Q3"
+        }
+      ],
+      "prompt_input": "Which quarter does this decision cover?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c20",
+      "category": "exact_identifier",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c20",
+      "working_directory": "/fixture/c20",
+      "run_id": "run-c20",
+      "node_id": "agent",
+      "query_text": "hash 7b1e",
+      "task_question": "What is associated with hash 7b1e?",
+      "expected_answer_facts": [
+        "Hash 7b1e identifies the approved artifact."
+      ],
+      "memories": [
+        {
+          "id": "m20",
+          "title": "Hash 7b1e",
+          "body": "Hash 7b1e identifies the approved artifact.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m20"
+      ],
+      "allowed_ids": [
+        "m20"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is associated with hash 7b1e?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c20 completed"
+        },
+        {
+          "kind": "query",
+          "text": "hash 7b1e"
+        }
+      ],
+      "prompt_input": "What is associated with hash 7b1e?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c21",
+      "category": "multilingual",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c21",
+      "working_directory": "/fixture/c21",
+      "run_id": "run-c21",
+      "node_id": "agent",
+      "query_text": "idioma de soporte",
+      "task_question": "¿Qué idioma usa soporte?",
+      "expected_answer_facts": [
+        "Soporte usa español."
+      ],
+      "memories": [
+        {
+          "id": "m21",
+          "title": "Idioma de soporte",
+          "body": "Soporte usa español.",
+          "scope_type": "user",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m21"
+      ],
+      "allowed_ids": [
+        "m21"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "¿Qué idioma usa soporte?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c21 completed"
+        },
+        {
+          "kind": "query",
+          "text": "idioma de soporte"
+        }
+      ],
+      "prompt_input": "¿Qué idioma usa soporte?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c22",
+      "category": "multilingual",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c22",
+      "working_directory": "/fixture/c22",
+      "run_id": "run-c22",
+      "node_id": "agent",
+      "query_text": "langue de déploiement",
+      "task_question": "Quelle langue faut-il utiliser ?",
+      "expected_answer_facts": [
+        "Le déploiement utilise le français."
+      ],
+      "memories": [
+        {
+          "id": "m22",
+          "title": "Langue de déploiement",
+          "body": "Le déploiement utilise le français.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m22"
+      ],
+      "allowed_ids": [
+        "m22"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Quelle langue faut-il utiliser ?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c22 completed"
+        },
+        {
+          "kind": "query",
+          "text": "langue de déploiement"
+        }
+      ],
+      "prompt_input": "Quelle langue faut-il utiliser ?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c23",
+      "category": "multilingual",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c23",
+      "working_directory": "/fixture/c23",
+      "run_id": "run-c23",
+      "node_id": "agent",
+      "query_text": "日本語の通知",
+      "task_question": "通知はどの言語ですか？",
+      "expected_answer_facts": [
+        "通知は日本語です。"
+      ],
+      "memories": [
+        {
+          "id": "m23",
+          "title": "通知言語",
+          "body": "通知は日本語です。",
+          "scope_type": "workspace",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m23"
+      ],
+      "allowed_ids": [
+        "m23"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "通知はどの言語ですか？"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c23 completed"
+        },
+        {
+          "kind": "query",
+          "text": "日本語の通知"
+        }
+      ],
+      "prompt_input": "通知はどの言語ですか？",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c24",
+      "category": "multilingual",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c24",
+      "working_directory": "/fixture/c24",
+      "run_id": "run-c24",
+      "node_id": "agent",
+      "query_text": "timezone de Madrid",
+      "task_question": "¿Qué zona horaria se usa?",
+      "expected_answer_facts": [
+        "La zona horaria es Europe/Madrid."
+      ],
+      "memories": [
+        {
+          "id": "m24",
+          "title": "Zona horaria",
+          "body": "La zona horaria es Europe/Madrid.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m24"
+      ],
+      "allowed_ids": [
+        "m24"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "¿Qué zona horaria se usa?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c24 completed"
+        },
+        {
+          "kind": "query",
+          "text": "timezone de Madrid"
+        }
+      ],
+      "prompt_input": "¿Qué zona horaria se usa?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c25",
+      "category": "no_memory",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c25",
+      "working_directory": "/fixture/c25",
+      "run_id": "run-c25",
+      "node_id": "agent",
+      "query_text": "missing fact eta",
+      "task_question": "What is fact eta?",
+      "expected_answer_facts": [
+        "There is no stored fact eta."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact eta?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c25 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact eta"
+        }
+      ],
+      "prompt_input": "What is fact eta?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c26",
+      "category": "scope_visibility",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c26",
+      "working_directory": "/fixture/c26",
+      "run_id": "run-c26",
+      "node_id": "agent",
+      "query_text": "workspace lint rule",
+      "task_question": "Which lint rule applies here?",
+      "expected_answer_facts": [
+        "The workspace requires clippy warnings as errors."
+      ],
+      "memories": [
+        {
+          "id": "m26-visible",
+          "title": "Workspace lint",
+          "body": "The workspace requires clippy warnings as errors.",
+          "scope_type": "workspace",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m26-hidden",
+          "title": "Other workflow lint",
+          "body": "The other workflow ignores warnings.",
+          "scope_type": "workflow",
+          "owner_workflow_id": "wf-other-26",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m26-visible"
+      ],
+      "allowed_ids": [
+        "m26-visible"
+      ],
+      "forbidden_ids": [
+        "m26-hidden"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which lint rule applies here?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c26 completed"
+        },
+        {
+          "kind": "query",
+          "text": "workspace lint rule"
+        }
+      ],
+      "prompt_input": "Which lint rule applies here?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c27",
+      "category": "scope_visibility",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c27",
+      "working_directory": "/fixture/c27",
+      "run_id": "run-c27",
+      "node_id": "agent",
+      "query_text": "shared user preference",
+      "task_question": "What preference is shared by the user?",
+      "expected_answer_facts": [
+        "The user prefers concise reports."
+      ],
+      "memories": [
+        {
+          "id": "m27-visible",
+          "title": "Report preference",
+          "body": "The user prefers concise reports.",
+          "scope_type": "user",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m27-other",
+          "title": "Other workflow record",
+          "body": "An unrelated workflow record.",
+          "scope_type": "workflow",
+          "owner_workflow_id": "wf-other-27",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m27-visible"
+      ],
+      "allowed_ids": [
+        "m27-visible"
+      ],
+      "forbidden_ids": [
+        "m27-other"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What preference is shared by the user?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c27 completed"
+        },
+        {
+          "kind": "query",
+          "text": "shared user preference"
+        }
+      ],
+      "prompt_input": "What preference is shared by the user?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c28",
+      "category": "scope_visibility",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c28",
+      "working_directory": "/fixture/c28",
+      "run_id": "run-c28",
+      "node_id": "agent",
+      "query_text": "linked runbook",
+      "task_question": "Which linked runbook applies?",
+      "expected_answer_facts": [
+        "The linked runbook covers rollback."
+      ],
+      "memories": [
+        {
+          "id": "m28-linked",
+          "title": "Linked rollback runbook",
+          "body": "The linked runbook covers rollback.",
+          "scope_type": "workflow",
+          "owner_workflow_id": "wf-owner-28",
+          "linked_to": "wf-c28",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m28-hidden",
+          "title": "Unlinked runbook",
+          "body": "An unlinked runbook covers backup.",
+          "scope_type": "workflow",
+          "owner_workflow_id": "wf-owner-28",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m28-linked"
+      ],
+      "allowed_ids": [
+        "m28-linked"
+      ],
+      "forbidden_ids": [
+        "m28-hidden"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which linked runbook applies?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c28 completed"
+        },
+        {
+          "kind": "query",
+          "text": "linked runbook"
+        }
+      ],
+      "prompt_input": "Which linked runbook applies?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c29",
+      "category": "scope_visibility",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c29",
+      "working_directory": "/fixture/c29",
+      "run_id": "run-c29",
+      "node_id": "agent",
+      "query_text": "workspace package manager",
+      "task_question": "Which package manager does this workspace use?",
+      "expected_answer_facts": [
+        "The workspace uses Bun."
+      ],
+      "memories": [
+        {
+          "id": "m29",
+          "title": "Workspace package manager",
+          "body": "The workspace uses Bun.",
+          "scope_type": "workspace",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m29"
+      ],
+      "allowed_ids": [
+        "m29"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which package manager does this workspace use?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c29 completed"
+        },
+        {
+          "kind": "query",
+          "text": "workspace package manager"
+        }
+      ],
+      "prompt_input": "Which package manager does this workspace use?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c30",
+      "category": "scope_visibility",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c30",
+      "working_directory": "/fixture/c30",
+      "run_id": "run-c30",
+      "node_id": "agent",
+      "query_text": "personal accessibility setting",
+      "task_question": "What accessibility setting is personal?",
+      "expected_answer_facts": [
+        "The user prefers reduced motion."
+      ],
+      "memories": [
+        {
+          "id": "m30",
+          "title": "Accessibility preference",
+          "body": "The user prefers reduced motion.",
+          "scope_type": "user",
+          "pinned": true,
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active"
+        }
+      ],
+      "required_ids": [
+        "m30"
+      ],
+      "allowed_ids": [
+        "m30"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What accessibility setting is personal?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c30 completed"
+        },
+        {
+          "kind": "query",
+          "text": "personal accessibility setting"
+        }
+      ],
+      "prompt_input": "What accessibility setting is personal?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "pinned_ids": [
+        "m30"
+      ],
+      "explicit_selection_ids": [
+        "m30"
+      ],
+      "evaluation_layers": [
+        "automatic_retrieval",
+        "renderer_pinned",
+        "renderer_explicit"
+      ],
+      "renderer_required_pinned_ids": [
+        "m30"
+      ],
+      "renderer_required_explicit_ids": [
+        "m30"
+      ],
+      "renderer_allowed_pinned_ids": [
+        "m30"
+      ],
+      "renderer_allowed_explicit_ids": [
+        "m30"
+      ]
+    },
+    {
+      "id": "c31",
+      "category": "lifecycle",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c31",
+      "working_directory": "/fixture/c31",
+      "run_id": "run-c31",
+      "node_id": "agent",
+      "query_text": "active retention policy",
+      "task_question": "What is the active retention policy?",
+      "expected_answer_facts": [
+        "Active retention is thirty days."
+      ],
+      "memories": [
+        {
+          "id": "m31-active",
+          "title": "Active retention",
+          "body": "Active retention is thirty days.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m31-expired",
+          "title": "Expired retention",
+          "body": "Expired retention was seven days.",
+          "scope_type": "workflow",
+          "expires_at": "2026-08-17T00:00:00Z",
+          "pinned": true,
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active"
+        },
+        {
+          "id": "m31-retracted",
+          "title": "Retracted retention",
+          "body": "Retracted retention was ninety days.",
+          "scope_type": "workflow",
+          "status": "retracted",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m31-active"
+      ],
+      "allowed_ids": [
+        "m31-active"
+      ],
+      "forbidden_ids": [
+        "m31-expired",
+        "m31-retracted"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is the active retention policy?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c31 completed"
+        },
+        {
+          "kind": "query",
+          "text": "active retention policy"
+        }
+      ],
+      "prompt_input": "What is the active retention policy?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "pinned_ids": [
+        "m31-expired"
+      ],
+      "explicit_selection_ids": [
+        "m31-expired"
+      ],
+      "renderer_required_pinned_ids": [],
+      "renderer_required_explicit_ids": [],
+      "evaluation_layers": [
+        "automatic_retrieval",
+        "renderer_pinned",
+        "renderer_explicit"
+      ],
+      "renderer_forbidden_pinned_ids": [
+        "m31-expired",
+        "m31-retracted"
+      ],
+      "renderer_forbidden_explicit_ids": [
+        "m31-expired",
+        "m31-retracted"
+      ]
+    },
+    {
+      "id": "c32",
+      "category": "lifecycle",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c32",
+      "working_directory": "/fixture/c32",
+      "run_id": "run-c32",
+      "node_id": "agent",
+      "query_text": "current checkpoint",
+      "task_question": "What is the current checkpoint?",
+      "expected_answer_facts": [
+        "The current checkpoint is schema review."
+      ],
+      "memories": [
+        {
+          "id": "m32-current",
+          "title": "Current checkpoint",
+          "body": "The current checkpoint is schema review.",
+          "scope_type": "workflow",
+          "last_confirmed_at": "2026-08-18T09:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m32-run",
+          "title": "Current run checkpoint",
+          "body": "A checkpoint from this run.",
+          "scope_type": "workflow",
+          "run_id": "run-c32",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m32-current"
+      ],
+      "allowed_ids": [
+        "m32-current"
+      ],
+      "forbidden_ids": [
+        "m32-run"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is the current checkpoint?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c32 completed"
+        },
+        {
+          "kind": "query",
+          "text": "current checkpoint"
+        }
+      ],
+      "prompt_input": "What is the current checkpoint?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c33",
+      "category": "lifecycle",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c33",
+      "working_directory": "/fixture/c33",
+      "run_id": "run-c33",
+      "node_id": "agent",
+      "query_text": "valid contract",
+      "task_question": "Which contract is valid?",
+      "expected_answer_facts": [
+        "The v2 contract is valid."
+      ],
+      "memories": [
+        {
+          "id": "m33-valid",
+          "title": "Valid contract",
+          "body": "The v2 contract is valid.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m33-expired",
+          "title": "Expired contract",
+          "body": "The v1 contract expired.",
+          "scope_type": "workflow",
+          "expires_at": "2026-08-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m33-valid"
+      ],
+      "allowed_ids": [
+        "m33-valid"
+      ],
+      "forbidden_ids": [
+        "m33-expired"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which contract is valid?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c33 completed"
+        },
+        {
+          "kind": "query",
+          "text": "valid contract"
+        }
+      ],
+      "prompt_input": "Which contract is valid?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c34",
+      "category": "lifecycle",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c34",
+      "working_directory": "/fixture/c34",
+      "run_id": "run-c34",
+      "node_id": "agent",
+      "query_text": "active owner",
+      "task_question": "Who is the active owner?",
+      "expected_answer_facts": [
+        "The active owner is the platform team."
+      ],
+      "memories": [
+        {
+          "id": "m34-active",
+          "title": "Active owner",
+          "body": "The active owner is the platform team.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m34-old",
+          "title": "Old owner",
+          "body": "The old owner was the growth team.",
+          "scope_type": "workflow",
+          "status": "superseded",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m34-active"
+      ],
+      "allowed_ids": [
+        "m34-active"
+      ],
+      "forbidden_ids": [
+        "m34-old"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Who is the active owner?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c34 completed"
+        },
+        {
+          "kind": "query",
+          "text": "active owner"
+        }
+      ],
+      "prompt_input": "Who is the active owner?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c35",
+      "category": "lifecycle",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c35",
+      "working_directory": "/fixture/c35",
+      "run_id": "run-c35",
+      "node_id": "agent",
+      "query_text": "unexpired exception",
+      "task_question": "Which exception remains valid?",
+      "expected_answer_facts": [
+        "The export exception remains valid until September."
+      ],
+      "memories": [
+        {
+          "id": "m35-valid",
+          "title": "Export exception",
+          "body": "The export exception remains valid until September.",
+          "scope_type": "workflow",
+          "expires_at": "2026-09-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m35-expired",
+          "title": "Old exception",
+          "body": "The old exception expired in July.",
+          "scope_type": "workflow",
+          "expires_at": "2026-07-01T00:00:00Z",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m35-valid"
+      ],
+      "allowed_ids": [
+        "m35-valid"
+      ],
+      "forbidden_ids": [
+        "m35-expired"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which exception remains valid?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c35 completed"
+        },
+        {
+          "kind": "query",
+          "text": "unexpired exception"
+        }
+      ],
+      "prompt_input": "Which exception remains valid?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c36",
+      "category": "explicit_exclusion",
+      "split": "development",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c36",
+      "working_directory": "/fixture/c36",
+      "run_id": "run-c36",
+      "node_id": "agent",
+      "query_text": "release notes",
+      "task_question": "What release note is current?",
+      "expected_answer_facts": [
+        "The release note says indexing is complete."
+      ],
+      "memories": [
+        {
+          "id": "m36-current",
+          "title": "Current release note",
+          "body": "The release note says indexing is complete.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m36-excluded",
+          "title": "Excluded release note",
+          "body": "The excluded note says indexing is pending.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m36-current"
+      ],
+      "allowed_ids": [
+        "m36-current"
+      ],
+      "forbidden_ids": [
+        "m36-excluded"
+      ],
+      "exclude_ids": [
+        "m36-excluded"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What release note is current?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c36 completed"
+        },
+        {
+          "kind": "query",
+          "text": "release notes"
+        }
+      ],
+      "prompt_input": "What release note is current?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c37",
+      "category": "explicit_exclusion",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c37",
+      "working_directory": "/fixture/c37",
+      "run_id": "run-c37",
+      "node_id": "agent",
+      "query_text": "preferred format",
+      "task_question": "Which format is preferred?",
+      "expected_answer_facts": [
+        "The preferred format is Markdown."
+      ],
+      "memories": [
+        {
+          "id": "m37-required",
+          "title": "Preferred format",
+          "body": "The preferred format is Markdown.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m37-excluded",
+          "title": "Excluded format",
+          "body": "The excluded format is HTML.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m37-required"
+      ],
+      "allowed_ids": [
+        "m37-required"
+      ],
+      "forbidden_ids": [
+        "m37-excluded"
+      ],
+      "exclude_ids": [
+        "m37-excluded"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which format is preferred?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c37 completed"
+        },
+        {
+          "kind": "query",
+          "text": "preferred format"
+        }
+      ],
+      "prompt_input": "Which format is preferred?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c38",
+      "category": "explicit_exclusion",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c38",
+      "working_directory": "/fixture/c38",
+      "run_id": "run-c38",
+      "node_id": "agent",
+      "query_text": "security review",
+      "task_question": "What passed the security review?",
+      "expected_answer_facts": [
+        "The dependency audit passed."
+      ],
+      "memories": [
+        {
+          "id": "m38-required",
+          "title": "Dependency audit",
+          "body": "The dependency audit passed.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m38-excluded",
+          "title": "Excluded audit",
+          "body": "The excluded audit failed.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m38-required"
+      ],
+      "allowed_ids": [
+        "m38-required"
+      ],
+      "forbidden_ids": [
+        "m38-excluded"
+      ],
+      "exclude_ids": [
+        "m38-excluded"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What passed the security review?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c38 completed"
+        },
+        {
+          "kind": "query",
+          "text": "security review"
+        }
+      ],
+      "prompt_input": "What passed the security review?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c39",
+      "category": "explicit_exclusion",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c39",
+      "working_directory": "/fixture/c39",
+      "run_id": "run-c39",
+      "node_id": "agent",
+      "query_text": "approved vendor",
+      "task_question": "Which vendor is approved?",
+      "expected_answer_facts": [
+        "Acme is the approved vendor."
+      ],
+      "memories": [
+        {
+          "id": "m39-required",
+          "title": "Approved vendor",
+          "body": "Acme is the approved vendor.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m39-excluded",
+          "title": "Excluded vendor",
+          "body": "Beta was rejected as a vendor.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m39-required"
+      ],
+      "allowed_ids": [
+        "m39-required"
+      ],
+      "forbidden_ids": [
+        "m39-excluded"
+      ],
+      "exclude_ids": [
+        "m39-excluded"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Which vendor is approved?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c39 completed"
+        },
+        {
+          "kind": "query",
+          "text": "approved vendor"
+        }
+      ],
+      "prompt_input": "Which vendor is approved?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c40",
+      "category": "explicit_exclusion",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c40",
+      "working_directory": "/fixture/c40",
+      "run_id": "run-c40",
+      "node_id": "agent",
+      "query_text": "current owner",
+      "task_question": "Who owns the current process?",
+      "expected_answer_facts": [
+        "The platform team owns the process."
+      ],
+      "memories": [
+        {
+          "id": "m40-required",
+          "title": "Current owner",
+          "body": "The platform team owns the process.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m40-excluded",
+          "title": "Excluded owner",
+          "body": "The growth team used to own the process.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m40-required"
+      ],
+      "allowed_ids": [
+        "m40-required"
+      ],
+      "forbidden_ids": [
+        "m40-excluded"
+      ],
+      "exclude_ids": [
+        "m40-excluded"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Who owns the current process?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c40 completed"
+        },
+        {
+          "kind": "query",
+          "text": "current owner"
+        }
+      ],
+      "prompt_input": "Who owns the current process?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c41",
+      "category": "unrelated",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c41",
+      "working_directory": "/fixture/c41",
+      "run_id": "run-c41",
+      "node_id": "agent",
+      "query_text": "quantum gardening",
+      "task_question": "Is there a memory about quantum gardening?",
+      "expected_answer_facts": [
+        "There is no relevant memory."
+      ],
+      "memories": [
+        {
+          "id": "m41-distractor",
+          "title": "Build note",
+          "body": "The build uses a local cache.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [
+        "m41-distractor"
+      ],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Is there a memory about quantum gardening?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c41 completed"
+        },
+        {
+          "kind": "query",
+          "text": "quantum gardening"
+        }
+      ],
+      "prompt_input": "Is there a memory about quantum gardening?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c42",
+      "category": "unrelated",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c42",
+      "working_directory": "/fixture/c42",
+      "run_id": "run-c42",
+      "node_id": "agent",
+      "query_text": "orchestral moonlight",
+      "task_question": "Is there a memory about orchestral moonlight?",
+      "expected_answer_facts": [
+        "There is no relevant memory."
+      ],
+      "memories": [
+        {
+          "id": "m42-distractor",
+          "title": "Test command",
+          "body": "The test command is bun test.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [
+        "m42-distractor"
+      ],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Is there a memory about orchestral moonlight?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c42 completed"
+        },
+        {
+          "kind": "query",
+          "text": "orchestral moonlight"
+        }
+      ],
+      "prompt_input": "Is there a memory about orchestral moonlight?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c43",
+      "category": "reports",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c43",
+      "working_directory": "/fixture/c43",
+      "run_id": "run-c43",
+      "node_id": "agent",
+      "query_text": "approval report",
+      "task_question": "What does the approval report record?",
+      "expected_answer_facts": [
+        "The approval report records two reviewers."
+      ],
+      "memories": [
+        {
+          "id": "m43",
+          "title": "Approval report",
+          "body": "The approval report records two reviewers.",
+          "scope_type": "workflow",
+          "memory_type": "output",
+          "pinned": true,
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active"
+        }
+      ],
+      "required_ids": [
+        "m43"
+      ],
+      "allowed_ids": [
+        "m43"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What does the approval report record?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c43 completed"
+        },
+        {
+          "kind": "query",
+          "text": "approval report"
+        }
+      ],
+      "prompt_input": "What does the approval report record?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "pinned_ids": [
+        "m43"
+      ],
+      "explicit_selection_ids": [
+        "m43"
+      ],
+      "evaluation_layers": [
+        "automatic_retrieval",
+        "renderer_pinned",
+        "renderer_explicit"
+      ],
+      "renderer_required_pinned_ids": [
+        "m43"
+      ],
+      "renderer_required_explicit_ids": [
+        "m43"
+      ],
+      "renderer_allowed_pinned_ids": [
+        "m43"
+      ],
+      "renderer_allowed_explicit_ids": [
+        "m43"
+      ]
+    },
+    {
+      "id": "c44",
+      "category": "reports",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c44",
+      "working_directory": "/fixture/c44",
+      "run_id": "run-c44",
+      "node_id": "agent",
+      "query_text": "incident report",
+      "task_question": "What does the incident report say?",
+      "expected_answer_facts": [
+        "The incident report says the queue recovered."
+      ],
+      "memories": [
+        {
+          "id": "m44",
+          "title": "Incident report",
+          "body": "The incident report says the queue recovered.",
+          "scope_type": "workflow",
+          "memory_type": "episode",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m44"
+      ],
+      "allowed_ids": [
+        "m44"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What does the incident report say?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c44 completed"
+        },
+        {
+          "kind": "query",
+          "text": "incident report"
+        }
+      ],
+      "prompt_input": "What does the incident report say?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c45",
+      "category": "duplicates_conflicts",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c45",
+      "working_directory": "/fixture/c45",
+      "run_id": "run-c45",
+      "node_id": "agent",
+      "query_text": "canonical owner",
+      "task_question": "Who is the canonical owner?",
+      "expected_answer_facts": [
+        "The canonical owner is the platform team."
+      ],
+      "memories": [
+        {
+          "id": "m45-a",
+          "title": "Canonical owner",
+          "body": "The canonical owner is the platform team.",
+          "scope_type": "workflow",
+          "confidence": 0.95,
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m45-b",
+          "title": "Conflicting owner",
+          "body": "The canonical owner is the growth team.",
+          "scope_type": "workflow",
+          "confidence": 0.4,
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m45-a"
+      ],
+      "allowed_ids": [
+        "m45-a"
+      ],
+      "forbidden_ids": [
+        "m45-b"
+      ],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Who is the canonical owner?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c45 completed"
+        },
+        {
+          "kind": "query",
+          "text": "canonical owner"
+        }
+      ],
+      "prompt_input": "Who is the canonical owner?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "explicit_selection_ids": [
+        "m45-a"
+      ],
+      "evaluation_layers": [
+        "automatic_retrieval",
+        "renderer_explicit"
+      ],
+      "renderer_required_explicit_ids": [
+        "m45-a"
+      ],
+      "renderer_allowed_explicit_ids": [
+        "m45-a"
+      ]
+    },
+    {
+      "id": "c46",
+      "category": "duplicates_conflicts",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c46",
+      "working_directory": "/fixture/c46",
+      "run_id": "run-c46",
+      "node_id": "agent",
+      "query_text": "duplicate deployment rule",
+      "task_question": "What deployment rule is canonical?",
+      "expected_answer_facts": [
+        "The canonical deployment rule requires review."
+      ],
+      "memories": [
+        {
+          "id": "m46-a",
+          "title": "Deployment rule",
+          "body": "The canonical deployment rule requires review.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        },
+        {
+          "id": "m46-b",
+          "title": "Duplicate deployment rule",
+          "body": "The canonical deployment rule requires review.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [
+        "m46-a"
+      ],
+      "allowed_ids": [
+        "m46-a",
+        "m46-b"
+      ],
+      "forbidden_ids": [],
+      "expected_empty": false,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What deployment rule is canonical?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c46 completed"
+        },
+        {
+          "kind": "query",
+          "text": "duplicate deployment rule"
+        }
+      ],
+      "prompt_input": "What deployment rule is canonical?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c47",
+      "category": "unrelated",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c47",
+      "working_directory": "/fixture/c47",
+      "run_id": "run-c47",
+      "node_id": "agent",
+      "query_text": "what is the unrelated weather",
+      "task_question": "Is weather information stored?",
+      "expected_answer_facts": [
+        "There is no relevant weather memory."
+      ],
+      "memories": [
+        {
+          "id": "m47-distractor",
+          "title": "Current build",
+          "body": "The current build is green.",
+          "scope_type": "workflow",
+          "memory_type": "fact",
+          "source": "manual",
+          "created_at": "2026-08-01T00:00:00Z",
+          "updated_at": "2026-08-10T00:00:00Z",
+          "status": "active",
+          "pinned": false
+        }
+      ],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [
+        "m47-distractor"
+      ],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "Is weather information stored?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c47 completed"
+        },
+        {
+          "kind": "query",
+          "text": "what is the unrelated weather"
+        }
+      ],
+      "prompt_input": "Is weather information stored?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c48",
+      "category": "no_memory",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c48",
+      "working_directory": "/fixture/c48",
+      "run_id": "run-c48",
+      "node_id": "agent",
+      "query_text": "missing fact alpha",
+      "task_question": "What is fact alpha?",
+      "expected_answer_facts": [
+        "There is no stored fact alpha."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact alpha?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c48 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact alpha"
+        }
+      ],
+      "prompt_input": "What is fact alpha?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c49",
+      "category": "no_memory",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c49",
+      "working_directory": "/fixture/c49",
+      "run_id": "run-c49",
+      "node_id": "agent",
+      "query_text": "missing fact beta",
+      "task_question": "What is fact beta?",
+      "expected_answer_facts": [
+        "There is no stored fact beta."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact beta?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c49 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact beta"
+        }
+      ],
+      "prompt_input": "What is fact beta?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    },
+    {
+      "id": "c50",
+      "category": "no_memory",
+      "split": "validation",
+      "layer": "automatic_retrieval",
+      "workflow_id": "wf-c50",
+      "working_directory": "/fixture/c50",
+      "run_id": "run-c50",
+      "node_id": "agent",
+      "query_text": "missing fact gamma",
+      "task_question": "What is fact gamma?",
+      "expected_answer_facts": [
+        "There is no stored fact gamma."
+      ],
+      "memories": [],
+      "required_ids": [],
+      "allowed_ids": [],
+      "forbidden_ids": [],
+      "expected_empty": true,
+      "sources": [
+        {
+          "kind": "task",
+          "text": "What is fact gamma?"
+        },
+        {
+          "kind": "event",
+          "text": "workflow run run-c50 completed"
+        },
+        {
+          "kind": "query",
+          "text": "missing fact gamma"
+        }
+      ],
+      "prompt_input": "What is fact gamma?",
+      "final_composition": {
+        "status": "deferred",
+        "plan": "048",
+        "reason": "structured final renderer not available in v1"
+      },
+      "evaluation_layers": [
+        "automatic_retrieval"
+      ]
+    }
+  ]
+}

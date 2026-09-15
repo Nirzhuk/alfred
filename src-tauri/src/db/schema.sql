@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS workflows (
   folder_id TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   memory_retrieval_enabled INTEGER NOT NULL DEFAULT 0,
+  memory_lookup_enabled INTEGER NOT NULL DEFAULT 0,
   graph_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -59,12 +60,16 @@ CREATE TABLE IF NOT EXISTS run_steps (
   created_at TEXT NOT NULL
 );
 
+-- ponytail: no CHECK on on_missed — a new policy value would need a table
+-- rebuild (SQLite can't ALTER a CHECK). Values come from the `OnMissed` enum:
+-- 'run' catches up on open, 'skip' drops the missed run, 'ask' waits for the user.
 CREATE TABLE IF NOT EXISTS schedules (
   id TEXT PRIMARY KEY NOT NULL,
   workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
   cron TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 0,
   next_run_at TEXT,
+  on_missed TEXT NOT NULL DEFAULT 'run',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -102,16 +107,27 @@ CREATE TABLE IF NOT EXISTS memories (
     )),
   source TEXT NOT NULL DEFAULT 'run'
     CHECK (source IN ('run', 'manual', 'import', 'review')),
+  provenance_state TEXT NOT NULL DEFAULT 'legacy_unknown'
+    CHECK (provenance_state IN ('legacy_unknown','manual','evidence_verified','source_removed')),
+  evidence_subject TEXT
+    CHECK (evidence_subject IS NULL OR evidence_subject IN ('user_statement','workflow_configuration','recorded_observation')),
+  evidence_is_inference INTEGER NOT NULL DEFAULT 0
+    CHECK (evidence_is_inference IN (0, 1)),
   title TEXT NOT NULL,
   body TEXT NOT NULL DEFAULT '',
   artifact_path TEXT,
+  artifact_content_digest TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
   confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
   salience INTEGER NOT NULL DEFAULT 50 CHECK (salience >= 0 AND salience <= 100),
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'superseded', 'retracted')),
+  semantic_revision INTEGER NOT NULL DEFAULT 1 CHECK (semantic_revision >= 1),
   supersedes_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+  fact_key TEXT,
+  observed_at TEXT,
   last_confirmed_at TEXT,
+  valid_from TEXT,
   expires_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -121,6 +137,104 @@ CREATE TABLE IF NOT EXISTS memories (
     OR (scope_type = 'user' AND scope_key = 'local-user')
   )
 );
+
+-- Canonical artifact verification metadata. Writers populate the complete
+-- fixed-size manifest while the body is already in memory. Legacy rows are
+-- explicit and remain unavailable to bounded lookup until reindexed safely.
+CREATE TABLE IF NOT EXISTS artifact_chunk_manifests (
+  memory_id TEXT PRIMARY KEY NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  content_digest TEXT NOT NULL,
+  digest_version INTEGER NOT NULL,
+  byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+  chunk_size INTEGER NOT NULL CHECK (chunk_size > 0),
+  chunk_count INTEGER NOT NULL CHECK (chunk_count >= 0),
+  verification_state TEXT NOT NULL CHECK (
+    verification_state IN ('verified', 'legacy_unverified')
+  ),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS artifact_chunk_digests (
+  memory_id TEXT NOT NULL REFERENCES artifact_chunk_manifests(memory_id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
+  digest TEXT NOT NULL CHECK (length(digest) = 64),
+  PRIMARY KEY (memory_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_chunk_digests_memory
+  ON artifact_chunk_digests(memory_id, chunk_index);
+
+CREATE TABLE IF NOT EXISTS output_receipts (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL,
+  step_id TEXT NOT NULL UNIQUE REFERENCES run_steps(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  save_requested INTEGER NOT NULL CHECK (save_requested IN (0, 1)),
+  pin_memory INTEGER NOT NULL CHECK (pin_memory IN (0, 1)),
+  memory_title_override TEXT NOT NULL,
+  resolved_memory_title TEXT NOT NULL,
+  as_final_result INTEGER NOT NULL CHECK (as_final_result IN (0, 1)),
+  html_report INTEGER NOT NULL CHECK (html_report IN (0, 1)),
+  include_files_changed INTEGER NOT NULL CHECK (include_files_changed IN (0, 1)),
+  state TEXT NOT NULL CHECK (state IN (
+    'not_requested', 'skipped_empty', 'pending', 'saving', 'saved', 'failed', 'deleted'
+  )),
+  storage_id TEXT UNIQUE,
+  output_sha256 TEXT,
+  artifact_required INTEGER NOT NULL DEFAULT 0 CHECK (artifact_required IN (0, 1)),
+  memory_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+  error_code TEXT CHECK (error_code IS NULL OR error_code IN (
+    'invalid_disposition', 'step_output_unavailable', 'artifact_stage_io',
+    'artifact_finalize_io', 'artifact_content_mismatch', 'database_write', 'internal'
+  )),
+  saving_started_at TEXT,
+  claim_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  PRIMARY KEY (run_id, node_id),
+  CHECK (
+    (state = 'not_requested' AND save_requested = 0 AND storage_id IS NULL
+      AND output_sha256 IS NULL AND memory_id IS NULL AND error_code IS NULL)
+    OR (state = 'skipped_empty' AND save_requested = 1 AND storage_id IS NULL
+      AND output_sha256 IS NULL AND memory_id IS NULL AND error_code IS NULL)
+    OR (state IN ('pending', 'saving') AND save_requested = 1 AND storage_id IS NOT NULL
+      AND output_sha256 IS NOT NULL AND length(output_sha256) = 64
+      AND memory_id IS NULL AND error_code IS NULL)
+    OR (state = 'saved' AND save_requested = 1 AND storage_id IS NOT NULL
+      AND output_sha256 IS NOT NULL AND length(output_sha256) = 64
+      AND memory_id IS NOT NULL AND memory_id = storage_id AND error_code IS NULL)
+    OR (state = 'failed' AND save_requested = 1 AND storage_id IS NOT NULL
+      AND output_sha256 IS NOT NULL AND length(output_sha256) = 64
+      AND memory_id IS NULL AND error_code IS NOT NULL)
+    OR (state = 'deleted' AND save_requested = 1 AND storage_id IS NOT NULL
+      AND output_sha256 IS NOT NULL AND length(output_sha256) = 64
+      AND memory_id IS NULL AND error_code IS NULL)
+  ),
+  CHECK ((state = 'deleted') = (deleted_at IS NOT NULL)),
+  CHECK (
+    (state = 'saving' AND saving_started_at IS NOT NULL AND claim_id IS NOT NULL)
+    OR (state != 'saving' AND saving_started_at IS NULL AND claim_id IS NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_output_receipts_recovery
+  ON output_receipts(state, saving_started_at, updated_at);
+CREATE INDEX IF NOT EXISTS idx_output_receipts_memory_id
+  ON output_receipts(memory_id) WHERE memory_id IS NOT NULL;
+
+-- Durable cleanup intents for output final/staging artifacts. Rows remain
+-- until checked removal (or a retained-canonical decision) is acknowledged.
+CREATE TABLE IF NOT EXISTS output_cleanup_journal (
+  storage_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL DEFAULT '',
+  generation INTEGER NOT NULL CHECK (generation > 0),
+  remove_final INTEGER NOT NULL CHECK (remove_final IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (storage_id, attempt_id)
+);
+CREATE INDEX IF NOT EXISTS idx_output_cleanup_journal_updated
+  ON output_cleanup_journal(updated_at, storage_id, attempt_id);
 
 -- Cross-workflow memory links: consumer workflow → memory owned elsewhere.
 CREATE TABLE IF NOT EXISTS memory_links (
@@ -138,11 +252,83 @@ CREATE TABLE IF NOT EXISTS run_memory_uses (
   memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
   rank INTEGER NOT NULL,
   score REAL NOT NULL,
-  reason TEXT NOT NULL CHECK (reason IN ('lexical', 'recent', 'pinned')),
+  reason TEXT NOT NULL CHECK (reason IN ('explicit', 'lexical', 'recent', 'pinned')),
   rendered_bytes INTEGER NOT NULL,
+  ranking_version TEXT NOT NULL DEFAULT 'lexical_v1',
   created_at TEXT NOT NULL,
   UNIQUE (run_id, node_id, memory_id)
 );
+
+CREATE TABLE IF NOT EXISTS run_memory_context_summaries (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL,
+  budget_bytes INTEGER NOT NULL,
+  memory_bytes INTEGER NOT NULL,
+  included_count INTEGER NOT NULL,
+  explicit_omitted_count INTEGER NOT NULL,
+  pinned_omitted_count INTEGER NOT NULL,
+  automatic_omitted_count INTEGER NOT NULL,
+  unavailable_count INTEGER NOT NULL,
+  repeated_count INTEGER NOT NULL,
+  trace_available INTEGER NOT NULL CHECK (trace_available IN (0, 1)),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, node_id)
+);
+
+-- Body-free durable lookup traces. A trace may be recorded before the
+-- runner's step UUID exists; insert_step associates it in the same commit.
+-- Source rows intentionally do not foreign-key source_id: deletion preserves
+-- the historical identity/state without retaining body or path material.
+CREATE TABLE IF NOT EXISTS memory_lookup_traces (
+  id TEXT PRIMARY KEY NOT NULL,
+  turn_id TEXT NOT NULL,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL,
+  step_id TEXT REFERENCES run_steps(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  tool TEXT NOT NULL CHECK (
+    tool IN ('memory.search', 'memory.get', 'history.search', 'history.get')
+  ),
+  retrieved_bytes INTEGER NOT NULL CHECK (retrieved_bytes >= 0),
+  returned_bytes INTEGER NOT NULL CHECK (returned_bytes >= 0),
+  classification TEXT NOT NULL CHECK (classification IN ('retrieved_data')),
+  delivery TEXT NOT NULL CHECK (
+    delivery IN (
+      'delivered',
+      'rejected_native_output_limit',
+      'rejected_context_budget',
+      'rejected_invalid_json',
+      'rejected_cancelled',
+      'rejected_timeout'
+    )
+  ),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_lookup_traces_run_node
+  ON memory_lookup_traces(run_id, node_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_lookup_traces_step
+  ON memory_lookup_traces(step_id);
+
+CREATE TABLE IF NOT EXISTS memory_lookup_trace_sources (
+  trace_id TEXT NOT NULL REFERENCES memory_lookup_traces(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  reference TEXT NOT NULL,
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('memory', 'run_step', 'evidence')),
+  source_id TEXT NOT NULL,
+  version TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (
+    state IN (
+      'current', 'historical', 'incomplete', 'unavailable', 'deleted',
+      'expired', 'retracted', 'replaced', 'unlinked'
+    )
+  ),
+  page INTEGER CHECK (page IS NULL OR page >= 0),
+  PRIMARY KEY (trace_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_lookup_trace_sources_source
+  ON memory_lookup_trace_sources(source_kind, source_id);
 
 CREATE TABLE IF NOT EXISTS schema_meta (
   key TEXT PRIMARY KEY NOT NULL,
@@ -303,6 +489,10 @@ CREATE TABLE IF NOT EXISTS memory_reviews (
     status IN ('pending','running','completed','failed','skipped')
   ),
   provider TEXT NOT NULL,
+  provider_product TEXT,
+  execution_mode TEXT,
+  capability_version TEXT,
+  restriction_contract_version TEXT,
   model TEXT,
   error_code TEXT,
   candidate_count INTEGER NOT NULL DEFAULT 0,
@@ -326,6 +516,23 @@ CREATE TABLE IF NOT EXISTS memory_candidates (
   confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
   rationale TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  candidate_revision INTEGER NOT NULL DEFAULT 1 CHECK (candidate_revision >= 1),
+  expected_target_memory_id TEXT,
+  expected_target_semantic_revision INTEGER,
+  expected_target_content_digest TEXT,
+  target_complete INTEGER CHECK (target_complete IS NULL OR target_complete IN (0, 1)),
+  fact_key TEXT,
+  observed_at TEXT,
+  last_confirmed_at TEXT,
+  valid_from TEXT,
+  expires_at TEXT,
+  possible_conflicts_json TEXT NOT NULL DEFAULT '[]',
+  curation_contract_version INTEGER NOT NULL DEFAULT 0,
+  evidence_state TEXT NOT NULL DEFAULT 'legacy_unavailable'
+    CHECK (evidence_state IN ('verified','legacy_unavailable','needs_reconfirmation','source_removed')),
+  evidence_subject TEXT CHECK (evidence_subject IN ('user_statement','workflow_configuration','recorded_observation')),
+  is_inference INTEGER NOT NULL DEFAULT 0 CHECK (is_inference IN (0, 1)),
+  claim_digest TEXT,
   status TEXT NOT NULL CHECK (
     status IN ('pending','approved','rejected','blocked')
   ),
@@ -340,6 +547,116 @@ CREATE INDEX IF NOT EXISTS idx_memory_candidates_status_workflow
 CREATE INDEX IF NOT EXISTS idx_memory_candidates_created ON memory_candidates(created_at);
 CREATE INDEX IF NOT EXISTS idx_memory_reviews_status ON memory_reviews(status);
 CREATE INDEX IF NOT EXISTS idx_memory_reviews_created ON memory_reviews(created_at);
+
+-- Revision indexes and triggers are installed by the idempotent migration
+-- after compatibility columns exist. `schema.sql` also runs against existing
+-- databases whose `CREATE TABLE IF NOT EXISTS` leaves the older table shape in
+-- place, so new-column objects cannot safely be created here.
+
+-- Original evidence is captured before prompt rendering. Candidate evidence is
+-- disposable with its queue row; approved evidence is copied to the canonical
+-- memory so clearing decided suggestions does not erase provenance.
+CREATE TABLE IF NOT EXISTS run_evidence_sources (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  step_id TEXT REFERENCES run_steps(id) ON DELETE CASCADE,
+  node_id TEXT,
+  origin TEXT NOT NULL CHECK (origin IN (
+    'authored_task','configured_workflow_instruction','external_trigger_data',
+    'host_recorded_observation','model_output','prior_memory','retrieved_historical_summary'
+  )),
+  producer_identity TEXT,
+  source_label TEXT,
+  observed_at TEXT NOT NULL,
+  normalization_version INTEGER NOT NULL,
+  normalized_text TEXT NOT NULL,
+  capture_state TEXT NOT NULL CHECK (capture_state IN ('complete','truncated','omitted')),
+  omission_reason TEXT CHECK (omission_reason IN ('run_byte_limit','sensitive_content','observation_unavailable')),
+  original_bytes INTEGER NOT NULL,
+  captured_bytes INTEGER NOT NULL,
+  content_digest TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_evidence_sources_run
+  ON run_evidence_sources(run_id, observed_at, id);
+CREATE INDEX IF NOT EXISTS idx_run_evidence_sources_step
+  ON run_evidence_sources(step_id);
+
+CREATE TABLE IF NOT EXISTS memory_candidate_evidence (
+  id TEXT PRIMARY KEY NOT NULL,
+  candidate_id TEXT NOT NULL REFERENCES memory_candidates(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  source_id TEXT REFERENCES run_evidence_sources(id) ON DELETE SET NULL,
+  fragment_id TEXT NOT NULL,
+  source_run_id TEXT NOT NULL,
+  source_step_id TEXT,
+  source_node_id TEXT,
+  origin TEXT NOT NULL,
+  producer_identity TEXT,
+  source_label TEXT,
+  quote TEXT,
+  byte_start INTEGER,
+  byte_end INTEGER,
+  normalization_version INTEGER,
+  fragment_digest TEXT,
+  source_removed INTEGER NOT NULL DEFAULT 0 CHECK (source_removed IN (0, 1)),
+  created_at TEXT NOT NULL,
+  UNIQUE (candidate_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_candidate_evidence_source
+  ON memory_candidate_evidence(source_id);
+
+CREATE TABLE IF NOT EXISTS memory_evidence (
+  id TEXT PRIMARY KEY NOT NULL,
+  memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  source_id TEXT REFERENCES run_evidence_sources(id) ON DELETE SET NULL,
+  fragment_id TEXT NOT NULL,
+  source_run_id TEXT NOT NULL,
+  source_step_id TEXT,
+  source_node_id TEXT,
+  origin TEXT NOT NULL,
+  producer_identity TEXT,
+  source_label TEXT,
+  quote TEXT,
+  byte_start INTEGER,
+  byte_end INTEGER,
+  normalization_version INTEGER,
+  fragment_digest TEXT,
+  source_removed INTEGER NOT NULL DEFAULT 0 CHECK (source_removed IN (0, 1)),
+  created_at TEXT NOT NULL,
+  UNIQUE (memory_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_evidence_source ON memory_evidence(source_id);
+
+CREATE TRIGGER IF NOT EXISTS scrub_evidence_source_before_delete
+BEFORE DELETE ON run_evidence_sources
+BEGIN
+  UPDATE memory_candidates
+     SET status = CASE WHEN status = 'pending' THEN 'blocked' ELSE status END,
+         blocked_code = CASE WHEN status = 'pending' THEN 'source_removed' ELSE blocked_code END,
+         evidence_state = 'source_removed',
+         claim_digest = NULL,
+         rationale = ''
+   WHERE id IN (
+     SELECT candidate_id FROM memory_candidate_evidence WHERE source_id = OLD.id
+   );
+  UPDATE memories
+     SET provenance_state = 'source_removed'
+   WHERE id IN (
+     SELECT memory_id FROM memory_evidence WHERE source_id = OLD.id
+   );
+  UPDATE memory_candidate_evidence
+     SET source_id = NULL, quote = NULL, byte_start = NULL, byte_end = NULL,
+         normalization_version = NULL, fragment_digest = NULL, source_removed = 1
+   WHERE source_id = OLD.id;
+  UPDATE memory_evidence
+     SET source_id = NULL, quote = NULL, byte_start = NULL, byte_end = NULL,
+         normalization_version = NULL, fragment_digest = NULL, source_removed = 1
+   WHERE source_id = OLD.id;
+END;
 
 -- Safe licensing snapshot only. The full key and Polar activation ID live
 -- together in the OS credential store under `credential_ref`.

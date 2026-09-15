@@ -83,6 +83,11 @@ impl FakeOpenCodeSidecar {
             while !thread_shutdown.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        // BSD/macOS sockets inherit the listener's nonblocking
+                        // mode; handlers rely on blocking reads with timeouts.
+                        if stream.set_nonblocking(false).is_err() {
+                            continue;
+                        }
                         let state = Arc::clone(&thread_state);
                         thread::spawn(move || handle(stream, state));
                     }
@@ -361,7 +366,6 @@ fn write_response(
     )?;
     stream.write_all(body)
 }
-
 
 pub fn fixture_go_catalog() -> Value {
     json!({

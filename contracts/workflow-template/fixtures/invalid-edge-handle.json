@@ -1,0 +1,17 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 1,
+  "minAlfredVersion": "1.0.0",
+  "title": "Invalid handle",
+  "description": "",
+  "graph": {
+    "nodes": [
+      { "id": "input", "type": "input", "data": { "label": "Input", "prompt": "Ready" }, "position": { "x": 0, "y": 0 } },
+      { "id": "output", "type": "output", "data": { "label": "Output", "asFinalResult": true }, "position": { "x": 220, "y": 0 } }
+    ],
+    "edges": [{ "id": "input-output", "source": "input", "target": "output", "sourceHandle": "" }]
+  },
+  "parameters": [],
+  "requirements": [],
+  "starts": []
+}
