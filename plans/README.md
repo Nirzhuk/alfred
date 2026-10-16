@@ -49,6 +49,40 @@ remain separate from its initial private/local Slack support.
 
 ---
 
+## Track N — Conditional connections
+
+Let a connection between two canvas steps carry a condition so a branch runs
+only when it should. Connections without a condition keep today's behavior
+exactly, so existing workflows need no migration.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 053 | Conditional connections on the workflow canvas | P1 | M | Existing canvas, workflow store, and runner graph walk | IN PROGRESS — implemented and unit-tested; desktop visual/run verification pending |
+
+[Plan 053](053-conditional-connections.md) defines the edge-level condition
+model, the three runner rules that gate execution and propagate skips, the
+`skipped` step status, the canvas popover, and the template-contract change
+that keeps shared workflows from importing with their conditions stripped. It
+adds no Condition node type, no expression language, and no failure-tolerant
+steps.
+
+---
+
+## Track O — Live workflow inspection
+
+Show the exact display-safe input a step received alongside its output while the
+workflow is still running.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| 054 | Live step inputs and outputs on the workflow canvas | P1 | L | Stable Plan 053 runner levels and existing run event bridge | IN PROGRESS — implementation/check green; desktop visual verification pending |
+
+[Plan 054](054-live-step-inputs-on-canvas.md) defines versioned runtime-input
+snapshots, live event and History parity, the tabbed node result card, the full
+step-data viewer, redaction, and concurrent-run isolation.
+
+---
+
 ## Track M — Reliable agent memory
 
 Turn the [8 September memory audit](../docs/memory-audit-2026-09-08.md) into

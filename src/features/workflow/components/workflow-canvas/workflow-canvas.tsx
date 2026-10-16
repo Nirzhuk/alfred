@@ -17,6 +17,7 @@ import {
 import { SchedulesPage } from "../schedules-page";
 import { SidebarFolderContext } from "../sidebar-folder-context";
 import { HistoryPage } from "../history-page";
+import { BuilderPage } from "../../../builder/components/builder-page";
 import {
   historyNavigation,
   navigateWorkflowMemory,
@@ -80,10 +81,12 @@ export function WorkflowCanvas() {
     selectWorkflow,
     closeWorkflowTab,
     deleteWorkflow,
+    discardUntouchedWorkflow,
     saveActiveWorkflow,
     runActiveWorkflow,
     cancelActiveRun,
     setWorkingDirectory,
+    setParallelBranches,
     loadSkills,
     loadProviderModels,
     loadAgentUsage,
@@ -107,6 +110,7 @@ export function WorkflowCanvas() {
   );
   const activeWorkingDirectory =
     activeWorkflow?.workingDirectory?.trim() ?? "";
+  const parallelBranches = activeWorkflow?.parallelBranches ?? true;
   const [showWorkflowLoading, setShowWorkflowLoading] = useState(false);
   const memoryNavigationGeneration = useRef(0);
   const cancelPendingMemoryNavigation = useCallback(() => {
@@ -237,7 +241,14 @@ export function WorkflowCanvas() {
   >(null);
   const [historyRunId, setHistoryRunId] = useState<string | null>(null);
   const [runPanelMounted, setRunPanelMounted] = useState(runPanelOpen);
-  const [view, setView] = useState<SidebarView>("canvas");
+  const [view, setSidebarView] = useState<SidebarView>("canvas");
+  const setView = useCallback((nextView: SidebarView) => {
+    if (nextView !== "canvas") {
+      const id = useWorkflowStore.getState().activeWorkflowId;
+      if (id) void discardUntouchedWorkflow(id);
+    }
+    setSidebarView(nextView);
+  }, [discardUntouchedWorkflow]);
   const [settingsSection, setSettingsSection] =
     useState<SettingsSectionId>("general");
   const [schedulesTick, setSchedulesTick] = useState(0);
@@ -612,6 +623,7 @@ export function WorkflowCanvas() {
         }}
         onNewTab={() => {
           cancelPendingMemoryNavigation();
+          setView("canvas");
           void createWorkflow();
         }}
         onRenameTab={(id, name) => setRenameTarget({ id, name })}
@@ -736,6 +748,13 @@ export function WorkflowCanvas() {
             onSelectedRunIdChange={setHistoryRunId}
             onClose={() => navigateHistory({ type: "close-history" })}
           />
+        ) : view === "builder" ? (
+          <BuilderPage
+            onOpenWorkflow={(id) => {
+              setView("canvas");
+              void selectWorkflowFromUi(id);
+            }}
+          />
         ) : view === "schedules" ? (
           <SchedulesPage
             key={schedulesTick}
@@ -843,6 +862,23 @@ export function WorkflowCanvas() {
                   )}
 
                   <div className="toolbar-right">
+                    <button
+                      type="button"
+                      className="ghost"
+                      title={
+                        parallelBranches
+                          ? "Independent branches run in parallel. Switch to sequential."
+                          : "Independent branches run one at a time. Switch to parallel."
+                      }
+                      aria-pressed={parallelBranches}
+                      disabled={!activeWorkflowId || loading || workflowLoading}
+                      onClick={() => {
+                        if (activeWorkflowId)
+                          void setParallelBranches(activeWorkflowId, !parallelBranches);
+                      }}
+                    >
+                      {parallelBranches ? "Parallel" : "Sequential"}
+                    </button>
                     <button
                       type="button"
                       className="ghost danger"

@@ -1,0 +1,43 @@
+/* Conditional connections (Plan 053). Matches the node settings body so the two
+   canvas editors read as the same surface. */
+
+.edge-condition-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow: auto;
+}
+
+.edge-condition-body > .hint {
+  margin-top: calc(var(--space-3) * -1 + var(--space-1));
+}
+
+.edge-condition-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--muted);
+}
+
+.edge-condition-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--ink-soft);
+}
+
+.edge-condition-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.edge-condition-body .field-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}

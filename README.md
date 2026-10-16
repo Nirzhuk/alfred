@@ -90,6 +90,11 @@ Schedules, file triggers, and webhooks only run while the app is open (including
 Use **Add step** or right-click the canvas to search for a node. Browse Essentials,
 Agents, Tools, and Outputs, or type a name such as “Identity” or “Script”.
 
+A new, untouched workflow is removed when you switch workflows, create another
+one, close its tab, or navigate to another app section. Rename, edit, configure,
+or explicitly save it to keep it. Existing empty workflows are not automatically
+deleted.
+
 Connect an Identity node to an agent, directly or through other steps, then
 double-click it to edit its role, personality, and standing instructions. Those
 instructions apply on every run to each connected downstream agent, including

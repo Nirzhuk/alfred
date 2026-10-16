@@ -488,7 +488,141 @@ export type WorkflowNodeData =
   | AppActionNodeData;
 
 export type WorkflowNode = Node<WorkflowNodeData>;
-export type WorkflowEdge = Edge;
+
+/**
+ * What a connection's condition compares. Every value already exists at
+ * evaluation time. Step status and exit code are deliberately absent: a failing
+ * step ends the run before downstream connections are evaluated, so a condition
+ * on them could never be true.
+ */
+export type EdgeConditionSource = "output" | "context" | "trigger";
+
+export type EdgeConditionOperator =
+  | "contains"
+  | "notContains"
+  | "equals"
+  | "notEquals"
+  | "matches"
+  | "isEmpty"
+  | "isNotEmpty";
+
+/** Operators that ignore `value` and hide its field in the editor. */
+export const UNARY_EDGE_CONDITION_OPERATORS: EdgeConditionOperator[] = [
+  "isEmpty",
+  "isNotEmpty",
+];
+
+export function isUnaryEdgeConditionOperator(
+  operator: EdgeConditionOperator,
+): boolean {
+  return UNARY_EDGE_CONDITION_OPERATORS.includes(operator);
+}
+
+/** Matches the Rust-side cap in `runner::conditions`. */
+export const MAX_EDGE_CONDITION_VALUE_BYTES = 512;
+
+/**
+ * Gate on a connection. Absent means the connection always fires, which is the
+ * behavior of every graph written before this existed.
+ */
+export type EdgeCondition = {
+  source: EdgeConditionSource;
+  operator: EdgeConditionOperator;
+  /** Ignored by `isEmpty` / `isNotEmpty`. */
+  value: string;
+  /** Text comparison case sensitivity. Absent reads as false. */
+  caseSensitive?: boolean;
+};
+
+export type WorkflowEdgeData = {
+  condition?: EdgeCondition;
+};
+
+export type WorkflowEdge = Edge<WorkflowEdgeData>;
+
+export function defaultEdgeCondition(): EdgeCondition {
+  return {
+    source: "output",
+    operator: "contains",
+    value: "",
+    caseSensitive: false,
+  };
+}
+
+const EDGE_CONDITION_SOURCES: EdgeConditionSource[] = [
+  "output",
+  "context",
+  "trigger",
+];
+
+const EDGE_CONDITION_OPERATORS: EdgeConditionOperator[] = [
+  "contains",
+  "notContains",
+  "equals",
+  "notEquals",
+  "matches",
+  "isEmpty",
+  "isNotEmpty",
+];
+
+export const EDGE_CONDITION_SOURCE_LABELS: Record<EdgeConditionSource, string> =
+  {
+    output: "Step output",
+    context: "Run context",
+    trigger: "Trigger payload",
+  };
+
+export const EDGE_CONDITION_OPERATOR_LABELS: Record<
+  EdgeConditionOperator,
+  string
+> = {
+  contains: "contains",
+  notContains: "does not contain",
+  equals: "equals",
+  notEquals: "does not equal",
+  matches: "matches regex",
+  isEmpty: "is empty",
+  isNotEmpty: "is not empty",
+};
+
+/**
+ * Read a condition off untrusted graph JSON. Returns null for anything that is
+ * not a fully valid condition, so a malformed value reads as "no condition"
+ * rather than throwing while loading a workflow.
+ */
+export function parseEdgeCondition(value: unknown): EdgeCondition | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const source = raw.source;
+  const operator = raw.operator;
+  if (!EDGE_CONDITION_SOURCES.includes(source as EdgeConditionSource)) {
+    return null;
+  }
+  if (!EDGE_CONDITION_OPERATORS.includes(operator as EdgeConditionOperator)) {
+    return null;
+  }
+  const text = typeof raw.value === "string" ? raw.value : "";
+  return {
+    source: source as EdgeConditionSource,
+    operator: operator as EdgeConditionOperator,
+    value: text.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES),
+    caseSensitive: raw.caseSensitive === true,
+  };
+}
+
+export function edgeCondition(edge: WorkflowEdge): EdgeCondition | null {
+  return parseEdgeCondition(edge.data?.condition);
+}
+
+/** Short chip text, e.g. `output contains "FAIL"`. */
+export function edgeConditionSummary(condition: EdgeCondition): string {
+  const subject = EDGE_CONDITION_SOURCE_LABELS[condition.source].toLowerCase();
+  const operator = EDGE_CONDITION_OPERATOR_LABELS[condition.operator];
+  if (isUnaryEdgeConditionOperator(condition.operator)) {
+    return `${subject} ${operator}`;
+  }
+  return `${subject} ${operator} "${condition.value}"`;
+}
 
 export type WorkflowGraph = {
   nodes: WorkflowNode[];
@@ -512,6 +646,9 @@ export type Workflow = {
   memoryRetrievalEnabled?: boolean;
   /** Permission for agents to request bounded memory lookup during a run. */
   memoryLookupEnabled: boolean;
+  /** Independent fan-out branches run concurrently; off runs them in order.
+   * Optional for older payloads — absent means parallel on. */
+  parallelBranches?: boolean;
   graph: WorkflowGraph;
   createdAt: string;
   updatedAt: string;
@@ -738,7 +875,36 @@ export type ActiveRunInfo = {
   workflowName: string;
 };
 
-export type RunStepStatus = "pending" | "running" | "completed" | "failed";
+export type RunStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  /** No incoming connection fired, so the step never ran. */
+  | "skipped";
+
+export type StepInputKind =
+  | "prompt"
+  | "context"
+  | "script"
+  | "request"
+  | "action"
+  | "notification"
+  | "file"
+  | "git"
+  | "disposition";
+
+/** Display-safe, versioned record of what a step consumed at execution time. */
+export type StepInputSnapshot = {
+  version: 1;
+  kind: StepInputKind;
+  summary: string;
+  body: unknown;
+  redacted: boolean;
+  truncated?: boolean;
+  originalBytes?: number;
+  capturedBytes?: number;
+};
 
 export type ChangedFileStatus = "created" | "modified" | "deleted" | "renamed";
 
@@ -817,6 +983,7 @@ export type RunEvent = {
     | "step_log"
     | "step_completed"
     | "step_failed"
+    | "step_skipped"
     | "completed"
     | "failed"
     | string;
@@ -825,6 +992,7 @@ export type RunEvent = {
   nodeLabel?: string | null;
   status?: string | null;
   message: string;
+  input?: StepInputSnapshot | null;
   output?: string | null;
   activity?: AgentActivity | null;
   authRequired?: AgentAuthRequired;

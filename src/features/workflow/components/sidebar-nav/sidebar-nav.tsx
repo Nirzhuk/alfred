@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
+import { Icon } from "../../../../components/icon/icon";
 
-export type SidebarView = "canvas" | "history" | "schedules" | "settings";
+export type SidebarView = "canvas" | "history" | "schedules" | "settings" | "builder";
 
 type Props = {
   view: SidebarView;
@@ -189,6 +190,12 @@ export function SidebarNav({
         label="New workflow"
         icon={<NewWorkflowIcon />}
         onClick={onNewWorkflow}
+      />
+      <NavButton
+        label="Workflow Builder"
+        icon={<Icon name="sparkle" size={18} />}
+        active={view === "builder"}
+        onClick={() => onChange("builder")}
       />
       <NavButton
         label="Activity"

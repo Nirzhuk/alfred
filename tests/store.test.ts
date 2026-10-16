@@ -270,6 +270,7 @@ describe("concurrent workflow runs", () => {
       activeNodeId: null,
       inspectedNodeId: null,
       stepStatuses: {},
+      stepInputs: {},
       stepOutputs: {},
       stepStats: {},
       runLogs: [],
@@ -299,6 +300,44 @@ describe("concurrent workflow runs", () => {
     state = useWorkflowStore.getState();
     expect(state.activeNodeId).toBe("first-node");
     expect(state.workflowRunStates.second.activeNodeId).toBe("second-node");
+  });
+
+  test("stores one immutable input snapshot in the event's workflow", () => {
+    const store = useWorkflowStore.getState();
+    store.handleRunEvent(runEvent("first", "run-first", "started"));
+    store.handleRunEvent(runEvent("second", "run-second", "started"));
+    store.handleRunEvent({
+      ...runEvent("second", "run-second", "step_input", "second-node"),
+      input: {
+        version: 1,
+        kind: "prompt",
+        summary: "Judge this debate",
+        body: "Full prompt",
+        redacted: false,
+      },
+    });
+    store.handleRunEvent({
+      ...runEvent("second", "run-second", "step_input", "second-node"),
+      input: {
+        version: 1,
+        kind: "prompt",
+        summary: "Conflicting late value",
+        body: "Wrong prompt",
+        redacted: false,
+      },
+    });
+
+    const state = useWorkflowStore.getState();
+    expect(state.stepInputs["second-node"]).toBeUndefined();
+    expect(
+      state.workflowRunStates.second.stepInputs["second-node"],
+    ).toMatchObject({
+      summary: "Judge this debate",
+      body: "Full prompt",
+    });
+    expect(
+      state.workflowRunStates.second.stepOutputs["second-node"],
+    ).toBeUndefined();
   });
 
   test("releases completed detail for background workflows that are not open", () => {

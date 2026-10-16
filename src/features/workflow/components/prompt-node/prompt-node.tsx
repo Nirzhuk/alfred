@@ -16,7 +16,7 @@ import {
 import { useWorkflowStore } from "../../store";
 import type { PromptNodeData } from "../../types";
 import { InputAttachmentList } from "../input-attachment-list";
-import { NodeOutputPreview } from "../node-output-preview";
+import { NodeRunResult } from "../node-run-result";
 
 type InputFlowNode = Node<PromptNodeData, "prompt" | "input">;
 
@@ -220,7 +220,7 @@ export function PromptNode({ id, data, selected }: NodeProps<InputFlowNode>) {
         ) : null}
       </div>
 
-        <NodeOutputPreview nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} />
       </div>
       <Handle
         className="wf-handle"

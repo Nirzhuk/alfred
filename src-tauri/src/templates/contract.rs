@@ -5,7 +5,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use uuid::Uuid;
 
 pub const FORMAT: &str = "alfred.workflow-template";
-pub const SCHEMA_VERSION: u16 = 1;
+/// Highest schema version this build writes. Version 2 added conditional
+/// connections; a template carrying one must not be read by a build that would
+/// ignore the condition and run every branch.
+pub const SCHEMA_VERSION: u16 = 2;
+/// Oldest version this build still reads. A v1 template simply has no
+/// conditions, so already-shared links keep working.
+pub const MIN_SCHEMA_VERSION: u16 = 1;
+/// The version a conditional connection requires.
+const CONDITIONAL_EDGE_SCHEMA_VERSION: u16 = 2;
 pub const MAX_BYTES: usize = 256 * 1024;
 pub const MAX_NODES: usize = 100;
 pub const MAX_EDGES: usize = 300;
@@ -46,6 +54,34 @@ pub struct TemplateNode {
     pub position: Position,
 }
 
+/// A connection's condition (Plan 053). Absent means the connection always
+/// fires. This must travel with the template: a shared workflow that arrives
+/// with its conditions stripped would run every branch unconditionally, which
+/// is a wrong workflow that looks correct.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemplateEdgeCondition {
+    pub source: String,
+    pub operator: String,
+    #[serde(default)]
+    pub value: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub case_sensitive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemplateEdgeData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<TemplateEdgeCondition>,
+}
+
+impl TemplateEdgeData {
+    fn is_empty(&self) -> bool {
+        self.condition.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateEdge {
@@ -56,7 +92,25 @@ pub struct TemplateEdge {
     pub source_handle: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_handle: Option<String>,
+    #[serde(default, skip_serializing_if = "TemplateEdgeData::is_empty")]
+    pub data: TemplateEdgeData,
 }
+
+/// Enumerated values the runner understands. An unknown value is rejected on
+/// import rather than coerced, so a template from a newer build fails loudly
+/// instead of quietly running the wrong branch.
+const EDGE_CONDITION_SOURCES: [&str; 3] = ["output", "context", "trigger"];
+const EDGE_CONDITION_OPERATORS: [&str; 7] = [
+    "contains",
+    "notContains",
+    "equals",
+    "notEquals",
+    "matches",
+    "isEmpty",
+    "isNotEmpty",
+];
+/// Matches `MAX_CONDITION_VALUE_BYTES` in `runner::conditions`.
+const MAX_EDGE_CONDITION_VALUE_BYTES: usize = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -880,12 +934,27 @@ pub fn export_workflow_with_starts(
                     .get("targetHandle")
                     .and_then(Value::as_str)
                     .map(str::to_owned),
+                data: TemplateEdgeData {
+                    condition: object
+                        .get("data")
+                        .and_then(Value::as_object)
+                        .and_then(|data| data.get("condition"))
+                        .map(template_edge_condition)
+                        .transpose()?,
+                },
             })
         })
         .collect::<Result<Vec<_>, TemplateError>>()?;
+    // Emit the lowest version that can carry this graph, so a workflow with no
+    // conditions stays readable by builds that predate them.
+    let schema_version = if template_edges.iter().any(|edge| edge.data.condition.is_some()) {
+        CONDITIONAL_EDGE_SCHEMA_VERSION
+    } else {
+        MIN_SCHEMA_VERSION
+    };
     let template = TemplateEnvelope {
         format: FORMAT.into(),
-        schema_version: SCHEMA_VERSION,
+        schema_version,
         min_alfred_version: "1.0.0".into(),
         title: title.into(),
         description: description.into(),
@@ -908,11 +977,64 @@ pub fn validate_template(template: &TemplateEnvelope) -> Result<(), TemplateErro
     validate_template_inner(template, false)
 }
 
+/// Read a condition off a workflow graph during export. Rejects anything the
+/// runner would not understand so an invalid template is never published.
+fn template_edge_condition(value: &Value) -> Result<TemplateEdgeCondition, TemplateError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| TemplateError::Invalid("edge condition must be an object".into()))?;
+    let condition = TemplateEdgeCondition {
+        source: object
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        operator: object
+            .get("operator")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        value: object
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        case_sensitive: object
+            .get("caseSensitive")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    };
+    validate_edge_condition(&condition)?;
+    Ok(condition)
+}
+
+fn validate_edge_condition(condition: &TemplateEdgeCondition) -> Result<(), TemplateError> {
+    if !EDGE_CONDITION_SOURCES.contains(&condition.source.as_str()) {
+        return Err(TemplateError::Invalid(
+            "edge condition source is not supported".into(),
+        ));
+    }
+    if !EDGE_CONDITION_OPERATORS.contains(&condition.operator.as_str()) {
+        return Err(TemplateError::Invalid(
+            "edge condition operator is not supported".into(),
+        ));
+    }
+    if condition.value.len() > MAX_EDGE_CONDITION_VALUE_BYTES {
+        return Err(TemplateError::Invalid(
+            "edge condition value is out of bounds".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_template_inner(
     template: &TemplateEnvelope,
     allow_local_refs: bool,
 ) -> Result<(), TemplateError> {
-    if template.format != FORMAT || template.schema_version != SCHEMA_VERSION {
+    if template.format != FORMAT
+        || template.schema_version < MIN_SCHEMA_VERSION
+        || template.schema_version > SCHEMA_VERSION
+    {
         return Err(TemplateError::Invalid(
             "unsupported template format or schema version".into(),
         ));
@@ -989,6 +1111,14 @@ fn validate_template_inner(
                     "edge handle is out of bounds".into(),
                 ));
             }
+        }
+        if let Some(condition) = &edge.data.condition {
+            if template.schema_version < CONDITIONAL_EDGE_SCHEMA_VERSION {
+                return Err(TemplateError::Invalid(
+                    "conditional connections require a newer template version".into(),
+                ));
+            }
+            validate_edge_condition(condition)?;
         }
         incoming
             .entry(edge.target.as_str())
@@ -2051,6 +2181,7 @@ pub fn remap_graph_ids(graph: &TemplateGraph) -> ImportGraph {
             target: ids[&edge.target].clone(),
             source_handle: edge.source_handle.clone(),
             target_handle: edge.target_handle.clone(),
+            data: edge.data.clone(),
         })
         .collect();
     ImportGraph {
@@ -2217,6 +2348,9 @@ mod tests {
             include_str!(
                 "../../../contracts/workflow-template/fixtures/invalid-numeric-requirement-name.json"
             ),
+            include_str!(
+                "../../../contracts/workflow-template/fixtures/invalid-edge-condition.json"
+            ),
         ] {
             let value: Value = serde_json::from_str(raw).unwrap();
             let result = serde_json::from_value::<TemplateEnvelope>(value).and_then(|template| {
@@ -2227,6 +2361,109 @@ mod tests {
             assert!(result.is_err());
         }
     }
+    // ---- Conditional connections (Plan 053) ----
+
+    fn conditional_fixture() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../contracts/workflow-template/fixtures/conditional-edge.json"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_conditional_template_validates_and_keeps_its_conditions() {
+        let template: TemplateEnvelope = serde_json::from_value(conditional_fixture()).unwrap();
+        validate_template(&template).unwrap();
+        let triage = template
+            .graph
+            .edges
+            .iter()
+            .find(|edge| edge.id == "agent-triage")
+            .expect("conditional edge");
+        let condition = triage.data.condition.as_ref().expect("condition");
+        assert_eq!(condition.source, "output");
+        assert_eq!(condition.operator, "matches");
+        assert_eq!(condition.value, "FAIL|error");
+    }
+
+    #[test]
+    fn conditions_survive_export_and_import() {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id":"a","type":"agent","data":{"label":"a","provider":"codex"},"position":{"x":0,"y":0}},
+                {"id":"b","type":"agent","data":{"label":"b","provider":"codex"},"position":{"x":200,"y":0}}
+            ],
+            "edges": [{
+                "id":"ab","source":"a","target":"b",
+                "data":{"condition":{"source":"output","operator":"contains","value":"FAIL","caseSensitive":true}}
+            }]
+        });
+        let exported = export_graph("x", "", &graph).unwrap();
+        let condition = exported.graph.edges[0]
+            .data
+            .condition
+            .as_ref()
+            .expect("condition survived export");
+        assert_eq!(condition.value, "FAIL");
+        assert!(condition.case_sensitive);
+
+        // Node ids are remapped on import; the condition must ride along.
+        let imported = remap_graph_ids(&exported.graph);
+        assert_eq!(
+            imported.graph.edges[0].data.condition.as_ref(),
+            Some(condition)
+        );
+    }
+
+    #[test]
+    fn a_conditional_template_declares_the_newer_schema_version() {
+        let plain = serde_json::json!({
+            "nodes": [
+                {"id":"a","type":"agent","data":{"label":"a","provider":"codex"},"position":{"x":0,"y":0}},
+                {"id":"b","type":"agent","data":{"label":"b","provider":"codex"},"position":{"x":200,"y":0}}
+            ],
+            "edges": [{"id":"ab","source":"a","target":"b"}]
+        });
+        // No conditions: still the original version, so older builds keep reading it.
+        assert_eq!(
+            export_graph("x", "", &plain).unwrap().schema_version,
+            MIN_SCHEMA_VERSION
+        );
+
+        let mut conditional = plain.clone();
+        conditional["edges"][0]["data"] = serde_json::json!({
+            "condition": {"source": "output", "operator": "isNotEmpty"}
+        });
+        assert_eq!(
+            export_graph("x", "", &conditional).unwrap().schema_version,
+            CONDITIONAL_EDGE_SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn a_condition_smuggled_into_an_older_version_is_rejected() {
+        let mut value = conditional_fixture();
+        value["schemaVersion"] = serde_json::json!(MIN_SCHEMA_VERSION);
+        let template: TemplateEnvelope = serde_json::from_value(value).unwrap();
+        assert!(validate_template(&template).is_err());
+    }
+
+    #[test]
+    fn templates_from_a_future_version_are_refused() {
+        let mut value = conditional_fixture();
+        value["schemaVersion"] = serde_json::json!(SCHEMA_VERSION + 1);
+        let template: TemplateEnvelope = serde_json::from_value(value).unwrap();
+        assert!(validate_template(&template).is_err());
+    }
+
+    #[test]
+    fn existing_version_one_templates_still_load() {
+        let template: TemplateEnvelope = serde_json::from_value(fixture()).unwrap();
+        assert_eq!(template.schema_version, MIN_SCHEMA_VERSION);
+        validate_template(&template).unwrap();
+        assert!(template.graph.edges.iter().all(|e| e.data.condition.is_none()));
+    }
+
     #[test]
     fn strips_paths_and_accounts() {
         let graph = serde_json::json!({"nodes":[{"id":"a","type":"agent","data":{"label":"a","provider":"codex","accountRef":"local"},"position":{"x":0,"y":0}}],"edges":[]});

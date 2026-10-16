@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { useWorkflowStore } from "./store";
+import { resolveCapability } from "../licensing";
 
 /**
  * Saved-workflow safety for the pro perks (Plan 008 Step 4): a workflow that
@@ -77,43 +80,56 @@ function scheduleRow() {
   return { ...SAVED_SCHEDULE, workflowName: WORKFLOW.name };
 }
 
-mock.module("./api", () => ({
-  listWorkflows: async () => [WORKFLOW],
-  listWorkflowFolders: async () => [],
-  listSchedules: async () => [scheduleRow()],
-  listMissedSchedules: async () => MISSED_RUNS,
-  resolveMissedSchedule: async (scheduleId: string, decision: string) => {
-    if (resolveFailure) throw new Error(resolveFailure);
-    resolutions.push(`${decision}:${scheduleId}`);
-  },
-  listActiveRuns: async () => [],
-  getWorkflow: async () => WORKFLOW,
-  getWorkflowSchedule: async () => SAVED_SCHEDULE,
-  listWorkflowTriggers: async (workflowId: string) =>
-    workflowId === "wf-1" ? SAVED_TRIGGERS : [],
-  webhookBaseUrl: async () => "http://127.0.0.1:8787",
-  listAppTriggerStatuses: async () => [],
-  listMemories: async () => [],
-  upsertWorkflowSchedule: async (input: unknown) => {
-    mutations.push("upsertWorkflowSchedule");
-    savedScheduleInputs.push(input);
-    return SAVED_SCHEDULE;
-  },
-  deleteWorkflowSchedule: async () => {
-    mutations.push("deleteWorkflowSchedule");
-  },
-  upsertWorkflowTrigger: async () => {
-    mutations.push("upsertWorkflowTrigger");
-    return null;
-  },
-  deleteWorkflowTrigger: async () => {
-    mutations.push("deleteWorkflowTrigger");
-  },
-}));
+let originalWindow: PropertyDescriptor | undefined;
+beforeEach(() => {
+  originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { crypto: globalThis.crypto },
+  });
+  mockIPC((command, args) => {
+    const payload = args as Record<string, unknown>;
+    switch (command) {
+      case "list_workflows": return [WORKFLOW];
+      case "list_workflow_folders": return [];
+      case "list_schedules": return [scheduleRow()];
+      case "list_missed_schedules": return MISSED_RUNS;
+      case "resolve_missed_schedule":
+        if (resolveFailure) throw new Error(resolveFailure);
+        resolutions.push(`${payload.decision}:${payload.scheduleId}`);
+        return;
+      case "list_active_runs": return [];
+      case "get_workflow": return WORKFLOW;
+      case "get_workflow_schedule": return SAVED_SCHEDULE;
+      case "list_workflow_triggers":
+        return payload.workflowId === "wf-1" ? SAVED_TRIGGERS : [];
+      case "webhook_base_url": return "http://127.0.0.1:8787";
+      case "list_app_trigger_statuses":
+      case "list_memories": return [];
+      case "upsert_workflow_schedule":
+        mutations.push("upsertWorkflowSchedule");
+        savedScheduleInputs.push(payload);
+        return SAVED_SCHEDULE;
+      case "delete_workflow_schedule":
+        mutations.push("deleteWorkflowSchedule");
+        return;
+      case "upsert_workflow_trigger":
+        mutations.push("upsertWorkflowTrigger");
+        return null;
+      case "delete_workflow_trigger":
+        mutations.push("deleteWorkflowTrigger");
+        return;
+      default: throw new Error(`Unexpected command: ${command}`);
+    }
+  });
+});
 
-// Import after the mock so the store binds the fake api.
-const { useWorkflowStore } = await import("./store");
-const { resolveCapability } = await import("../licensing");
+afterEach(() => {
+  clearMocks();
+  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+  else Reflect.deleteProperty(globalThis, "window");
+});
+
 
 describe("loading a workflow that uses pro capabilities under a locked licence", () => {
   test("the distribution-no-license cell is actually reachable", () => {

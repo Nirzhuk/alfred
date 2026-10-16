@@ -203,6 +203,9 @@ at least 28px in dense chrome and 32px for ordinary controls.
 - Use `--control-*` tokens for shared control states.
 - Use emerald only when the interface is communicating action, location,
   focus, progress, or success. Hover is neutral.
+- `--brand-alfred` and `--brand-alfred-deep` are the app-icon teal. They paint
+  only Alfred's own mustache mark (the Workflow Builder orb), never controls,
+  states, or text, and stay fixed across themes like third-party agent marks.
 - On macOS, the transparent window installs one full-window native
   `NSVisualEffectView` through [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
   with HudWindow material. The HTML roots remain transparent and add a 60%
@@ -479,6 +482,10 @@ their unused markup, helpers, and field CSS.
 - Prefer opacity and transform. Avoid animating layout during direct manipulation.
 - Looping status motion (orbit, marching dashes) may use a longer linear
   duration than the transition scale. The static rest pose must still read.
+- Rotating highlights on a non-circular shape (a rounded tile, a composer, a
+  card border) animate a registered `@property` angle inside a fixed
+  `conic-gradient`, never `transform: rotate` on the shape, so the outline
+  stays put while the light travels around it.
 - The global reduced-motion rule must remain in place. Critical state changes
   must remain understandable when animation is effectively disabled.
 

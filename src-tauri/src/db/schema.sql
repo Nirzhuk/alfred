@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS workflows (
   sort_order INTEGER NOT NULL DEFAULT 0,
   memory_retrieval_enabled INTEGER NOT NULL DEFAULT 0,
   memory_lookup_enabled INTEGER NOT NULL DEFAULT 0,
+  parallel_branches INTEGER NOT NULL DEFAULT 0,
   graph_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

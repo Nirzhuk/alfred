@@ -44,6 +44,24 @@ export async function listWorkflows(): Promise<Workflow[]> {
   return invoke("list_workflows");
 }
 
+/**
+ * Compile a connection condition's pattern with the engine that will evaluate
+ * it. JavaScript's `RegExp` is not a stand-in: it accepts look-around the
+ * runner rejects, and rejects inline flags the runner accepts. Resolves to null
+ * when the pattern is usable, or the engine's own message when it is not.
+ */
+export async function validateConditionPattern(
+  pattern: string,
+  caseSensitive: boolean,
+): Promise<string | null> {
+  try {
+    await invoke("validate_condition_pattern", { pattern, caseSensitive });
+    return null;
+  } catch (error) {
+    return typeof error === "string" ? error : "Unsupported pattern.";
+  }
+}
+
 export async function getWorkflow(id: string): Promise<Workflow | null> {
   return invoke("get_workflow", { id });
 }
@@ -65,6 +83,7 @@ export async function updateWorkflow(input: {
   workingDirectory?: string;
   memoryRetrievalEnabled?: boolean;
   memoryLookupEnabled?: boolean;
+  parallelBranches?: boolean;
   graph?: WorkflowGraph;
 }): Promise<Workflow> {
   return invoke("update_workflow", { input });

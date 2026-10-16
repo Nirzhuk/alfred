@@ -26,6 +26,7 @@ import {
   type AgentStepStats,
   type AgentUsageSnapshot,
   type AppTriggerStatus,
+  type EdgeCondition,
   type MissedSchedule,
   type OnMissed,
   type OutputMemory,
@@ -37,11 +38,12 @@ import {
   type Schedule,
   type ScheduleListItem,
   type Skill,
+  type StepInputSnapshot,
   type Trigger,
   type TriggerSource,
   type Workflow,
-  type WorkflowFolder,
   type WorkflowEdge,
+  type WorkflowFolder,
   type WorkflowNode,
   type WorkflowNodeData,
 } from "./types";
@@ -83,6 +85,7 @@ export type WorkflowRunState = {
   activeNodeId: string | null;
   inspectedNodeId: string | null;
   stepStatuses: Record<string, RunStepStatus>;
+  stepInputs: Record<string, StepInputSnapshot>;
   stepOutputs: Record<string, string>;
   stepStats: Record<string, AgentStepStats>;
   runLogs: RunLogLine[];
@@ -103,6 +106,7 @@ function emptyWorkflowRunState(
     activeNodeId: null,
     inspectedNodeId,
     stepStatuses: pendingStepStatuses(nodes),
+    stepInputs: {},
     stepOutputs: {},
     stepStats: {},
     runLogs: [],
@@ -115,6 +119,7 @@ function visibleRunFields(runState: WorkflowRunState) {
     activeNodeId: runState.activeNodeId,
     inspectedNodeId: runState.inspectedNodeId,
     stepStatuses: runState.stepStatuses,
+    stepInputs: runState.stepInputs,
     stepOutputs: runState.stepOutputs,
     stepStats: runState.stepStats,
     runLogs: runState.runLogs,
@@ -267,6 +272,8 @@ type WorkflowStore = {
   activeWorkflowId: string | null;
   /** Workflow ids currently open as titlebar tabs. */
   openWorkflowIds: string[];
+  /** Only blank workflows created in this session are eligible for cleanup. */
+  untouchedWorkflowIds: string[];
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   skills: Skill[];
@@ -294,6 +301,7 @@ type WorkflowStore = {
   activeNodeId: string | null;
   inspectedNodeId: string | null;
   stepStatuses: Record<string, RunStepStatus>;
+  stepInputs: Record<string, StepInputSnapshot>;
   stepOutputs: Record<string, string>;
   stepStats: Record<string, AgentStepStats>;
   agentUsage: AgentUsageSnapshot[];
@@ -304,6 +312,9 @@ type WorkflowStore = {
     title: string;
     body: string;
     nodeId?: string | null;
+    input?: StepInputSnapshot;
+    output?: string;
+    initialTab?: "input" | "output";
   } | null;
   loadWorkflows: () => Promise<void>;
   loadSkills: (projectRoot?: string) => Promise<void>;
@@ -345,6 +356,8 @@ type WorkflowStore = {
   ensureWorkflowMemoryContext: (id: string) => Promise<boolean>;
   closeWorkflowTab: (id: string) => Promise<void>;
   createWorkflow: (name?: string, folderId?: string | null) => Promise<void>;
+  keepWorkflow: (id: string) => void;
+  discardUntouchedWorkflow: (id: string) => Promise<boolean>;
   createWorkflowFolder: (name: string) => Promise<WorkflowFolder | null>;
   renameWorkflowFolder: (id: string, name: string) => Promise<void>;
   deleteWorkflowFolder: (id: string) => Promise<void>;
@@ -357,8 +370,9 @@ type WorkflowStore = {
   setWorkingDirectory: (id: string, workingDirectory: string) => Promise<void>;
   setMemoryRetrievalEnabled: (id: string, enabled: boolean) => Promise<void>;
   setMemoryLookupEnabled: (id: string, enabled: boolean) => Promise<boolean>;
+  setParallelBranches: (id: string, enabled: boolean) => Promise<boolean>;
   reorderWorkflows: (orderedIds: string[]) => Promise<void>;
-  deleteWorkflow: (id: string) => Promise<void>;
+  deleteWorkflow: (id: string, selectFallback?: boolean) => Promise<void>;
   saveActiveWorkflow: () => Promise<boolean>;
   runActiveWorkflow: (workflowId?: string) => Promise<void>;
   cancelActiveRun: (workflowId?: string) => Promise<void>;
@@ -368,6 +382,13 @@ type WorkflowStore = {
     title: string;
     body: string;
     nodeId?: string | null;
+  }) => void;
+  openStepData: (data: {
+    title: string;
+    nodeId: string;
+    input?: StepInputSnapshot;
+    output?: string;
+    initialTab: "input" | "output";
   }) => void;
   closeOutput: () => void;
   loadMemories: (workflowId: string) => Promise<boolean>;
@@ -404,6 +425,8 @@ type WorkflowStore = {
   onNodesChange: (changes: NodeChange<WorkflowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<WorkflowEdge>[]) => void;
   onConnect: (connection: Connection) => void;
+  setEdgeCondition: (edgeId: string, condition: EdgeCondition) => void;
+  clearEdgeCondition: (edgeId: string) => void;
   addNode: (node: WorkflowNode) => void;
   removeNode: (nodeId: string) => void;
   duplicateNode: (nodeId: string) => void;
@@ -464,7 +487,8 @@ const workflowSaves = new Map<string, Promise<boolean>>();
 
 type WorkflowPermissionField =
   | "memoryRetrievalEnabled"
-  | "memoryLookupEnabled";
+  | "memoryLookupEnabled"
+  | "parallelBranches";
 type WorkflowStoreSet = (
   partial:
     | Partial<WorkflowStore>
@@ -487,14 +511,14 @@ async function persistWorkflowPermission(
     (workflow) => workflow.id === workflowId,
   );
   if (!previous) return false;
+  get().keepWorkflow(workflowId);
 
   const key = `${workflowId}:${field}`;
   const sequence = (workflowPermissionSequences.get(key) ?? 0) + 1;
   workflowPermissionSequences.set(key, sequence);
+  // Absent `parallelBranches` means parallel on (pre-flag payloads).
   const previousValue =
-    field === "memoryLookupEnabled"
-      ? previous.memoryLookupEnabled
-      : (previous.memoryRetrievalEnabled ?? false);
+    previous[field] ?? (field === "parallelBranches");
   if (!workflowPermissionConfirmed.has(key)) {
     workflowPermissionConfirmed.set(key, previousValue);
   }
@@ -520,15 +544,12 @@ async function persistWorkflowPermission(
     }
 
     try {
-      const workflow = await api.updateWorkflow(
-        field === "memoryLookupEnabled"
-          ? { id: workflowId, memoryLookupEnabled: enabled }
-          : { id: workflowId, memoryRetrievalEnabled: enabled },
-      );
-      const persistedValue =
-        field === "memoryLookupEnabled"
-          ? workflow.memoryLookupEnabled
-          : (workflow.memoryRetrievalEnabled ?? enabled);
+      const payload: { id: string } & Partial<Record<WorkflowPermissionField, boolean>> = {
+        id: workflowId,
+      };
+      payload[field] = enabled;
+      const workflow = await api.updateWorkflow(payload);
+      const persistedValue = workflow[field] ?? enabled;
       if (typeof persistedValue !== "boolean") {
         throw new Error("invalid_workflow_permission_response");
       }
@@ -605,6 +626,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflowFolders: [],
   activeWorkflowId: null,
   openWorkflowIds: loadOpenTabs(),
+  untouchedWorkflowIds: [],
   nodes: [],
   edges: [],
   skills: [],
@@ -627,6 +649,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   activeNodeId: null,
   inspectedNodeId: null,
   stepStatuses: {},
+  stepInputs: {},
   stepOutputs: {},
   stepStats: {},
   agentUsage: [],
@@ -770,6 +793,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   saveSchedule: async (input) => {
+    get().keepWorkflow(input.workflowId);
     set({ loading: true, error: null });
     try {
       const schedule = await api.upsertWorkflowSchedule(input);
@@ -852,6 +876,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   saveTrigger: async (input) => {
+    get().keepWorkflow(input.workflowId);
     set({ loading: true, error: null });
     try {
       const trigger = await api.upsertWorkflowTrigger(input);
@@ -915,6 +940,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   selectWorkflow: async (id) => {
+    const previousId = get().activeWorkflowId;
+    if (previousId && get().dirty) get().keepWorkflow(previousId);
     const request = ++workflowSelectionSequence;
     set({
       loading: true,
@@ -935,6 +962,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           error: `Workflow not found: ${id}`,
         });
         return false;
+      }
+      if (previousId && previousId !== id) {
+        await get().discardUntouchedWorkflow(previousId);
+        if (request !== workflowSelectionSequence) return false;
       }
       const graph = workflow.graph ?? emptyGraph();
       const nodes = normalizeNodes(graph.nodes ?? []);
@@ -981,6 +1012,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   closeWorkflowTab: async (id) => {
     const { openWorkflowIds, activeWorkflowId, workflows } = get();
     if (!openWorkflowIds.includes(id)) return;
+    if (await get().discardUntouchedWorkflow(id)) {
+      if (activeWorkflowId === id && get().activeWorkflowId === null) {
+        const fallback =
+          openWorkflowIds.filter((tabId) => tabId !== id)[
+            Math.max(0, openWorkflowIds.indexOf(id) - 1)
+          ] ?? get().workflows[0]?.id;
+        if (fallback) await get().selectWorkflow(fallback);
+      }
+      return;
+    }
 
     const nextOpen = openWorkflowIds.filter((tabId) => tabId !== id);
     persistOpenTabs(nextOpen);
@@ -1021,6 +1062,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   createWorkflow: async (name = "Untitled workflow", folderId = null) => {
+    const previousId = get().activeWorkflowId;
+    if (previousId) await get().discardUntouchedWorkflow(previousId);
     set({
       loading: true,
       workflowLoading: true,
@@ -1038,6 +1081,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       persistOpenTabs(openWorkflowIds);
       set((state) => ({
         workflows: [workflow, ...state.workflows],
+        untouchedWorkflowIds: name === "Untitled workflow"
+          ? [...state.untouchedWorkflowIds, workflow.id]
+          : state.untouchedWorkflowIds,
         activeWorkflowId: workflow.id,
         openWorkflowIds,
         nodes: [],
@@ -1047,12 +1093,44 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         loading: false,
         workflowLoading: false,
         schedule: null,
+        triggers: [],
+        appTriggerStatuses: [],
         selectedOutput: null,
         ...visibleRunFields(emptyWorkflowRunState()),
       }));
     } catch (e) {
       set({ loading: false, workflowLoading: false, error: String(e) });
     }
+  },
+
+  keepWorkflow: (id) => {
+    if (!get().untouchedWorkflowIds.includes(id)) return;
+    set((state) => ({
+      untouchedWorkflowIds: state.untouchedWorkflowIds.filter(
+        (workflowId) => workflowId !== id,
+      ),
+    }));
+  },
+
+  discardUntouchedWorkflow: async (id) => {
+    const state = get();
+    if (!state.untouchedWorkflowIds.includes(id)) return false;
+    // Keep edits even if the graph is empty again, or a save is still pending.
+    if (
+      (state.activeWorkflowId === id && (
+        state.dirty || state.nodes.length > 0 || state.edges.length > 0 ||
+        state.memories.length > 0 || state.triggers.length > 0
+      )) ||
+      state.workflowSchedules.some((item) => item.workflowId === id) ||
+      state.workflowRunStates[id]?.activeRun
+    ) {
+      state.keepWorkflow(id);
+      return false;
+    }
+    // Claim cleanup synchronously so overlapping navigation cannot delete twice.
+    state.keepWorkflow(id);
+    await get().deleteWorkflow(id, false);
+    return !get().workflows.some((workflow) => workflow.id === id);
   },
 
   createWorkflowFolder: async (name) => {
@@ -1115,6 +1193,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const previous = get().workflows;
     const moving = previous.find((workflow) => workflow.id === workflowId);
     if (!moving) return;
+    get().keepWorkflow(workflowId);
 
     const without = previous.filter((workflow) => workflow.id !== workflowId);
     const moved = { ...moving, folderId };
@@ -1149,6 +1228,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   setWorkingDirectory: async (id, workingDirectory) => {
+    get().keepWorkflow(id);
     try {
       const workflow = await api.updateWorkflow({
         id,
@@ -1177,6 +1257,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   setMemoryLookupEnabled: (id, enabled) =>
     persistWorkflowPermission(set, get, id, "memoryLookupEnabled", enabled),
 
+  setParallelBranches: (id, enabled) =>
+    persistWorkflowPermission(set, get, id, "parallelBranches", enabled),
+
   reorderWorkflows: async (orderedIds) => {
     const previous = get().workflows;
     const byId = new Map(previous.map((w) => [w.id, w]));
@@ -1201,6 +1284,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       set({ error: "Workflow name cannot be empty." });
       return;
     }
+    get().keepWorkflow(id);
 
     set({ loading: true, error: null });
     try {
@@ -1221,7 +1305,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
   },
 
-  deleteWorkflow: async (id) => {
+  deleteWorkflow: async (id, selectFallback = true) => {
+    get().keepWorkflow(id);
     set({ loading: true, error: null });
     try {
       // Best-effort: clear schedule first so delete can't fail on older DBs
@@ -1255,7 +1340,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       });
 
       if (wasActive) {
-        const fallback = openWorkflowIds[0] ?? remaining[0]?.id ?? null;
+        const fallback = selectFallback
+          ? openWorkflowIds[0] ?? remaining[0]?.id ?? null
+          : null;
         if (fallback) {
           await get().selectWorkflow(fallback);
         } else {
@@ -1265,6 +1352,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             edges: [],
             memories: [],
             schedule: null,
+            triggers: [],
+            appTriggerStatuses: [],
             selectedNodeId: null,
             dirty: false,
             workflowLoading: false,
@@ -1281,6 +1370,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   saveActiveWorkflow: async () => {
     const { activeWorkflowId, nodes, edges } = get();
     if (!activeWorkflowId) return false;
+    get().keepWorkflow(activeWorkflowId);
 
     const previousSave = workflowSaves.get(activeWorkflowId);
     set({ loading: true, error: null });
@@ -1339,6 +1429,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     } = get();
     const targetWorkflowId = workflowId ?? activeWorkflowId;
     if (!targetWorkflowId) return;
+    get().keepWorkflow(targetWorkflowId);
     const targetIsVisible = targetWorkflowId === activeWorkflowId;
     if (
       workflowRunStates[targetWorkflowId]?.activeRun?.status === "running"
@@ -1495,6 +1586,41 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       };
     }),
 
+  openStepData: (data) =>
+    set((state) => {
+      const workflowId = state.activeWorkflowId;
+      const current = workflowId
+        ? state.workflowRunStates[workflowId]
+        : undefined;
+      const body =
+        data.initialTab === "input"
+          ? JSON.stringify(data.input?.body ?? {}, null, 2)
+          : data.output ?? "";
+      return {
+        selectedOutput: {
+          title: data.title,
+          body,
+          nodeId: data.nodeId,
+          input: data.input,
+          output: data.output,
+          initialTab: data.initialTab,
+        },
+        runPanelOpen: true,
+        inspectedNodeId: data.nodeId,
+        ...(workflowId && current
+          ? {
+              workflowRunStates: {
+                ...state.workflowRunStates,
+                [workflowId]: {
+                  ...current,
+                  inspectedNodeId: data.nodeId,
+                },
+              },
+            }
+          : {}),
+      };
+    }),
+
   closeOutput: () => set({ selectedOutput: null }),
 
   loadMemories: async (workflowId) => {
@@ -1522,6 +1648,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   addMemory: async (input) => {
     const workflowId = input.workflowId ?? get().activeWorkflowId;
     if (!workflowId || !input.body.trim()) return null;
+    get().keepWorkflow(workflowId);
 
     try {
       const created = await api.createMemory({
@@ -1573,6 +1700,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   linkMemory: async (memoryId) => {
     const workflowId = get().activeWorkflowId;
     if (!workflowId) return null;
+    get().keepWorkflow(workflowId);
     try {
       const linked = await api.linkMemory(workflowId, memoryId);
       if (get().activeWorkflowId === workflowId) {
@@ -1734,6 +1862,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           )
         : existing ?? emptyWorkflowRunState(workflowNodes);
       const stepStatuses = { ...current.stepStatuses };
+      const stepInputs = { ...current.stepInputs };
       const stepOutputs = { ...current.stepOutputs };
       const stepStats = { ...current.stepStats };
       let activeNodeId = current.activeNodeId;
@@ -1757,6 +1886,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         stepStatuses[event.nodeId] = "running";
         activeNodeId = event.nodeId;
       }
+      if (
+        event.kind === "step_input" &&
+        event.nodeId &&
+        event.input &&
+        !stepInputs[event.nodeId]
+      ) {
+        stepInputs[event.nodeId] = event.input;
+      }
       if (event.kind === "step_completed" && event.nodeId) {
         stepStatuses[event.nodeId] = "completed";
         if (event.stats) stepStats[event.nodeId] = event.stats;
@@ -1769,6 +1906,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         stepOutputs[event.nodeId] = previous
           ? `${previous}\n${event.output}`
           : event.output;
+      }
+      if (event.kind === "step_skipped" && event.nodeId) {
+        stepStatuses[event.nodeId] = "skipped";
+        if (event.message) stepOutputs[event.nodeId] = event.message;
       }
       if (event.kind === "step_failed" && event.nodeId) {
         stepStatuses[event.nodeId] = "failed";
@@ -1825,6 +1966,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         activeNodeId,
         inspectedNodeId: current.inspectedNodeId,
         stepStatuses,
+        stepInputs,
         stepOutputs,
         stepStats,
         runLogs: nextRunLogs(current.runLogs, line, freshRun),
@@ -1912,6 +2054,32 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       edges: addEdge({ ...connection, type: "default" }, state.edges),
       dirty: true,
     }));
+  },
+
+  setEdgeCondition: (edgeId, condition) => {
+    set((state) => {
+      let changed = false;
+      const edges = state.edges.map((edge) => {
+        if (edge.id !== edgeId) return edge;
+        changed = true;
+        return { ...edge, data: { ...edge.data, condition } };
+      });
+      return changed ? { edges, dirty: true } : state;
+    });
+  },
+
+  clearEdgeCondition: (edgeId) => {
+    set((state) => {
+      let changed = false;
+      const edges = state.edges.map((edge) => {
+        if (edge.id !== edgeId || !edge.data?.condition) return edge;
+        changed = true;
+        // Drop the key rather than storing undefined so saved graphs stay clean.
+        const { condition: _dropped, ...rest } = edge.data;
+        return { ...edge, data: rest };
+      });
+      return changed ? { edges, dirty: true } : state;
+    });
   },
 
   addNode: (node) => {

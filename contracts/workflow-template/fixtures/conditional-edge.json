@@ -1,0 +1,36 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 2,
+  "minAlfredVersion": "1.0.0",
+  "title": "Notify only on failure",
+  "description": "Run the follow-up branch only when the agent reports a failure.",
+  "graph": {
+    "nodes": [
+      { "id": "input", "type": "input", "data": { "label": "Check", "prompt": "Run the test suite and report the result." }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent", "type": "agent", "data": { "label": "Agent", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 220, "y": 0 } },
+      { "id": "triage", "type": "agent", "data": { "label": "Triage", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 440, "y": -80 } },
+      { "id": "output", "type": "chooseOutput", "data": { "label": "Update", "saveToMemory": false, "pinMemory": false, "asFinalResult": true, "htmlReport": false, "includeFilesChanged": false }, "position": { "x": 440, "y": 80 } }
+    ],
+    "edges": [
+      { "id": "input-agent", "source": "input", "target": "agent" },
+      {
+        "id": "agent-triage",
+        "source": "agent",
+        "target": "triage",
+        "data": { "condition": { "source": "output", "operator": "matches", "value": "FAIL|error", "caseSensitive": false } }
+      },
+      {
+        "id": "agent-output",
+        "source": "agent",
+        "target": "output",
+        "data": { "condition": { "source": "output", "operator": "isNotEmpty" } }
+      }
+    ]
+  },
+  "parameters": [],
+  "requirements": [
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" },
+    { "kind": "harness", "name": "cli", "provider": "claude_code" }
+  ],
+  "starts": []
+}

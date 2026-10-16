@@ -126,6 +126,7 @@ export function RunActivityPanel() {
   const activeNodeId = useWorkflowStore((s) => s.activeNodeId);
   const inspectedNodeId = useWorkflowStore((s) => s.inspectedNodeId);
   const stepStatuses = useWorkflowStore((s) => s.stepStatuses);
+  const stepInputs = useWorkflowStore((s) => s.stepInputs);
   const stepOutputs = useWorkflowStore((s) => s.stepOutputs);
   const stepStats = useWorkflowStore((s) => s.stepStats);
   const memories = useWorkflowStore((s) => s.memories);
@@ -133,6 +134,7 @@ export function RunActivityPanel() {
   const openRunPanel = useWorkflowStore((s) => s.openRunPanel);
   const cancelActiveRun = useWorkflowStore((s) => s.cancelActiveRun);
   const openOutput = useWorkflowStore((s) => s.openOutput);
+  const openStepData = useWorkflowStore((s) => s.openStepData);
   const removeMemory = useWorkflowStore((s) => s.removeMemory);
   const togglePinMemory = useWorkflowStore((s) => s.togglePinMemory);
   const addNote = useWorkflowStore((s) => s.addNote);
@@ -435,7 +437,8 @@ export function RunActivityPanel() {
                       ? String(node.data.label)
                       : node.type ?? node.id;
                   const output = stepOutputs[node.id];
-                  const clickable = Boolean(output?.trim());
+                  const input = stepInputs[node.id];
+                  const clickable = Boolean(input || output?.trim());
                   const stats = stepStats[node.id];
                   const statsLine = stats ? formatStats(stats) : null;
 
@@ -448,11 +451,17 @@ export function RunActivityPanel() {
                         }${clickable ? " is-clickable" : ""}`}
                         disabled={!clickable}
                         onClick={() => {
-                          if (!output) return;
-                          showOutput(label, output, node.id);
+                          if (!input && !output) return;
+                          openStepData({
+                            title: label,
+                            nodeId: node.id,
+                            input,
+                            output,
+                            initialTab: input ? "input" : "output",
+                          });
                         }}
                         title={
-                          clickable ? "Open step output" : "No output yet"
+                          clickable ? "Open step input and output" : "No run data yet"
                         }
                       >
                         <span className="run-step-dot" />

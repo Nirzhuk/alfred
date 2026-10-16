@@ -17,6 +17,12 @@ memory retrieval and review begin off, and the flow is never run during setup.
 An imported copy retains its source link and digest for reference; it does not
 follow future publication edits.
 
+A template declares the oldest schema version that can carry its content.
+A workflow with [conditional connections](conditional-connections.md) declares
+version 2 and is refused by builds that predate them, because a build that
+ignored a condition would run every branch and look correct. Everything else
+still declares version 1 and imports anywhere.
+
 ## Local service
 
 From `desktop/share-service/`, run `bun install`, `bun run dev`, `bun run test`,

@@ -67,6 +67,12 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
         "memory_lookup_enabled",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    ensure_column(
+        conn,
+        "workflows",
+        "parallel_branches",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     backfill_workflow_sort_order(conn)?;
 
     // Drop legacy column name if an early schema used `trigger`.
@@ -1655,7 +1661,8 @@ mod tests {
             .expect("initialize legacy fixture");
         conn.execute_batch(
             "DROP TABLE app_connections;
-             ALTER TABLE workflows DROP COLUMN memory_retrieval_enabled;",
+             ALTER TABLE workflows DROP COLUMN memory_retrieval_enabled;
+             ALTER TABLE workflows DROP COLUMN parallel_branches;",
         )
         .expect("remove new table from fixture");
 
@@ -1679,6 +1686,14 @@ mod tests {
             )
             .expect("load migrated recall default");
         assert_eq!(enabled, 0, "existing workflows must remain recall-off");
+        let parallel: i64 = conn
+            .query_row(
+                "SELECT parallel_branches FROM workflows WHERE id = 'legacy-workflow'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load migrated parallel default");
+        assert_eq!(parallel, 0, "existing workflows must remain sequential");
     }
 
     #[test]

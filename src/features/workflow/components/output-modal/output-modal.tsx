@@ -5,7 +5,16 @@ import { Modal, ModalHeader } from "../../../../components/modal";
 import { useWorkflowStore } from "../../store";
 import { formatStatsWithSource } from "../../format-stats";
 import { createHtmlReportPreview } from "../../html-report";
-import type { ChangedFile, ChangedFileStatus } from "../../types";
+import type {
+  ChangedFile,
+  ChangedFileStatus,
+  StepInputSnapshot,
+} from "../../types";
+
+export function formatStepInput(snapshot: StepInputSnapshot): string {
+  if (typeof snapshot.body === "string") return snapshot.body;
+  return JSON.stringify(snapshot.body, null, 2);
+}
 
 function basename(path: string) {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -124,23 +133,40 @@ export function OutputModal() {
   const stepStats = useWorkflowStore((s) => s.stepStats);
   const [copied, setCopied] = useState(false);
   const [viewSource, setViewSource] = useState(false);
+  const [activeTab, setActiveTab] = useState<"input" | "output">("output");
 
   useEffect(() => {
     setCopied(false);
     setViewSource(false);
-  }, [selectedOutput?.body, selectedOutput?.title]);
+    setActiveTab(selectedOutput?.initialTab ?? "output");
+  }, [
+    selectedOutput?.body,
+    selectedOutput?.initialTab,
+    selectedOutput?.title,
+  ]);
 
   if (!selectedOutput) return null;
 
-  const htmlPreview = createHtmlReportPreview(selectedOutput.body);
-  const structured = htmlPreview ? null : splitSummaryAndJson(selectedOutput.body);
-  const stats = selectedOutput.nodeId ? stepStats[selectedOutput.nodeId] : undefined;
+  const hasInput = Boolean(selectedOutput.input);
+  const output = selectedOutput.output ?? selectedOutput.body;
+  const hasOutput = Boolean(output.trim());
+  const visibleBody =
+    activeTab === "input" && selectedOutput.input
+      ? formatStepInput(selectedOutput.input)
+      : output;
+  const htmlPreview =
+    activeTab === "output" ? createHtmlReportPreview(visibleBody) : null;
+  const structured = htmlPreview ? null : splitSummaryAndJson(visibleBody);
+  const stats =
+    activeTab === "output" && selectedOutput.nodeId
+      ? stepStats[selectedOutput.nodeId]
+      : undefined;
   const statsLine = stats ? formatStatsWithSource(stats) : null;
   const filesChanged = stats?.filesChanged ?? [];
 
   const copySelected = async () => {
     try {
-      await navigator.clipboard.writeText(selectedOutput.body);
+      await navigator.clipboard.writeText(visibleBody);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -164,7 +190,15 @@ export function OutputModal() {
         }
         title={selectedOutput.title}
         titleId="output-modal-title"
-        description={htmlPreview ? "HTML report" : "Agent output"}
+        description={
+          hasInput && hasOutput
+            ? "Step input and output"
+            : activeTab === "input"
+              ? "Step input"
+              : htmlPreview
+                ? "HTML report"
+                : "Step output"
+        }
         descriptionId="output-modal-description"
         actions={
           <>
@@ -194,6 +228,44 @@ export function OutputModal() {
       >
         {statsLine ? <p className="output-modal-stats">{statsLine}</p> : null}
       </ModalHeader>
+      {hasInput && hasOutput ? (
+        <div
+          className="output-modal-tabs"
+          role="tablist"
+          aria-label={`${selectedOutput.title} data`}
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "input"}
+            className={activeTab === "input" ? "is-active" : ""}
+            onClick={() => setActiveTab("input")}
+          >
+            Input
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "output"}
+            className={activeTab === "output" ? "is-active" : ""}
+            onClick={() => setActiveTab("output")}
+          >
+            Output
+          </button>
+        </div>
+      ) : null}
+      {activeTab === "input" && selectedOutput.input?.redacted ? (
+        <p className="output-modal-notice">
+          Some sensitive values were redacted.
+        </p>
+      ) : null}
+      {activeTab === "input" && selectedOutput.input?.truncated ? (
+        <p className="output-modal-notice">
+          Input preview was truncated to{" "}
+          {selectedOutput.input.capturedBytes?.toLocaleString()} of{" "}
+          {selectedOutput.input.originalBytes?.toLocaleString()} bytes.
+        </p>
+      ) : null}
       {filesChanged.length > 0 ? <FilesChangedSection files={filesChanged} /> : null}
       {htmlPreview && !viewSource ? (
         <iframe
@@ -209,7 +281,7 @@ export function OutputModal() {
           <pre className="output-modal-body">{structured.json}</pre>
         </>
       ) : (
-        <pre className="output-modal-body">{selectedOutput.body}</pre>
+        <pre className="output-modal-body">{visibleBody}</pre>
       )}
     </Modal>
   );

@@ -152,6 +152,25 @@ export function literalHistorySnippet(snippet: string): string {
 
 export function formatHistoryJson(value: unknown): string {
   try {
+    if (
+      value &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).version === 1 &&
+      "body" in value
+    ) {
+      const snapshot = value as Record<string, unknown>;
+      const body =
+        typeof snapshot.body === "string"
+          ? snapshot.body
+          : JSON.stringify(snapshot.body, null, 2) ?? "null";
+      const notices = [
+        snapshot.redacted === true ? "Some sensitive values were redacted." : null,
+        snapshot.truncated === true
+          ? `Input was truncated to ${String(snapshot.capturedBytes ?? "?")} of ${String(snapshot.originalBytes ?? "?")} bytes.`
+          : null,
+      ].filter(Boolean);
+      return notices.length > 0 ? `${notices.join("\n")}\n\n${body}` : body;
+    }
     return JSON.stringify(value, null, 2) ?? "null";
   } catch {
     return "Unable to display persisted value.";

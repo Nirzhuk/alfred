@@ -1,5 +1,6 @@
 mod agent_accounts;
 mod agents;
+mod builder;
 mod commands;
 mod db;
 // Provider-neutral seams are intentionally consumed by follow-on connector plans.
@@ -324,7 +325,8 @@ pub fn run() {
         .manage(GlobalShortcutPreference::default())
         .manage(TriggerRuntime::default())
         .manage(scheduler::SchedulerRuntime::new())
-        .manage(AppEventRuntime::default());
+        .manage(AppEventRuntime::default())
+        .manage(builder::BuilderState::default());
 
     // Sharing is opt-in by an explicit service origin. Keeping the state
     // absent when no origin is configured prevents source builds from
@@ -464,6 +466,15 @@ pub fn run() {
                 });
             }
 
+            match builder::mcp::start(app.handle().clone()) {
+                Ok(port) => {
+                    if let Ok(mut slot) = app.state::<builder::BuilderState>().mcp_port.lock() {
+                        *slot = Some(port);
+                    }
+                }
+                Err(e) => eprintln!("workflow builder API not started: {e}"),
+            }
+
             if let Err(e) = tray::install(app.handle()) {
                 eprintln!("tray icon not started: {e}");
             }
@@ -545,6 +556,7 @@ pub fn run() {
             commands::refresh_license,
             commands::deactivate_license,
             commands::get_license_status,
+            commands::validate_condition_pattern,
             commands::agent_accounts::list_agent_account_providers,
             commands::agent_accounts::list_agent_accounts,
             commands::agent_accounts::get_agent_account,
@@ -677,6 +689,15 @@ pub fn run() {
             notifications::set_notification_sound_cmd,
             notifications::notify_message_cmd,
             notifications::notify_run_finished_cmd,
+            builder::builder_get_config,
+            builder::builder_save_config,
+            builder::builder_info,
+            builder::builder_send,
+            builder::builder_cancel,
+            builder::chats::builder_list_chats,
+            builder::chats::builder_load_chat,
+            builder::chats::builder_save_chat,
+            builder::chats::builder_delete_chat,
             set_global_shortcut,
             sync_macos_traffic_lights,
         ])

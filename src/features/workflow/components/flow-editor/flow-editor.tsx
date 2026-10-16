@@ -13,6 +13,7 @@ import { useThemeStore } from "../../../settings/theme";
 import { GradientConnectionLine, GradientEdge } from "./gradient-edge";
 import { AddStepPanel } from "../add-step-panel";
 import { NodeSettingsModal } from "../node-settings-modal";
+import { EdgeConditionModal } from "../edge-condition-modal";
 import {
   FlowContextMenu,
   type FlowContextMenuState,
@@ -22,12 +23,20 @@ import { useWorkflowStore } from "../../store";
 import {
   defaultAgentNodeData,
   defaultOutputNodeData,
+  edgeCondition,
+  edgeConditionSummary,
   isPromptNodeData,
   titleForNodeType,
   type AgentProviderId,
+  type WorkflowEdge,
   type WorkflowNode,
   type WorkflowNodeData,
 } from "../../types";
+
+function nodeLabelById(nodes: WorkflowNode[], nodeId: string): string {
+  const label = nodes.find((node) => node.id === nodeId)?.data?.label;
+  return typeof label === "string" && label.trim() ? label : nodeId;
+}
 
 function newId() {
   return crypto.randomUUID();
@@ -57,6 +66,7 @@ type Props = {
 
 export function FlowEditor({ displayNodes }: Props) {
   const {
+    nodes: storeNodes,
     edges: storeEdges,
     onNodesChange,
     onEdgesChange,
@@ -75,10 +85,23 @@ export function FlowEditor({ displayNodes }: Props) {
     useReactFlow();
   const [menu, setMenu] = useState<FlowContextMenuState | null>(null);
   const [settingsNodeId, setSettingsNodeId] = useState<string | null>(null);
+  const [conditionEdgeId, setConditionEdgeId] = useState<string | null>(null);
 
   const edges = useMemo(
-    () => storeEdges.map((edge) => ({ ...edge, type: "gradient" as const })),
-    [storeEdges],
+    () =>
+      storeEdges.map((edge) => {
+        const condition = edgeCondition(edge);
+        const from = nodeLabelById(storeNodes, edge.source);
+        const to = nodeLabelById(storeNodes, edge.target);
+        return {
+          ...edge,
+          type: "gradient" as const,
+          ariaLabel: condition
+            ? `Connection from ${from} to ${to}, runs when ${edgeConditionSummary(condition)}`
+            : `Connection from ${from} to ${to}, always runs`,
+        };
+      }),
+    [storeEdges, storeNodes],
   );
 
   /** Round pan offsets and clamp zoom so nodes stay sharp. */
@@ -104,6 +127,39 @@ export function FlowEditor({ displayNodes }: Props) {
       closeMenu();
     },
     [setSelectedNodeId, closeMenu],
+  );
+
+  // A connection is the only place a condition is authored, so a plain click on
+  // it opens the editor. Keyboard users reach the same editor with Enter on a
+  // selected edge.
+  const openEdgeCondition = useCallback(
+    (edgeId: string) => {
+      setConditionEdgeId(edgeId);
+      closeMenu();
+    },
+    [closeMenu],
+  );
+
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: WorkflowEdge) => openEdgeCondition(edge.id),
+    [openEdgeCondition],
+  );
+
+  // React Flow's own edge handler selects on Enter but has no "open" hook and
+  // exposes no onEdgeKeyDown prop, so the container resolves the focused edge
+  // from the DOM. Selection still happens first; this only adds the open.
+  const onFlowKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "Enter") return;
+      const target = event.target as Element | null;
+      const edgeId = target
+        ?.closest?.(".react-flow__edge")
+        ?.getAttribute("data-id");
+      if (!edgeId) return;
+      event.preventDefault();
+      openEdgeCondition(edgeId);
+    },
+    [openEdgeCondition],
   );
 
   const onNodeDoubleClick = useCallback(
@@ -282,6 +338,9 @@ export function FlowEditor({ displayNodes }: Props) {
         }
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onEdgeClick={onEdgeClick}
+        onKeyDown={onFlowKeyDown}
+        edgesFocusable
         onSelectionChange={onSelectionChange}
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
@@ -364,6 +423,13 @@ export function FlowEditor({ displayNodes }: Props) {
         <NodeSettingsModal
           nodeId={settingsNodeId}
           onClose={() => setSettingsNodeId(null)}
+        />
+      ) : null}
+
+      {conditionEdgeId ? (
+        <EdgeConditionModal
+          edgeId={conditionEdgeId}
+          onClose={() => setConditionEdgeId(null)}
         />
       ) : null}
     </>

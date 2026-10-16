@@ -125,6 +125,10 @@
   --agent-grok-color: #111111;
   --agent-pi-color: #111111;
   --agent-omp-color: #f97316;
+  /* Alfred's own mark: the app-icon teal behind the mustache. Fixed identity,
+     not a theme color; used only where the mark itself is drawn. */
+  --brand-alfred: #04a2a1;
+  --brand-alfred-deep: #0c8282;
   --bottom-dock-height: 2.7rem;
   /* Typography: Infer is preferred; bundled Geist keeps releases offline-safe. */
   --font-sans:

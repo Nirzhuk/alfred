@@ -21,6 +21,20 @@ impl RunControl {
         }
     }
 
+    /// Branch-local control sharing the run's cancellation flag.
+    ///
+    /// Parallel fan-out gives each branch its own child slot (concurrent CLI
+    /// children would otherwise overwrite one shared slot and leak kills),
+    /// while `cancel` stays shared so a user cancel — or a sibling's
+    /// fail-fast abort — stops every branch through the existing polling
+    /// loops.
+    pub fn fork(&self) -> Self {
+        Self {
+            cancel: Arc::clone(&self.cancel),
+            child: Arc::new(Mutex::new(None)),
+        }
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
     }

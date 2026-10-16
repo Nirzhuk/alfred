@@ -1,12 +1,20 @@
 import { useId } from "react";
 import {
   BaseEdge,
+  EdgeLabelRenderer,
   getBezierPath,
   useStore,
   type ConnectionLineComponentProps,
   type EdgeProps,
 } from "@xyflow/react";
 import { nodeAccentColor } from "../../node-colors";
+import { useWorkflowStore } from "../../store";
+import {
+  edgeConditionSummary,
+  parseEdgeCondition,
+  type WorkflowEdgeData,
+} from "../../types";
+import "./gradient-edge.css";
 
 type GradientProps = {
   id: string;
@@ -64,10 +72,20 @@ export function GradientEdge({
   labelBgStyle,
   labelBgPadding,
   labelBgBorderRadius,
+  data,
 }: EdgeProps) {
   const gradientId = `edge-gradient-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const sourceType = useStore((state) => state.nodeLookup.get(source)?.type);
   const targetType = useStore((state) => state.nodeLookup.get(target)?.type);
+  // A connection whose target was skipped did not fire on this run. The muted
+  // treatment is paired with the dash pattern and the chip text so the state is
+  // never carried by color alone.
+  const targetSkipped = useWorkflowStore(
+    (state) => state.stepStatuses[target] === "skipped",
+  );
+  const condition = parseEdgeCondition(
+    (data as WorkflowEdgeData | undefined)?.condition,
+  );
   const [path, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -76,6 +94,7 @@ export function GradientEdge({
     targetY,
     targetPosition,
   });
+  const summary = condition ? edgeConditionSummary(condition) : null;
 
   return (
     <>
@@ -91,6 +110,14 @@ export function GradientEdge({
       <BaseEdge
         id={id}
         path={path}
+        className={
+          [
+            condition ? "edge-conditional" : null,
+            targetSkipped ? "edge-not-fired" : null,
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined
+        }
         style={{ ...style, stroke: `url(#${gradientId})` }}
         markerStart={markerStart}
         markerEnd={markerEnd}
@@ -104,6 +131,21 @@ export function GradientEdge({
         labelBgPadding={labelBgPadding}
         labelBgBorderRadius={labelBgBorderRadius}
       />
+      {summary ? (
+        <EdgeLabelRenderer>
+          <span
+            className={`edge-condition-chip${targetSkipped ? " is-not-fired" : ""}`}
+            style={{
+              // geometry: anchors the chip on the bezier midpoint React Flow
+              // computed above, in canvas coordinates.
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+            title={summary}
+          >
+            {targetSkipped ? `did not fire — ${summary}` : summary}
+          </span>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   );
 }

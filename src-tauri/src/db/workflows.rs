@@ -19,6 +19,10 @@ pub struct Workflow {
     pub folder_id: Option<String>,
     pub memory_retrieval_enabled: bool,
     pub memory_lookup_enabled: bool,
+    /// Fan-out branches run concurrently; off means strictly sequential.
+    /// Legacy rows migrate to off (their historical behavior); new workflows
+    /// are created with it on, mirroring `memory_retrieval_enabled`.
+    pub parallel_branches: bool,
     pub graph: Value,
     pub created_at: String,
     pub updated_at: String,
@@ -47,6 +51,7 @@ pub struct UpdateWorkflowInput {
     pub working_directory: Option<String>,
     pub memory_retrieval_enabled: Option<bool>,
     pub memory_lookup_enabled: Option<bool>,
+    pub parallel_branches: Option<bool>,
     pub graph: Option<Value>,
 }
 
@@ -54,12 +59,16 @@ fn empty_graph() -> Value {
     serde_json::json!({ "nodes": [], "edges": [] })
 }
 
+fn input_bool(enabled: Option<bool>) -> Option<i64> {
+    enabled.map(|value| i64::from(value))
+}
+
 fn now() -> String {
     Utc::now().to_rfc3339()
 }
 
 fn row_to_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workflow> {
-    let graph_json: String = row.get(7)?;
+    let graph_json: String = row.get(8)?;
     Ok(Workflow {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -68,9 +77,10 @@ fn row_to_workflow(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workflow> {
         folder_id: row.get(4)?,
         memory_retrieval_enabled: row.get::<_, i64>(5)? != 0,
         memory_lookup_enabled: row.get::<_, i64>(6)? != 0,
+        parallel_branches: row.get::<_, i64>(7)? != 0,
         graph: serde_json::from_str(&graph_json).unwrap_or_else(|_| empty_graph()),
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -79,8 +89,8 @@ impl Db {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, name, description, working_directory, folder_id,
-                        memory_retrieval_enabled, memory_lookup_enabled, graph_json,
-                        created_at, updated_at
+                        memory_retrieval_enabled, memory_lookup_enabled, parallel_branches,
+                        graph_json, created_at, updated_at
                  FROM workflows
                  ORDER BY sort_order ASC, updated_at DESC",
             )?;
@@ -97,8 +107,8 @@ impl Db {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, name, description, working_directory, folder_id,
-                        memory_retrieval_enabled, memory_lookup_enabled, graph_json,
-                        created_at, updated_at
+                        memory_retrieval_enabled, memory_lookup_enabled, parallel_branches,
+                        graph_json, created_at, updated_at
                  FROM workflows
                  WHERE id = ?1",
             )?;
@@ -135,9 +145,9 @@ impl Db {
             conn.execute(
                 "INSERT INTO workflows
                    (id, name, description, working_directory, folder_id, sort_order,
-                    memory_retrieval_enabled, memory_lookup_enabled, graph_json,
-                    created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8, ?8)",
+                    memory_retrieval_enabled, memory_lookup_enabled, parallel_branches,
+                    graph_json, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, 1, ?7, ?8, ?8)",
                 params![
                     id,
                     input.name,
@@ -193,19 +203,18 @@ impl Db {
                             COALESCE(?4, memory_retrieval_enabled),
                         memory_lookup_enabled =
                             COALESCE(?5, memory_lookup_enabled),
-                        graph_json = COALESCE(?6, graph_json),
-                        updated_at = ?7
-                  WHERE id = ?8",
+                        parallel_branches =
+                            COALESCE(?6, parallel_branches),
+                        graph_json = COALESCE(?7, graph_json),
+                        updated_at = ?8
+                  WHERE id = ?9",
                 params![
                     input.name,
                     input.description,
                     input.working_directory,
-                    input
-                        .memory_retrieval_enabled
-                        .map(|enabled| if enabled { 1_i64 } else { 0_i64 }),
-                    input
-                        .memory_lookup_enabled
-                        .map(|enabled| if enabled { 1_i64 } else { 0_i64 }),
+                    input_bool(input.memory_retrieval_enabled),
+                    input_bool(input.memory_lookup_enabled),
+                    input_bool(input.parallel_branches),
                     graph_json,
                     updated_at,
                     &workflow_id,
@@ -217,8 +226,8 @@ impl Db {
             let updated = {
                 let mut statement = transaction.prepare(
                     "SELECT id, name, description, working_directory, folder_id,
-                            memory_retrieval_enabled, memory_lookup_enabled, graph_json,
-                            created_at, updated_at
+                            memory_retrieval_enabled, memory_lookup_enabled, parallel_branches,
+                            graph_json, created_at, updated_at
                      FROM workflows
                      WHERE id = ?1",
                 )?;
@@ -344,6 +353,7 @@ mod tests {
                         working_directory: None,
                         memory_retrieval_enabled: None,
                         memory_lookup_enabled: Some(true),
+                        parallel_branches: None,
                         graph: None,
                     })
                     .expect("lookup update");
@@ -362,6 +372,7 @@ mod tests {
                         working_directory: None,
                         memory_retrieval_enabled: Some(false),
                         memory_lookup_enabled: None,
+                        parallel_branches: None,
                         graph: None,
                     })
                     .expect("retrieval update");
@@ -382,5 +393,39 @@ mod tests {
         assert_eq!(reloaded.description, "Keep me");
         assert_eq!(reloaded.working_directory, "/tmp/project");
         assert_eq!(reloaded.graph, json!({"nodes": [{"id": "keep"}], "edges": []}));
+    }
+
+    #[test]
+    fn new_workflows_run_parallel_branches_until_toggled_off() {
+        let db = Db::open_in_memory().expect("open isolated database");
+        let workflow = db
+            .create_workflow(CreateWorkflowInput {
+                name: "Debate".into(),
+                description: String::new(),
+                working_directory: String::new(),
+                folder_id: None,
+                graph: json!({"nodes": [], "edges": []}),
+            })
+            .expect("create workflow");
+        assert!(workflow.parallel_branches);
+
+        let updated = db
+            .update_workflow(UpdateWorkflowInput {
+                id: workflow.id.clone(),
+                name: None,
+                description: None,
+                working_directory: None,
+                memory_retrieval_enabled: None,
+                memory_lookup_enabled: None,
+                parallel_branches: Some(false),
+                graph: None,
+            })
+            .expect("toggle parallel off");
+        assert!(!updated.parallel_branches);
+        let reloaded = db
+            .get_workflow(&workflow.id)
+            .expect("reload workflow")
+            .expect("workflow exists");
+        assert!(!reloaded.parallel_branches);
     }
 }

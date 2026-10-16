@@ -870,6 +870,7 @@ export function MemoriesInspector({
 
   const toggleWorkflowReview = () => {
     if (!activeWorkflowId) return;
+    useWorkflowStore.getState().keepWorkflow(activeWorkflowId);
     setWorkflowReviewSaving(true);
     void api
       .setWorkflowMemoryReview(activeWorkflowId, !workflowReviewEnabled)

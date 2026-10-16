@@ -62,6 +62,35 @@ pub fn get_license_status(
     licensing.get_status(db.inner())
 }
 
+/// Compile a connection condition's regex with the engine that will actually
+/// evaluate it (Plan 053).
+///
+/// The canvas cannot validate these with JavaScript's `RegExp`: the two
+/// dialects disagree in both directions. JavaScript accepts look-around
+/// (`FAIL(?!ED)`) that this engine rejects, which would save a pattern that can
+/// never fire, and it rejects inline flags (`(?i)fail`) that this engine
+/// accepts, which would block a working pattern. Returns the engine's own
+/// message so the editor can show the real reason.
+#[tauri::command]
+pub fn validate_condition_pattern(pattern: String, case_sensitive: bool) -> Result<(), String> {
+    if pattern.len() > runner::MAX_CONDITION_VALUE_BYTES {
+        return Err("Pattern is too long.".into());
+    }
+    runner::compile_condition_pattern(&pattern, case_sensitive)
+        .map(|_| ())
+        .map_err(|error| {
+            // The crate's multi-line rendering includes a caret diagram that is
+            // unreadable in a single-line field; keep the first useful sentence.
+            error
+                .to_string()
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty() && !line.starts_with('^') && !line.contains("regex parse error"))
+                .unwrap_or("Unsupported pattern.")
+                .to_string()
+        })
+}
+
 #[tauri::command]
 pub fn list_workflows(db: State<'_, Db>) -> Result<Vec<Workflow>, String> {
     let mut workflows = db.list_workflows().map_err(|e| e.to_string())?;

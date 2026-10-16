@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { ReactNode } from "react";
-import { NodeOutputPreview } from "../node-output-preview";
+import { NodeRunResult } from "../node-run-result";
 
 type Props = {
   id: string;
@@ -28,7 +28,7 @@ export function SimpleStepNode({ id, className, title, body, meta, icon }: Props
       <div className="wf-node-content">
         <p className="wf-node-body">{body}</p>
         {meta ? <p className="wf-node-skill muted">{meta}</p> : null}
-        <NodeOutputPreview nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} />
       </div>
       <Handle
         className="wf-handle"

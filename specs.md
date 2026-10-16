@@ -108,9 +108,29 @@ workflow graph and can be reversed from the node, its context menu, or settings.
 
 1. Start via UI `run_workflow`, schedule tick (~20s), file/webhook trigger, or tray
 2. Insert SQLite `runs` row (`trigger_kind` + optional `payload_json`); spawn worker
-3. Load graph → topological order → prelude (pinned memories + trigger payload)
-4. Walk nodes: Input → Memories → Agent (CLI adapter) → Output (capture execution-time disposition; backend persists save receipt / final result)
-5. Persist `run_steps`, emit `run://event` for the activity UI; finish status; refresh tray
+3. Load graph → execution levels (Kahn waves: every node's predecessors sit in
+earlier levels) → prelude (pinned memories + trigger payload)
+4. Run one level at a time, gated by the workflow's `parallelBranches` switch
+(toolbar Parallel/Sequential button; new workflows default to parallel, legacy
+rows migrate to sequential). The Plan 053 skip gate evaluates against the
+level-entry snapshot so every branch sees the same completed predecessors;
+skips record immediately in graph order and only runnable nodes fan out.
+Parallel on: width-1 levels run inline while wider levels fan out on scoped
+threads sharing the snapshot, each branch getting a forked run control (shared
+cancel flag, private CLI-child slot) so concurrent agent processes stay
+killable and any failure or user cancel stops siblings fail-fast. Parallel
+off: every node runs inline in order against the running state (pre-parallel
+behavior).
+5. Join each level deterministically in graph order: append-only context
+suffixes concatenate (an overwriting input/template still wins, as in
+sequence), step outputs merge into labeled `## <label>` sections — also lifted
+into context for context-silent agent branches so a downstream judge sees
+every debater instead of only the last one — task-query fields are
+last-changed-wins, file attribution unions unless an agent step reset it, and
+the last final-output set wins. The first error in graph order fails the run;
+pure cancellation cancels it. Cyclic leftovers run one level each, sequentially.
+6. Walk node kinds: Input → Memories → Agent (CLI adapter) → Output (capture execution-time disposition; backend persists save receipt / final result)
+7. Persist `run_steps`, emit `run://event` for the activity UI; finish status; refresh tray
 
 Schedules and event triggers only fire while Alfred is running (including tray).
 A scheduled time that passes while Alfred is closed is a miss: that schedule's

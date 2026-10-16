@@ -3,10 +3,14 @@
 //! Emits `run://event` so the UI can show a live activity panel and highlight
 //! the active node.
 
+mod conditions;
+pub use conditions::{
+    compile_pattern as compile_condition_pattern, MAX_CONDITION_VALUE_BYTES,
+};
 mod identity;
+pub(crate) mod lookup_trace;
 pub(crate) mod memory_context;
 pub(crate) mod output;
-pub(crate) mod lookup_trace;
 mod retrieval_query;
 
 use memory_context::{
@@ -96,6 +100,8 @@ pub struct RunEvent {
     pub node_label: Option<String>,
     pub status: Option<String>,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
     pub output: Option<String>,
     /// Agent-step stats (tokens, cost, duration) — set on `step_completed` for
     /// `agent` nodes when the adapter reports them.
@@ -242,6 +248,7 @@ fn spawn_run_execution(app: AppHandle, db: &Db, summary: &RunSummary) -> Result<
                     node_label: None,
                     status: Some("failed".into()),
                     message: e.to_string(),
+                    input: None,
                     output: None,
                     stats: None,
                     activity: None,
@@ -266,6 +273,191 @@ pub fn cancel_run(db: &Db, run_id: &str) -> Result<bool, RunnerError> {
 fn emit(app: &AppHandle, event: RunEvent) -> Result<(), RunnerError> {
     app.emit("run://event", &event)
         .map_err(|e| RunnerError::Message(e.to_string()))
+}
+
+const MAX_LIVE_STEP_INPUT_BYTES: usize = 128 * 1024;
+
+fn bounded_step_input_text(text: &str) -> (String, bool) {
+    if text.len() <= MAX_LIVE_STEP_INPUT_BYTES {
+        return (text.to_owned(), false);
+    }
+    let mut end = MAX_LIVE_STEP_INPUT_BYTES;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (text[..end].to_owned(), true)
+}
+
+fn step_input_summary(text: &str, fallback: &str) -> String {
+    let summary = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if summary.is_empty() {
+        return fallback.to_owned();
+    }
+    if summary.chars().count() <= 140 {
+        return summary;
+    }
+    let mut shortened: String = summary.chars().take(140).collect();
+    shortened.push('…');
+    shortened
+}
+
+fn step_input_snapshot(kind: &str, summary: String, body: Value, redacted: bool) -> Value {
+    if let Some(text) = body.as_str() {
+        if text.len() > MAX_LIVE_STEP_INPUT_BYTES {
+            let original_bytes = text.len();
+            let (captured, _) = bounded_step_input_text(text);
+            let captured_bytes = captured.len();
+            return serde_json::json!({
+                "version": 1,
+                "kind": kind,
+                "summary": summary,
+                "body": captured,
+                "redacted": redacted,
+                "truncated": true,
+                "originalBytes": original_bytes,
+                "capturedBytes": captured_bytes,
+            });
+        }
+        return serde_json::json!({
+            "version": 1,
+            "kind": kind,
+            "summary": summary,
+            "body": text,
+            "redacted": redacted,
+        });
+    }
+    let serialized = serde_json::to_string_pretty(&body).unwrap_or_default();
+    if serialized.len() > MAX_LIVE_STEP_INPUT_BYTES {
+        let original_bytes = serialized.len();
+        let (captured, _) = bounded_step_input_text(&serialized);
+        let captured_bytes = captured.len();
+        return serde_json::json!({
+            "version": 1,
+            "kind": kind,
+            "summary": summary,
+            "body": captured,
+            "redacted": redacted,
+            "truncated": true,
+            "originalBytes": original_bytes,
+            "capturedBytes": captured_bytes,
+        });
+    }
+    serde_json::json!({
+        "version": 1,
+        "kind": kind,
+        "summary": summary,
+        "body": body,
+        "redacted": redacted,
+    })
+}
+
+fn text_step_input_snapshot(kind: &str, text: &str, fallback: &str) -> Value {
+    let original_bytes = text.len();
+    let (captured, truncated) = bounded_step_input_text(text);
+    let mut snapshot = step_input_snapshot(
+        kind,
+        step_input_summary(text, fallback),
+        Value::String(captured.clone()),
+        false,
+    );
+    if truncated {
+        snapshot["truncated"] = Value::Bool(true);
+        snapshot["originalBytes"] = serde_json::json!(original_bytes);
+        snapshot["capturedBytes"] = serde_json::json!(captured.len());
+    }
+    snapshot
+}
+
+fn emit_step_input(
+    app: &AppHandle,
+    run_id: &str,
+    workflow_id: &str,
+    node_id: &str,
+    node_type: &str,
+    node_label: &str,
+    input: &Value,
+) {
+    let _ = emit(
+        app,
+        RunEvent {
+            run_id: run_id.into(),
+            workflow_id: workflow_id.into(),
+            kind: "step_input".into(),
+            node_id: Some(node_id.into()),
+            node_type: Some(node_type.into()),
+            node_label: Some(node_label.into()),
+            status: Some("running".into()),
+            message: "Step input ready".into(),
+            input: Some(input.clone()),
+            output: None,
+            stats: None,
+            activity: None,
+            auth_required: None,
+            at: Utc::now().to_rfc3339(),
+        },
+    );
+}
+
+fn publish_step_input(
+    slot: &mut Option<Value>,
+    app: &AppHandle,
+    run_id: &str,
+    workflow_id: &str,
+    node_id: &str,
+    node_type: &str,
+    node_label: &str,
+    input: Value,
+) {
+    emit_step_input(
+        app,
+        run_id,
+        workflow_id,
+        node_id,
+        node_type,
+        node_label,
+        &input,
+    );
+    *slot = Some(input);
+}
+
+fn sensitive_header_name(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "authorization"
+            | "proxy-authorization"
+            | "cookie"
+            | "set-cookie"
+            | "x-api-key"
+    ) || ["token", "secret", "password", "credential"]
+        .iter()
+        .any(|part| name.contains(part))
+}
+
+fn redact_http_headers(headers: &str) -> (String, bool) {
+    let mut redacted = false;
+    let lines = headers
+        .lines()
+        .map(|line| {
+            let Some((name, value)) = line.split_once(':') else {
+                return line.to_owned();
+            };
+            if sensitive_header_name(name) {
+                redacted = true;
+                format!("{name}: [redacted]")
+            } else {
+                format!("{name}:{value}")
+            }
+        })
+        .collect::<Vec<_>>();
+    (lines.join("\n"), redacted)
+}
+
+fn redact_url_query(url: &str) -> (String, bool) {
+    let Some((base, _query)) = url.split_once('?') else {
+        return (url.to_owned(), false);
+    };
+    (format!("{base}?[redacted]"), true)
 }
 
 fn set_run_status(
@@ -1120,6 +1312,7 @@ pub fn execute_run(
                     .map(|d| format!(" · cwd `{d}`"))
                     .unwrap_or_default()
             ),
+            input: None,
             output: None,
             stats: None,
             activity: None,
@@ -1154,6 +1347,7 @@ pub fn execute_run(
                 node_label: None,
                 status: Some("failed".into()),
                 message: "Workflow has no nodes to run.".into(),
+                input: None,
                 output: None,
                 stats: None,
                 activity: None,
@@ -1164,13 +1358,15 @@ pub fn execute_run(
         return Ok(());
     }
 
-    let order = topological_order(&nodes, &edges);
+    let levels = execution_levels(&nodes, &edges);
+    let incoming = conditions::incoming_edges(&nodes, &edges);
     let html_report_agents = nearest_html_report_agents(&nodes, &edges);
-    let mut context_prompt = PromptValue::default();
-    let mut last_output = PromptValue::default();
+    // Per-node results. A condition on `S -> T` compares `S`'s own output;
+    // `last_output` is a single shared value that any later step overwrites.
+    // A node absent from this map never produced a result, which makes every
+    // edge leaving it dead (Plan 053, rule 1).
+    let mut node_outputs: HashMap<String, String> = HashMap::new();
     let mut task_query_state = TaskQueryState::default();
-    let mut final_output: Option<String> = None;
-    let mut last_files_changed: Vec<Value> = Vec::new();
     let prompt_memory_context = MemoryContext {
         workflow_id: workflow_id.into(),
         working_directory: working_directory.clone(),
@@ -1185,9 +1381,13 @@ pub fn execute_run(
     capture_original_trigger_source(db, run_id)?;
 
     // Trigger payload remains its own trust block and is composed after memory.
+    // The raw payload is also kept verbatim for the `trigger` condition source;
+    // conditions compare the payload itself, not its markdown presentation.
+    let mut trigger_payload = String::new();
     let trigger_context = match load_run_payload(db, run_id)? {
         Some((payload, trigger_kind)) => {
             task_query_state.set_normalized_event(&payload, trigger_kind == "app");
+            trigger_payload = payload.clone();
             emit(
                 app,
                 RunEvent {
@@ -1199,6 +1399,7 @@ pub fn execute_run(
                     node_label: Some("Trigger".into()),
                     status: Some("running".into()),
                     message: "Injecting trigger payload".into(),
+                    input: None,
                     output: Some(payload.clone()),
                     stats: None,
                     activity: None,
@@ -1232,6 +1433,7 @@ pub fn execute_run(
                     "Injecting {pinned_count} pinned memor{}",
                     if pinned_count == 1 { "y" } else { "ies" }
                 ),
+                input: None,
                 output: None,
                 stats: None,
                 activity: None,
@@ -1241,1384 +1443,205 @@ pub fn execute_run(
         )?;
     }
 
-    for node in order {
+    // Level-carried run state. Each level's branches clone this snapshot and
+    // the join merges them back deterministically (see `merge_level_states`).
+    let mut entry = LevelEntryState {
+        context_prompt: PromptValue::default(),
+        last_output: PromptValue::default(),
+        task_query_state,
+        files_changed: Vec::new(),
+        final_output: None,
+    };
+
+    let node_ctx = NodeExecContext {
+        app,
+        db,
+        run_id,
+        workflow_id,
+        workflow: &workflow,
+        nodes: &nodes,
+        edges: &edges,
+        working_directory: working_directory.as_deref(),
+        control,
+        trigger_context: &trigger_context,
+        prompt_memory_context: &prompt_memory_context,
+        html_report_agents: &html_report_agents,
+    };
+
+    for level in &levels {
         if control.is_cancelled() {
-            set_run_status(db, run_id, "cancelled", Some("Cancelled by user"))?;
-            emit(
-                app,
-                RunEvent {
-                    run_id: run_id.into(),
-                    workflow_id: workflow_id.into(),
-                    kind: "cancelled".into(),
-                    node_id: None,
-                    node_type: None,
-                    node_label: None,
-                    status: Some("cancelled".into()),
-                    message: "Automation cancelled".into(),
-                    output: None,
-                    stats: None,
-                    activity: None,
-                    auth_required: None,
-                    at: Utc::now().to_rfc3339(),
-                },
-            )?;
+            finish_cancelled(app, db, run_id, workflow_id)?;
             return Ok(());
         }
 
-        let node_id = node
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let node_type = node
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let data = node.get("data").cloned().unwrap_or(Value::Null);
-        let output_disposition = matches!(node_type.as_str(), "chooseOutput" | "output")
-            .then(|| OutputDisposition::capture(&data));
-        let label = data
-            .get("label")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&node_type)
-            .to_string();
-
-        emit(
-            app,
-            RunEvent {
-                run_id: run_id.into(),
-                workflow_id: workflow_id.into(),
-                kind: "step_started".into(),
-                node_id: Some(node_id.clone()),
-                node_type: Some(node_type.clone()),
-                node_label: Some(label.clone()),
-                status: Some("running".into()),
-                message: format!("Running step: {label}"),
-                output: None,
-                stats: None,
-                activity: None,
-                auth_required: None,
-                at: Utc::now().to_rfc3339(),
-            },
-        )?;
-
-        let mut step_auth_required: Option<AgentAuthRequired> = None;
-        let mut step_agent_provider: Option<String> = None;
-        let mut step_agent_skill: Option<String> = None;
-        let mut step_agent_metadata: Option<SafeAgentRunMetadata> = None;
-        let mut step_evidence_inputs = Vec::new();
-        let mut persisted_input_prompt = context_prompt.render_reference_summary();
-        let mut step_memory_recall_status: Option<&'static str> = None;
-        let mut step_memory_recall_omitted_count = 0usize;
-        let step_result = match node_type.as_str() {
-            "prompt" | "input" => {
-                let prompt = data
-                    .get("prompt")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                task_query_state.replace_with_authored_input(&prompt);
-                let attachments_block = format_attachments_context(&data);
-                let mut combined_value =
-                    PromptValue::text(TextOrigin::AuthoredTask, prompt.clone());
-                step_evidence_inputs.extend(typed_prompt_sources(
-                    run_id,
+        if !workflow.parallel_branches {
+            // Strictly sequential: gate, start, run, and merge one node at a
+            // time against the running state — the pre-parallel behavior.
+            for node in level {
+                let (node_id, node_type, _data, label) = describe_node(node);
+                let gate_context = entry.context_prompt.render_without_memory();
+                if let Some(conditions::SkipReason(reason)) = conditions::skip_reason(
                     &node_id,
-                    &combined_value,
-                ));
-                let mut combined = if attachments_block.is_empty() {
-                    prompt.clone()
-                } else if prompt.trim().is_empty() {
-                    combined_value =
-                        PromptValue::text(TextOrigin::HostMetadata, attachments_block.clone());
-                    attachments_block.clone()
-                } else {
-                    combined_value.append_text(TextOrigin::HostMetadata, "\n\n");
-                    combined_value.append_text(TextOrigin::HostMetadata, attachments_block.clone());
-                    format!("{prompt}\n\n{attachments_block}")
-                };
-
-                // The Input node's script is an instruction to the agent, not a
-                // gate: it never fails the run, even when it exits non-zero.
-                // Executing it is opt-in; the default only mentions it.
-                if let Some(script) = data.get("script").filter(|v| v.is_object()) {
-                    let block = format_script_instruction(script);
-                    if !block.is_empty() {
-                        step_evidence_inputs.extend(typed_prompt_sources(
-                            run_id,
-                            &node_id,
-                            &PromptValue::text(TextOrigin::AuthoredTemplate, block.clone()),
-                        ));
-                        if !combined_value.is_empty() {
-                            combined_value.append_text(TextOrigin::AuthoredTemplate, "\n\n");
-                        }
-                        combined_value.append_text(TextOrigin::AuthoredTemplate, block.clone());
-                        combined = if combined.trim().is_empty() {
-                            block
-                        } else {
-                            format!("{combined}\n\n{block}")
-                        };
+                    &incoming,
+                    &node_outputs,
+                    &gate_context,
+                    &trigger_payload,
+                ) {
+                    record_skip(
+                        app,
+                        db,
+                        run_id,
+                        workflow_id,
+                        &node_id,
+                        &node_type,
+                        &label,
+                        reason,
+                    )?;
+                    continue;
+                }
+                emit_step_started(app, run_id, workflow_id, &node_id, &node_type, &label)?;
+                match execute_level_node(&node_ctx, node, &entry)? {
+                    BranchOutcome::Completed(exec) => {
+                        node_outputs.insert(exec.node_id.clone(), exec.output_text.clone());
+                        entry = merge_level_states(&entry, &[exec]);
                     }
-                    if script.get("run").and_then(Value::as_bool).unwrap_or(false) {
-                        let complete_last_output = last_output
-                            .render_complete(db, &prompt_memory_context)
-                            .map_err(|error| RunnerError::Message(error.to_string()))?;
-                        let (text, note) = match run_script(
-                            script,
-                            &combined,
-                            &complete_last_output,
-                            working_directory.as_deref(),
-                            control,
-                            None,
-                        ) {
-                            Ok((output, code)) => (
-                                format!("{}\n(exit {code})", output.trim_end()),
-                                (code != 0).then(|| format!("Script exited with status {code}")),
-                            ),
-                            Err(e) => (format!("(script failed: {e})"), Some(e)),
-                        };
-                        step_evidence_inputs.push(EvidenceSourceInput {
-                            run_id: run_id.into(),
-                            step_id: None,
-                            node_id: Some(node_id.clone()),
-                            origin: EvidenceOrigin::HostRecordedObservation,
-                            producer_identity: Some("local_script".into()),
-                            source_label: Some("input script result".into()),
-                            observed_at: Utc::now(),
-                            text: text.clone(),
-                            omission_reason: None,
-                        });
-                        combined = format!("{combined}\n\n## Script output\n\n```\n{text}\n```");
-                        combined_value.append_text(
-                            TextOrigin::ExternalObservation,
-                            format!("\n\n## Script output\n\n```\n{text}\n```"),
-                        );
-                        if let Some(note) = note {
-                            emit(
+                    BranchOutcome::Failed(failure) => {
+                        if failure.err == "__cancelled__" {
+                            finish_cancelled(app, db, run_id, workflow_id)?;
+                        } else {
+                            finish_failed(
                                 app,
-                                RunEvent {
-                                    run_id: run_id.into(),
-                                    workflow_id: workflow_id.into(),
-                                    kind: "step_log".into(),
-                                    node_id: Some(node_id.clone()),
-                                    node_type: Some(node_type.clone()),
-                                    node_label: Some(label.clone()),
-                                    status: Some("running".into()),
-                                    message: format!("{note} — passing the output to the agent"),
-                                    output: None,
-                                    stats: None,
-                                    activity: None,
-                                    auth_required: None,
-                                    at: Utc::now().to_rfc3339(),
-                                },
+                                db,
+                                run_id,
+                                workflow_id,
+                                &failure.err,
+                                failure.stats,
                             )?;
                         }
+                        return Ok(());
+                    }
+                    BranchOutcome::Cancelled => {
+                        finish_cancelled(app, db, run_id, workflow_id)?;
+                        return Ok(());
                     }
                 }
+            }
+            continue;
+        }
 
-                context_prompt = combined_value;
-                let attach_count = data
-                    .get("attachments")
-                    .and_then(|v| v.as_array())
-                    .map(|a| a.len())
-                    .unwrap_or(0);
-                let message = if attach_count == 0 {
-                    "Loaded input into context".to_string()
-                } else {
-                    format!(
-                        "Loaded input into context ({attach_count} attachment{})",
-                        if attach_count == 1 { "" } else { "s" }
-                    )
-                };
-                emit(
+        // Plan 053 gate, evaluated against the level-entry snapshot so every
+        // branch sees the same completed predecessors. Skips record
+        // immediately in graph order; only runnable nodes fan out below.
+        let mut runnable: Vec<&Value> = Vec::with_capacity(level.len());
+        let entry_context = entry.context_prompt.render_without_memory();
+        for node in level {
+            let (node_id, node_type, _data, label) = describe_node(node);
+            if let Some(conditions::SkipReason(reason)) = conditions::skip_reason(
+                &node_id,
+                &incoming,
+                &node_outputs,
+                &entry_context,
+                &trigger_payload,
+            ) {
+                record_skip(
                     app,
-                    RunEvent {
-                        run_id: run_id.into(),
-                        workflow_id: workflow_id.into(),
-                        kind: "step_log".into(),
-                        node_id: Some(node_id.clone()),
-                        node_type: Some(node_type.clone()),
-                        node_label: Some(label.clone()),
-                        status: Some("running".into()),
-                        message,
-                        output: Some(combined.clone()),
-                        stats: None,
-                        activity: None,
-                        auth_required: None,
-                        at: Utc::now().to_rfc3339(),
-                    },
-                )?;
-                Ok((combined, None::<String>, None::<String>, None::<Value>))
-            }
-            "identity" => {
-                let identity = format_identity(&data);
-                let output = if identity.is_empty() {
-                    "Identity is empty; no instructions added".to_string()
-                } else {
-                    identity
-                };
-                Ok((output, None, None, None))
-            }
-            "memory" => {
-                let memory_ids: Vec<String> = data
-                    .get("memoryIds")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let text = apply_memory_selection(
-                    &mut context_prompt,
-                    &mut last_output,
-                    memory_ids.clone(),
-                );
-                if text.is_none() {
-                    let msg = "No memories selected — skipped".to_string();
-                    Ok((msg, None::<String>, None::<String>, None::<Value>))
-                } else {
-                    let text = text.expect("non-empty selection has a summary");
-                    emit(
-                        app,
-                        RunEvent {
-                            run_id: run_id.into(),
-                            workflow_id: workflow_id.into(),
-                            kind: "step_log".into(),
-                            node_id: Some(node_id.clone()),
-                            node_type: Some(node_type.clone()),
-                            node_label: Some(label.clone()),
-                            status: Some("running".into()),
-                            message: format!(
-                                "Loaded {} memor{}",
-                                memory_ids.len(),
-                                if memory_ids.len() == 1 { "y" } else { "ies" }
-                            ),
-                            output: Some(text.clone()),
-                            stats: None,
-                            activity: None,
-                            auth_required: None,
-                            at: Utc::now().to_rfc3339(),
-                        },
-                    )?;
-                    Ok((text, None::<String>, None::<String>, None::<Value>))
-                }
-            }
-            "agent" => {
-                debug_assert!(automatic_memory_eligible(&node_type));
-                let provider_str = data
-                    .get("provider")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("claude_code");
-                let model = data
-                    .get("model")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let skill_names = parse_skill_names(&data);
-                let skill_label = if skill_names.is_empty() {
-                    None
-                } else {
-                    Some(
-                        skill_names
-                            .iter()
-                            .map(|s| format!("/{s}"))
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                    )
-                };
-                let provider =
-                    AgentProvider::from_str(provider_str).unwrap_or(AgentProvider::ClaudeCode);
-                let harness = AgentHarness::parse_persisted(data.get("harness"))
-                    .map_err(|error| RunnerError::Message(error.to_string()))?;
-                step_agent_provider = Some(provider.as_str().to_owned());
-                step_agent_skill = skill_label.clone();
-                step_agent_metadata = Some(SafeAgentRunMetadata::identity(provider, harness, None));
-
-                (|| -> Result<(String, Option<String>, Option<String>, Option<Value>), String> {
-                    let capability_manifest = app
-                        .try_state::<crate::agents::capability_manifest::AgentCapabilityManifest>()
-                        .ok_or_else(|| crate::agents::NATIVE_RUNTIME_UNAVAILABLE.to_owned())?;
-                    capability_manifest
-                        .require_execution(provider, harness)
-                        .map_err(|error| safe_agent_error(&error).to_owned())?;
-                    let resolved_model = crate::agents::models::resolve_model_for_execution(
-                        provider,
-                        harness,
-                        model.as_deref(),
-                    )
-                    .map_err(|error| safe_agent_error(&error).to_owned())?;
-                    step_agent_metadata = Some(SafeAgentRunMetadata::identity(
-                        provider,
-                        harness,
-                        resolved_model.as_deref(),
-                    ));
-                    let account_ref = if harness == AgentHarness::Alfred {
-                        data.get("accountRef")
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())
-                            .map(OpaqueAgentAccountRef::parse)
-                            .transpose()
-                            .map_err(|error| safe_agent_error(&error).to_owned())?
-                    } else {
-                        None
-                    };
-                    let base_prompt = if context_prompt.is_empty() {
-                        last_output.clone()
-                    } else {
-                        context_prompt.clone()
-                    };
-                    let query_text = task_query_state.query_text(context_prompt.is_empty());
-                    let target = AgentExecutionTarget {
-                        provider,
-                        harness,
-                        account_ref,
-                        model: resolved_model.clone(),
-                        working_directory: working_directory.clone(),
-                        request_metadata: AgentRequestMetadata::new(run_id, &node_id)
-                            .map_err(|error| safe_agent_error(&error).to_owned())?,
-                    };
-                    let git_before = working_directory.as_deref().map(git_status_snapshot);
-                    let model_label = resolved_model
-                        .as_deref()
-                        .map(|value| format!(" · `{value}`"))
-                        .unwrap_or_default();
-
-                    let on_activity = |activity: &AgentActivity| {
-                        let safe_activity = safe_activity_for_run_event(activity, harness);
-                        let _ = emit(
-                            app,
-                            RunEvent {
-                                run_id: run_id.into(),
-                                workflow_id: workflow_id.into(),
-                                kind: "agent_activity".into(),
-                                node_id: Some(node_id.clone()),
-                                node_type: Some(node_type.clone()),
-                                node_label: Some(label.clone()),
-                                status: Some("running".into()),
-                                message: safe_activity.label.clone(),
-                                output: None,
-                                stats: step_agent_metadata.as_ref().map(safe_metadata_value),
-                                activity: Some(safe_activity),
-                                auth_required: None,
-                                at: Utc::now().to_rfc3339(),
-                            },
-                        );
-                    };
-
-                    // The Alfred harness resolves through the managed native
-                    // router; the CLI path is untouched and never falls back.
-                    let native_router =
-                        app.try_state::<crate::agents::native::NativeExecutionRouter>();
-                    let response = with_composed_agent_prompt(
-                        db,
-                        workflow_id,
-                        working_directory.as_deref(),
-                        run_id,
-                        &node_id,
-                        &base_prompt,
-                        &query_text,
-                        &trigger_context,
-                        workflow.memory_retrieval_enabled,
-                        &nodes,
-                        &edges,
-                        html_report_agents.contains(&node_id),
-                        |prepared, prompt| {
-                            step_evidence_inputs.extend(prior_memory_sources(
-                                run_id,
-                                &node_id,
-                                &prepared.memory_references,
-                            ));
-                            if workflow.memory_retrieval_enabled {
-                                step_memory_recall_status = Some(if prepared.recall_unavailable {
-                                    "unavailable"
-                                } else if prepared.recall_abstained {
-                                    "abstained"
-                                } else {
-                                    "included"
-                                });
-                                step_memory_recall_omitted_count = prepared.recall_omitted_count;
-                                let message = if prepared.recall_unavailable {
-                                    "Memory recall unavailable; continuing without recalled context"
-                                        .to_string()
-                                } else if prepared.recall_abstained {
-                                    "No relevant memories found for this task".to_string()
-                                } else {
-                                    format!(
-                                        "Recalled {} memories ({} context bytes)",
-                                        prepared.recalled_count, prepared.recalled_bytes
-                                    )
-                                };
-                                emit(
-                                    app,
-                                    RunEvent {
-                                        run_id: run_id.into(),
-                                        workflow_id: workflow_id.into(),
-                                        kind: "step_log".into(),
-                                        node_id: Some(node_id.clone()),
-                                        node_type: Some(node_type.clone()),
-                                        node_label: Some(label.clone()),
-                                        status: Some("running".into()),
-                                        message,
-                                        output: None,
-                                        stats: None,
-                                        activity: None,
-                                        auth_required: None,
-                                        at: Utc::now().to_rfc3339(),
-                                    },
-                                )
-                                .map_err(|error| error.to_string())?;
-                            }
-                            persisted_input_prompt = prompt.to_owned();
-                            emit(
-                                app,
-                                RunEvent {
-                                    run_id: run_id.into(),
-                                    workflow_id: workflow_id.into(),
-                                    kind: "step_log".into(),
-                                    node_id: Some(node_id.clone()),
-                                    node_type: Some(node_type.clone()),
-                                    node_label: Some(label.clone()),
-                                    status: Some("running".into()),
-                                    message: format!(
-                                        "Running {} via {}{model_label}{}",
-                                        provider.label(),
-                                        match harness {
-                                            AgentHarness::Cli => "CLI",
-                                            AgentHarness::Alfred => "Alfred",
-                                        },
-                                        skill_label
-                                            .as_deref()
-                                            .map(|value| format!(" · {value}"))
-                                            .unwrap_or_default()
-                                    ),
-                                    output: None,
-                                    stats: step_agent_metadata.as_ref().map(safe_metadata_value),
-                                    activity: None,
-                                    auth_required: None,
-                                    at: Utc::now().to_rfc3339(),
-                                },
-                            )
-                            .map_err(|error| error.to_string())?;
-                            Ok(())
-                        },
-                        |prompt| {
-                            let request = AgentRequest {
-                                prompt,
-                                model: resolved_model.clone(),
-                                skill: None,
-                                skill_name: None,
-                                skill_names: skill_names.clone(),
-                                working_directory: working_directory.clone(),
-                                extra: Value::Null,
-                            };
-                            execute_target(
-                                &target,
-                                request,
-                                AgentRunHooks {
-                                    control: Some(control),
-                                    on_activity: Some(&on_activity),
-                                },
-                                native_router.as_ref().map(|router| {
-                                    router.inner() as &dyn crate::agents::AgentNativeRuntime
-                                }),
-                            )
-                        },
-                    )?;
-                    match response {
-                        Ok(response) => {
-                            last_output = PromptValue::text(
-                                TextOrigin::GeneratedOutput,
-                                response.output.clone(),
-                            );
-                            task_query_state.clear_last_output();
-                            last_files_changed.clear();
-                            let mut metadata = SafeAgentRunMetadata::from_untrusted(
-                                provider,
-                                harness,
-                                resolved_model.as_deref(),
-                                &response.metadata,
-                            );
-                            if let (Some(before), Some(dir)) =
-                                (&git_before, working_directory.as_deref())
-                            {
-                                let after = git_status_snapshot(dir);
-                                let files = diff_git_status(dir, before, &after);
-                                if !files.is_empty() {
-                                    for file in &files {
-                                        if let (Some(path), Some(status)) = (
-                                            file.get("path").and_then(Value::as_str),
-                                            file.get("status").and_then(Value::as_str),
-                                        ) {
-                                            metadata.add_file_changed(path, status);
-                                        }
-                                    }
-                                    last_files_changed = files;
-                                }
-                            }
-                            let metadata_value = safe_metadata_value(&metadata);
-                            step_agent_metadata = Some(metadata);
-                            Ok((
-                                response.output,
-                                Some(provider.as_str().to_string()),
-                                skill_label,
-                                Some(metadata_value),
-                            ))
-                        }
-                        Err(AgentError::Cancelled) => Err("__cancelled__".into()),
-                        Err(error) => {
-                            if harness == AgentHarness::Cli {
-                                step_auth_required = auth_required(provider, &error.to_string());
-                            }
-                            if step_auth_required.is_some() {
-                                Err("agent_authentication_required".into())
-                            } else {
-                                Err(safe_agent_error(&error).into())
-                            }
-                        }
-                    }
-                })()
-            }
-            "customAgent" => {
-                debug_assert!(automatic_memory_eligible(&node_type));
-                let command = data
-                    .get("command")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if command.is_empty() {
-                    Err("Custom agent has no command".into())
-                } else {
-                    let prompt_mode = data
-                        .get("promptMode")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("template");
-                    let base_prompt = if context_prompt.is_empty() {
-                        last_output.clone()
-                    } else {
-                        context_prompt.clone()
-                    };
-                    let query_text = task_query_state.query_text(context_prompt.is_empty());
-                    let git_before = working_directory.as_deref().map(git_status_snapshot);
-
-                    let line_sequence = AtomicUsize::new(0);
-                    let on_line = |line: &str| {
-                        let sequence = line_sequence.fetch_add(1, Ordering::Relaxed);
-                        let activity = AgentActivity::new(
-                            format!("custom:{node_id}:{sequence}"),
-                            AgentActivityKind::Assistant,
-                            AgentActivityState::Completed,
-                            "Agent response",
-                            Some(line),
-                        );
-                        let _ = emit(
-                            app,
-                            RunEvent {
-                                run_id: run_id.into(),
-                                workflow_id: workflow_id.into(),
-                                kind: "agent_activity".into(),
-                                node_id: Some(node_id.clone()),
-                                node_type: Some(node_type.clone()),
-                                node_label: Some(label.clone()),
-                                status: Some("running".into()),
-                                message: activity.label.clone(),
-                                output: None,
-                                stats: None,
-                                activity: Some(activity),
-                                auth_required: None,
-                                at: Utc::now().to_rfc3339(),
-                            },
-                        );
-                    };
-
-                    let response = with_composed_agent_prompt(
-                        db,
-                        workflow_id,
-                        working_directory.as_deref(),
-                        run_id,
-                        &node_id,
-                        &base_prompt,
-                        &query_text,
-                        &trigger_context,
-                        workflow.memory_retrieval_enabled,
-                        &nodes,
-                        &edges,
-                        html_report_agents.contains(&node_id),
-                        |prepared, prompt| {
-                            step_evidence_inputs.extend(prior_memory_sources(
-                                run_id,
-                                &node_id,
-                                &prepared.memory_references,
-                            ));
-                            if workflow.memory_retrieval_enabled {
-                                step_memory_recall_status = Some(if prepared.recall_unavailable {
-                                    "unavailable"
-                                } else if prepared.recall_abstained {
-                                    "abstained"
-                                } else {
-                                    "included"
-                                });
-                                step_memory_recall_omitted_count = prepared.recall_omitted_count;
-                                let message = if prepared.recall_unavailable {
-                                    "Memory recall unavailable; continuing without recalled context"
-                                        .to_string()
-                                } else if prepared.recall_abstained {
-                                    "No relevant memories found for this task".to_string()
-                                } else {
-                                    format!(
-                                        "Recalled {} memories ({} context bytes)",
-                                        prepared.recalled_count, prepared.recalled_bytes
-                                    )
-                                };
-                                emit(
-                                    app,
-                                    RunEvent {
-                                        run_id: run_id.into(),
-                                        workflow_id: workflow_id.into(),
-                                        kind: "step_log".into(),
-                                        node_id: Some(node_id.clone()),
-                                        node_type: Some(node_type.clone()),
-                                        node_label: Some(label.clone()),
-                                        status: Some("running".into()),
-                                        message,
-                                        output: None,
-                                        stats: None,
-                                        activity: None,
-                                        auth_required: None,
-                                        at: Utc::now().to_rfc3339(),
-                                    },
-                                )
-                                .map_err(|error| error.to_string())?;
-                            }
-                            persisted_input_prompt = prompt.to_owned();
-                            emit(
-                                app,
-                                RunEvent {
-                                    run_id: run_id.into(),
-                                    workflow_id: workflow_id.into(),
-                                    kind: "step_log".into(),
-                                    node_id: Some(node_id.clone()),
-                                    node_type: Some(node_type.clone()),
-                                    node_label: Some(label.clone()),
-                                    status: Some("running".into()),
-                                    message: format!("Running custom agent · `{command}`"),
-                                    output: None,
-                                    stats: None,
-                                    activity: None,
-                                    auth_required: None,
-                                    at: Utc::now().to_rfc3339(),
-                                },
-                            )
-                            .map_err(|error| error.to_string())?;
-                            Ok(())
-                        },
-                        |prompt| {
-                            run_custom_agent(
-                                &command,
-                                prompt_mode,
-                                &prompt,
-                                working_directory.as_deref(),
-                                control,
-                                Some(&on_line),
-                            )
-                        },
-                    )
-                    .map_err(RunnerError::Message)?;
-                    match response {
-                        Ok(text) => {
-                            last_output =
-                                PromptValue::text(TextOrigin::GeneratedOutput, text.clone());
-                            task_query_state.clear_last_output();
-                            last_files_changed.clear();
-                            let mut metadata = serde_json::json!({
-                                "provider": "custom",
-                            });
-                            if let (Some(before), Some(dir)) =
-                                (&git_before, working_directory.as_deref())
-                            {
-                                let after = git_status_snapshot(dir);
-                                let files = diff_git_status(dir, before, &after);
-                                if !files.is_empty() {
-                                    last_files_changed = files.clone();
-                                    if let Value::Object(map) = &mut metadata {
-                                        map.insert("filesChanged".into(), Value::Array(files));
-                                    }
-                                }
-                            }
-                            Ok((text, Some("custom".into()), None, Some(metadata)))
-                        }
-                        Err(err) if err == "cancelled" => Err("__cancelled__".into()),
-                        Err(e) => Err(e),
-                    }
-                }
-            }
-            "chooseOutput" | "output" => {
-                let include_files = data
-                    .get("includeFilesChanged")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                let as_final = data
-                    .get("asFinalResult")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                let html_report = data
-                    .get("htmlReport")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                let (body_value, body) = project_output_value(
                     db,
-                    &prompt_memory_context,
-                    &last_output,
-                    &last_files_changed,
-                    include_files,
-                    html_report,
-                )?;
-
-                last_output = body_value;
-                if as_final {
-                    final_output = Some(body.clone());
-                }
-                Ok((body, None, None, None))
-            }
-            "template" => {
-                let template = data.get("template").and_then(|v| v.as_str()).unwrap_or("");
-                step_evidence_inputs.extend(typed_prompt_sources(
                     run_id,
+                    workflow_id,
                     &node_id,
-                    &PromptValue::text(TextOrigin::AuthoredTemplate, template),
-                ));
-                let mode = data
-                    .get("mode")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("append");
-                let cwd = working_directory.as_deref().unwrap_or("");
-                let rendered_context_was_empty = context_prompt.is_empty();
-                let rendered = apply_template_transition(
-                    &mut context_prompt,
-                    &mut last_output,
-                    template,
-                    mode,
-                    cwd,
-                );
-                task_query_state.apply_authored_template(
-                    template,
-                    mode,
-                    rendered_context_was_empty,
-                );
-                Ok((rendered, None, None, None))
+                    &node_type,
+                    &label,
+                    reason,
+                )?;
+                continue;
             }
-            "fileInject" => {
-                let paths: Vec<String> = data
-                    .get("paths")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect()
+            runnable.push(node);
+        }
+        if runnable.is_empty() {
+            continue;
+        }
+
+        for node in &runnable {
+            let (node_id, node_type, _data, label) = describe_node(node);
+            emit_step_started(app, run_id, workflow_id, &node_id, &node_type, &label)?;
+        }
+
+        // Width-1 levels run inline for exact sequential parity; wider levels
+        // fan out on scoped threads sharing one snapshot, then rejoin.
+        let outcomes: Vec<Result<BranchOutcome, RunnerError>> = if runnable.len() == 1 {
+            vec![execute_level_node(&node_ctx, runnable[0], &entry)]
+        } else {
+            let forks: Vec<RunControl> = runnable.iter().map(|_| control.fork()).collect();
+            let branch_ctxs: Vec<NodeExecContext> = forks
+                .iter()
+                .map(|fork| NodeExecContext {
+                    control: fork,
+                    ..node_ctx
+                })
+                .collect();
+            // Borrowed once so `move` closures below move this reference
+            // (which is `Copy`), never `entry` itself.
+            let snapshot = &entry;
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = runnable
+                    .iter()
+                    .copied()
+                    .zip(branch_ctxs.iter())
+                    .map(|(node, branch_ctx)| {
+                        scope.spawn(move || execute_level_node(branch_ctx, node, snapshot))
                     })
-                    .unwrap_or_default();
-                if paths.is_empty() {
-                    Ok(("No paths selected — skipped".into(), None, None, None))
-                } else {
-                    let mut sections = Vec::new();
-                    sections.push("## Injected files".to_string());
-                    for path in &paths {
-                        sections.push(format!("### File\n`{path}`\n{}", read_file_brief(path)));
-                    }
-                    let text = sections.join("\n\n");
-                    if !context_prompt.is_empty() {
-                        context_prompt.append_text(TextOrigin::ExternalObservation, "\n\n");
-                    }
-                    context_prompt.append_text(TextOrigin::ExternalObservation, text.clone());
-                    last_output = PromptValue::text(TextOrigin::ExternalObservation, text.clone());
-                    task_query_state.clear_last_output();
-                    Ok((text, None, None, None))
-                }
-            }
-            "gitStatus" => {
-                let include_diff = data
-                    .get("includeDiff")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                match working_directory.as_deref() {
-                    None => Err("No working directory set on this workflow".into()),
-                    Some(cwd) => {
-                        let text = format_git_status_context(cwd, include_diff);
-                        if !context_prompt.is_empty() {
-                            context_prompt.append_text(TextOrigin::ExternalObservation, "\n\n");
-                        }
-                        context_prompt.append_text(TextOrigin::ExternalObservation, text.clone());
-                        last_output =
-                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
-                        task_query_state.clear_last_output();
-                        Ok((text, None, None, None))
-                    }
-                }
-            }
-            "shell" => {
-                let command = data
-                    .get("command")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if command.is_empty() {
-                    Err("Shell node has no command".into())
-                } else {
-                    let append = data
-                        .get("appendOutput")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true);
-                    let cwd = working_directory.as_deref();
-                    match run_shell_command(&command, cwd) {
-                        Ok((output, code)) => {
-                            let text = if output.trim().is_empty() {
-                                format!("(exit {code})")
-                            } else {
-                                format!("{output}\n(exit {code})")
-                            };
-                            if append {
-                                let block = if context_prompt.is_empty() {
-                                    text.clone()
-                                } else {
-                                    format!("\n\n## Shell output\n\n```\n{text}\n```")
-                                };
-                                context_prompt.append_text(TextOrigin::ExternalObservation, block);
-                            }
-                            last_output =
-                                PromptValue::text(TextOrigin::ExternalObservation, text.clone());
-                            task_query_state.clear_last_output();
-                            if code == 0 {
-                                Ok((text, None, None, None))
-                            } else {
-                                Err(format!("Command exited with status {code}\n{text}"))
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
-            }
-            "script" => {
-                let append = data
-                    .get("appendOutput")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-
-                let line_sequence = AtomicUsize::new(0);
-                let on_line = |line: &str| {
-                    let sequence = line_sequence.fetch_add(1, Ordering::Relaxed);
-                    let activity = AgentActivity::new(
-                        format!("script:{node_id}:{sequence}"),
-                        AgentActivityKind::Command,
-                        AgentActivityState::Completed,
-                        "Script output",
-                        Some(line),
-                    );
-                    let _ = emit(
-                        app,
-                        RunEvent {
-                            run_id: run_id.into(),
-                            workflow_id: workflow_id.into(),
-                            kind: "agent_activity".into(),
-                            node_id: Some(node_id.clone()),
-                            node_type: Some(node_type.clone()),
-                            node_label: Some(label.clone()),
-                            status: Some("running".into()),
-                            message: activity.label.clone(),
-                            output: None,
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|handle| match handle.join() {
+                        Ok(outcome) => outcome,
+                        Err(_) => Ok(BranchOutcome::Failed(BranchFailure {
+                            err: "A parallel step panicked".to_string(),
                             stats: None,
-                            activity: Some(activity),
-                            auth_required: None,
-                            at: Utc::now().to_rfc3339(),
-                        },
-                    );
-                };
-
-                let complete_context = context_prompt
-                    .render_complete(db, &prompt_memory_context)
-                    .map_err(|error| RunnerError::Message(error.to_string()))?;
-                let complete_last_output = last_output
-                    .render_complete(db, &prompt_memory_context)
-                    .map_err(|error| RunnerError::Message(error.to_string()))?;
-                match run_script(
-                    &data,
-                    &complete_context,
-                    &complete_last_output,
-                    working_directory.as_deref(),
-                    control,
-                    Some(&on_line),
-                ) {
-                    Ok((output, code)) => {
-                        let text = if output.trim().is_empty() {
-                            format!("(exit {code})")
-                        } else {
-                            format!("{output}\n(exit {code})")
-                        };
-                        if append {
-                            let block = if context_prompt.is_empty() {
-                                text.clone()
-                            } else {
-                                format!("\n\n## Script output\n\n```\n{text}\n```")
-                            };
-                            context_prompt.append_text(TextOrigin::ExternalObservation, block);
-                        }
-                        last_output =
-                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
-                        task_query_state.clear_last_output();
-                        if code == 0 {
-                            Ok((text, None, None, None))
-                        } else {
-                            Err(format!("Script exited with status {code}\n{text}"))
-                        }
-                    }
-                    Err(err) if err == "cancelled" => Err("__cancelled__".into()),
-                    Err(e) => Err(e),
-                }
-            }
-            "appAction" => {
-                let provider_id = data.get("providerId").and_then(Value::as_str).unwrap_or("");
-                let action_id = data.get("actionId").and_then(Value::as_str).unwrap_or("");
-                let connection_id = data
-                    .get("connectionId")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                match app.try_state::<IntegrationsState>() {
-                    None => Err("Connected Apps service is unavailable".into()),
-                    Some(integrations) => match integrations
-                        .actions
-                        .descriptor(provider_id, action_id)
-                        .ok_or_else(|| "This app action is not available.".to_string())
-                    {
-                        Err(error) => Err(error),
-                        Ok(descriptor) => {
-                            let cwd = working_directory.as_deref().unwrap_or("");
-                            let action_result = with_prepared_action(
-                                db,
-                                &prompt_memory_context,
-                                &context_prompt,
-                                &last_output,
-                                &data,
-                                &descriptor,
-                                cwd,
-                                |request| {
-                                    tauri::async_runtime::block_on(integrations.execute_action(
-                                        db,
-                                        request,
-                                        ActionCancellation::new(control.cancel.clone()),
-                                    ))
-                                },
-                            );
-                            match action_result {
-                                Err(error) => Err(error),
-                                Ok(result) => match result {
-                                    Ok(result) => {
-                                        let text = action_result_text(&result);
-                                        let context_result = action_result_context(
-                                            &text,
-                                            descriptor.output_is_untrusted,
-                                        );
-                                        if !context_prompt.is_empty() {
-                                            context_prompt.append_text(
-                                                TextOrigin::ExternalObservation,
-                                                "\n\n",
-                                            );
-                                        }
-                                        context_prompt.append_text(
-                                            TextOrigin::ExternalObservation,
-                                            context_result,
-                                        );
-                                        last_output = PromptValue::text(
-                                            TextOrigin::ExternalObservation,
-                                            text.clone(),
-                                        );
-                                        task_query_state.clear_last_output();
-                                        let metadata = serde_json::json!({
-                                            "appAction": {
-                                                "providerId": provider_id,
-                                                "actionId": action_id,
-                                                "connectionId": connection_id,
-                                                "outputSchemaVersion": descriptor.output_schema_version,
-                                                "summary": result.summary,
-                                                "artifacts": result.artifacts,
-                                                "providerRequestId": result.provider_request_id,
-                                            }
-                                        });
-                                        Ok((text, None, None, Some(metadata)))
-                                    }
-                                    Err(error) if error.code == ActionErrorCode::Cancelled => {
-                                        Err("__cancelled__".into())
-                                    }
-                                    Err(error) => Err(format!(
-                                        "App action `{action_id}` failed for provider `{provider_id}` and connection `{connection_id}` ({}): {}",
-                                        error.code.as_str(),
-                                        error.message
-                                    )),
-                                },
-                            }
-                        }
-                    },
-                }
-            }
-            "http" => {
-                let method = data.get("method").and_then(|v| v.as_str()).unwrap_or("GET");
-                let url = data
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                if url.is_empty() {
-                    Err("HTTP node has no URL".into())
-                } else {
-                    let cwd = working_directory.as_deref().unwrap_or("");
-                    let body_tpl = data.get("body").and_then(|v| v.as_str()).unwrap_or("");
-                    let headers = data.get("headers").and_then(|v| v.as_str()).unwrap_or("");
-                    let body = apply_prompt_template(body_tpl, &context_prompt, &last_output, cwd)
-                        .render_complete(db, &prompt_memory_context)
-                        .map_err(|error| RunnerError::Message(error.to_string()))?;
-                    let url_r = apply_prompt_template(url, &context_prompt, &last_output, cwd)
-                        .render_complete(db, &prompt_memory_context)
-                        .map_err(|error| RunnerError::Message(error.to_string()))?;
-                    match run_http_request(method, &url_r, headers, &body) {
-                        Ok(text) => {
-                            let block = if context_prompt.is_empty() {
-                                text.clone()
-                            } else {
-                                format!("\n\n## HTTP response\n\n```\n{text}\n```")
-                            };
-                            context_prompt.append_text(TextOrigin::ExternalObservation, block);
-                            last_output =
-                                PromptValue::text(TextOrigin::ExternalObservation, text.clone());
-                            task_query_state.clear_last_output();
-                            Ok((text, None, None, None))
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
-            }
-            "notify" => {
-                let cwd = working_directory.as_deref().unwrap_or("");
-                let title = apply_prompt_template(
-                    data.get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Alfred"),
-                    &context_prompt,
-                    &last_output,
-                    cwd,
-                )
-                .render_complete(db, &prompt_memory_context)
-                .map_err(|error| RunnerError::Message(error.to_string()))?;
-                let body_value = apply_prompt_template(
-                    data.get("body").and_then(|v| v.as_str()).unwrap_or(""),
-                    &context_prompt,
-                    &last_output,
-                    cwd,
-                );
-                let body = body_value
-                    .render_complete(db, &prompt_memory_context)
-                    .map_err(|error| RunnerError::Message(error.to_string()))?;
-                let desktop = data
-                    .get("desktop")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                let webhook = data
-                    .get("webhookUrl")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                let mut notes = Vec::new();
-                if desktop {
-                    crate::notifications::notify_message(app, title.clone(), body.clone());
-                    notes.push("desktop".to_string());
-                }
-                if !webhook.is_empty() {
-                    let payload = serde_json::json!({ "title": title, "body": body }).to_string();
-                    if let Err(e) = run_http_request(
-                        "POST",
-                        webhook,
-                        "Content-Type: application/json",
-                        &payload,
-                    ) {
-                        Err(format!("Notify webhook failed: {e}"))
-                    } else {
-                        notes.push("webhook".to_string());
-                        let msg = format!("Notified via {}", notes.join(" + "));
-                        last_output = body_value.clone();
-                        task_query_state.clear_last_output();
-                        Ok((msg, None, None, None))
-                    }
-                } else if notes.is_empty() {
-                    Ok(("Notify skipped — nothing enabled".into(), None, None, None))
-                } else {
-                    let msg = format!("Notified via {}", notes.join(" + "));
-                    last_output = body_value;
-                    task_query_state.clear_last_output();
-                    Ok((msg, None, None, None))
-                }
-            }
-            "writeFile" => {
-                let path_raw = data
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                if path_raw.is_empty() {
-                    Err("Write file node has no path".into())
-                } else {
-                    let cwd = working_directory.as_deref().unwrap_or("");
-                    let content_tpl = data
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("{{output}}");
-                    let content_value =
-                        apply_prompt_template(content_tpl, &context_prompt, &last_output, cwd);
-                    let content = content_value
-                        .render_complete(db, &prompt_memory_context)
-                        .map_err(|error| RunnerError::Message(error.to_string()))?;
-                    let path = resolve_path(path_raw, working_directory.as_deref());
-                    match write_text_file(&path, &content) {
-                        Ok(()) => {
-                            let msg = format!("Wrote {} bytes to `{path}`", content.len());
-                            last_output = content_value;
-                            task_query_state.clear_last_output();
-                            Ok((msg, None, None, None))
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
-            }
-            "gitHost" => {
-                let action = data.get("action").and_then(|v| v.as_str()).unwrap_or("pr");
-                let cwd = working_directory.as_deref().unwrap_or("");
-                let title = apply_prompt_template(
-                    data.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                    &context_prompt,
-                    &last_output,
-                    cwd,
-                )
-                .render_complete(db, &prompt_memory_context)
-                .map_err(|error| RunnerError::Message(error.to_string()))?;
-                let body = apply_prompt_template(
-                    data.get("body").and_then(|v| v.as_str()).unwrap_or(""),
-                    &context_prompt,
-                    &last_output,
-                    cwd,
-                )
-                .render_complete(db, &prompt_memory_context)
-                .map_err(|error| RunnerError::Message(error.to_string()))?;
-                let base = data.get("base").and_then(|v| v.as_str()).unwrap_or("");
-                let repo = data.get("repo").and_then(|v| v.as_str()).unwrap_or("");
-                let head = data.get("head").and_then(|v| v.as_str()).unwrap_or("");
-                let draft = data.get("draft").and_then(|v| v.as_bool()).unwrap_or(false);
-                match run_git_host(
-                    action,
-                    repo,
-                    &title,
-                    &body,
-                    base,
-                    head,
-                    draft,
-                    working_directory.as_deref(),
-                ) {
-                    Ok(text) => {
-                        last_output =
-                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
-                        task_query_state.clear_last_output();
-                        Ok((text, None, None, None))
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-            other => {
-                let msg = format!("Unknown node type `{other}` — skipped");
-                Ok((msg, None, None, None))
-            }
+                        })),
+                    })
+                    .collect()
+            })
         };
 
-        match step_result {
-            Ok((output, provider, skill, metadata)) => {
-                let evidence_origin = match node_type.as_str() {
-                    "agent" | "customAgent" => Some(EvidenceOrigin::ModelOutput),
-                    "fileInject" | "gitStatus" | "shell" | "script" | "appAction" | "http"
-                    | "notify" | "writeFile" | "gitHost" => {
-                        Some(EvidenceOrigin::HostRecordedObservation)
+        let mut executions: Vec<BranchExecution> = Vec::with_capacity(runnable.len());
+        let mut level_error: Option<(String, Option<Value>)> = None;
+        let mut level_cancelled = false;
+        for outcome in outcomes {
+            match outcome? {
+                BranchOutcome::Completed(exec) => {
+                    // Recording a result is what makes this node's outgoing
+                    // connections eligible to fire (Plan 053, rule 1).
+                    node_outputs.insert(exec.node_id.clone(), exec.output_text.clone());
+                    executions.push(exec);
+                }
+                BranchOutcome::Failed(failure) => {
+                    if failure.err == "__cancelled__" {
+                        level_cancelled = true;
+                    } else if level_error.is_none() {
+                        level_error = Some((failure.err, failure.stats));
                     }
-                    _ => None,
-                };
-                if let Some(origin) = evidence_origin {
-                    step_evidence_inputs.push(EvidenceSourceInput {
-                        run_id: run_id.into(),
-                        step_id: None,
-                        node_id: Some(node_id.clone()),
-                        origin,
-                        producer_identity: provider.clone(),
-                        source_label: Some(format!("{label} result")),
-                        observed_at: Utc::now(),
-                        text: output.clone(),
-                        omission_reason: None,
-                    });
                 }
-                let input = persisted_step_input(
-                    &persisted_input_prompt,
-                    step_memory_recall_status,
-                    step_memory_recall_omitted_count,
-                );
-                let output_json = match &metadata {
-                    Some(stats) => serde_json::json!({ "text": output, "stats": stats }),
-                    None => serde_json::json!({ "text": output }),
-                };
-                insert_step(
-                    db,
-                    run_id,
-                    &node_id,
-                    provider.as_deref(),
-                    skill.as_deref(),
-                    "completed",
-                    &input,
-                    &output_json,
-                    None,
-                    step_evidence_inputs,
-                    output_disposition.as_ref(),
-                )?;
-                if output_disposition.is_some() {
-                    output::persist_completed_output(app, db, run_id, &node_id);
-                }
-                emit(
-                    app,
-                    RunEvent {
-                        run_id: run_id.into(),
-                        workflow_id: workflow_id.into(),
-                        kind: "step_completed".into(),
-                        node_id: Some(node_id),
-                        node_type: Some(node_type),
-                        node_label: Some(label),
-                        status: Some("completed".into()),
-                        message: "Step completed".into(),
-                        output: Some(output),
-                        stats: metadata,
-                        activity: None,
-                        auth_required: None,
-                        at: Utc::now().to_rfc3339(),
-                    },
-                )?;
-            }
-            Err(err) if err == "__cancelled__" => {
-                let input = persisted_step_input(
-                    &persisted_input_prompt,
-                    step_memory_recall_status,
-                    step_memory_recall_omitted_count,
-                );
-                let metadata = step_agent_metadata.as_ref().map(safe_metadata_value);
-                let output = metadata
-                    .as_ref()
-                    .map(|stats| serde_json::json!({ "stats": stats }))
-                    .unwrap_or_else(|| serde_json::json!({}));
-                insert_step(
-                    db,
-                    run_id,
-                    &node_id,
-                    step_agent_provider.as_deref(),
-                    step_agent_skill.as_deref(),
-                    "failed",
-                    &input,
-                    &output,
-                    Some("Cancelled by user"),
-                    step_evidence_inputs,
-                    None,
-                )?;
-                set_run_status(db, run_id, "cancelled", Some("Cancelled by user"))?;
-                emit(
-                    app,
-                    RunEvent {
-                        run_id: run_id.into(),
-                        workflow_id: workflow_id.into(),
-                        kind: "cancelled".into(),
-                        node_id: Some(node_id),
-                        node_type: Some(node_type),
-                        node_label: Some(label),
-                        status: Some("cancelled".into()),
-                        message: "Automation cancelled".into(),
-                        output: None,
-                        stats: metadata,
-                        activity: None,
-                        auth_required: None,
-                        at: Utc::now().to_rfc3339(),
-                    },
-                )?;
-                return Ok(());
-            }
-            Err(err) => {
-                let input = persisted_step_input(
-                    &persisted_input_prompt,
-                    step_memory_recall_status,
-                    step_memory_recall_omitted_count,
-                );
-                let metadata = step_agent_metadata.as_ref().map(safe_metadata_value);
-                let output = metadata
-                    .as_ref()
-                    .map(|stats| serde_json::json!({ "stats": stats }))
-                    .unwrap_or_else(|| serde_json::json!({}));
-                insert_step(
-                    db,
-                    run_id,
-                    &node_id,
-                    step_agent_provider.as_deref(),
-                    step_agent_skill.as_deref(),
-                    "failed",
-                    &input,
-                    &output,
-                    Some(&err),
-                    step_evidence_inputs,
-                    None,
-                )?;
-                set_run_status(db, run_id, "failed", Some(&err))?;
-                emit(
-                    app,
-                    RunEvent {
-                        run_id: run_id.into(),
-                        workflow_id: workflow_id.into(),
-                        kind: "step_failed".into(),
-                        node_id: Some(node_id),
-                        node_type: Some(node_type),
-                        node_label: Some(label),
-                        status: Some("failed".into()),
-                        message: err.clone(),
-                        output: None,
-                        stats: metadata.clone(),
-                        activity: None,
-                        auth_required: step_auth_required.take(),
-                        at: Utc::now().to_rfc3339(),
-                    },
-                )?;
-                emit(
-                    app,
-                    RunEvent {
-                        run_id: run_id.into(),
-                        workflow_id: workflow_id.into(),
-                        kind: "failed".into(),
-                        node_id: None,
-                        node_type: None,
-                        node_label: None,
-                        status: Some("failed".into()),
-                        message: format!("Automation failed: {err}"),
-                        output: None,
-                        stats: metadata,
-                        activity: None,
-                        auth_required: None,
-                        at: Utc::now().to_rfc3339(),
-                    },
-                )?;
-                return Ok(());
+                BranchOutcome::Cancelled => level_cancelled = true,
             }
         }
-    }
 
+        if let Some((err, stats)) = level_error {
+            finish_failed(app, db, run_id, workflow_id, &err, stats)?;
+            return Ok(());
+        }
+        if level_cancelled || control.is_cancelled() {
+            finish_cancelled(app, db, run_id, workflow_id)?;
+            return Ok(());
+        }
+
+        entry = merge_level_states(&entry, &executions);
+    }
     set_run_status(db, run_id, "completed", None)?;
-    let completed_output = match final_output {
+    let completed_output = match entry.final_output.clone() {
         Some(output) => output,
-        None => last_output
+        None => entry
+            .last_output
             .render_complete(db, &prompt_memory_context)
             .unwrap_or_default(),
     };
@@ -2633,6 +1656,7 @@ pub fn execute_run(
             node_label: None,
             status: Some("completed".into()),
             message: "Automation finished".into(),
+            input: None,
             output: Some(completed_output),
             stats: None,
             activity: None,
@@ -2649,14 +1673,1902 @@ pub fn execute_run(
     Ok(())
 }
 
-fn topological_order(nodes: &[Value], edges: &[Value]) -> Vec<Value> {
+/// Shared read-only run context for one branch execution. All fields are
+/// borrowed so parallel branches snapshot cheaply; per-branch mutation lives
+/// in `LevelEntryState` clones inside `execute_level_node`.
+#[derive(Clone, Copy)]
+struct NodeExecContext<'a> {
+    app: &'a AppHandle,
+    db: &'a Db,
+    run_id: &'a str,
+    workflow_id: &'a str,
+    workflow: &'a crate::db::Workflow,
+    nodes: &'a [Value],
+    edges: &'a [Value],
+    working_directory: Option<&'a str>,
+    control: &'a RunControl,
+    trigger_context: &'a str,
+    prompt_memory_context: &'a MemoryContext,
+    html_report_agents: &'a HashSet<String>,
+}
+
+/// Step-level failure already recorded on the branch's own `run_step`.
+/// Transport errors (`RunnerError`) stay separate: they abort the run like
+/// any other `?` in `execute_run` does today.
+#[derive(Debug)]
+struct BranchFailure {
+    err: String,
+    stats: Option<Value>,
+}
+
+#[derive(Debug)]
+enum BranchOutcome {
+    Completed(BranchExecution),
+    Failed(BranchFailure),
+    Cancelled,
+}
+
+fn describe_node(node: &Value) -> (String, String, Value, String) {
+    let node_id = node
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let node_type = node
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let data = node.get("data").cloned().unwrap_or(Value::Null);
+    let label = data
+        .get("label")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&node_type)
+        .to_string();
+    (node_id, node_type, data, label)
+}
+
+/// Record a Plan 053 skip: persisted `skipped` step plus the UI event.
+/// Shared by the sequential path and the parallel level gate.
+fn record_skip(
+    app: &AppHandle,
+    db: &Db,
+    run_id: &str,
+    workflow_id: &str,
+    node_id: &str,
+    node_type: &str,
+    label: &str,
+    reason: String,
+) -> Result<(), RunnerError> {
+    insert_step(
+        db,
+        run_id,
+        node_id,
+        None,
+        None,
+        "skipped",
+        &serde_json::json!({}),
+        &serde_json::json!({ "text": reason.clone() }),
+        None,
+        Vec::new(),
+        None,
+    )?;
+    emit(
+        app,
+        RunEvent {
+            run_id: run_id.into(),
+            workflow_id: workflow_id.into(),
+            kind: "step_skipped".into(),
+            node_id: Some(node_id.to_owned()),
+            node_type: Some(node_type.to_owned()),
+            node_label: Some(label.to_owned()),
+            status: Some("skipped".into()),
+            message: reason,
+            input: None,
+            output: None,
+            stats: None,
+            activity: None,
+            auth_required: None,
+            at: Utc::now().to_rfc3339(),
+        },
+    )
+}
+
+fn emit_step_started(
+    app: &AppHandle,
+    run_id: &str,
+    workflow_id: &str,
+    node_id: &str,
+    node_type: &str,
+    label: &str,
+) -> Result<(), RunnerError> {
+    emit(
+        app,
+        RunEvent {
+            run_id: run_id.into(),
+            workflow_id: workflow_id.into(),
+            kind: "step_started".into(),
+            node_id: Some(node_id.to_owned()),
+            node_type: Some(node_type.to_owned()),
+            node_label: Some(label.to_owned()),
+            status: Some("running".into()),
+            message: format!("Running step: {label}"),
+            input: None,
+            output: None,
+            stats: None,
+            activity: None,
+            auth_required: None,
+            at: Utc::now().to_rfc3339(),
+        },
+    )
+}
+
+/// Terminal run failure after a branch error. The branch already recorded its
+/// own failed step and `step_failed` event; this only closes the run.
+fn finish_failed(
+    app: &AppHandle,
+    db: &Db,
+    run_id: &str,
+    workflow_id: &str,
+    err: &str,
+    stats: Option<Value>,
+) -> Result<(), RunnerError> {
+    set_run_status(db, run_id, "failed", Some(err))?;
+    emit(
+        app,
+        RunEvent {
+            run_id: run_id.into(),
+            workflow_id: workflow_id.into(),
+            kind: "failed".into(),
+            node_id: None,
+            node_type: None,
+            node_label: None,
+            status: Some("failed".into()),
+            message: format!("Automation failed: {err}"),
+            input: None,
+            output: None,
+            stats,
+            activity: None,
+            auth_required: None,
+            at: Utc::now().to_rfc3339(),
+        },
+    )
+}
+
+fn finish_cancelled(
+    app: &AppHandle,
+    db: &Db,
+    run_id: &str,
+    workflow_id: &str,
+) -> Result<(), RunnerError> {
+    set_run_status(db, run_id, "cancelled", Some("Cancelled by user"))?;
+    emit(
+        app,
+        RunEvent {
+            run_id: run_id.into(),
+            workflow_id: workflow_id.into(),
+            kind: "cancelled".into(),
+            node_id: None,
+            node_type: None,
+            node_label: None,
+            status: Some("cancelled".into()),
+            message: "Automation cancelled".into(),
+            input: None,
+            output: None,
+            stats: None,
+            activity: None,
+            auth_required: None,
+            at: Utc::now().to_rfc3339(),
+        },
+    )
+}
+
+/// Execute one node against a level snapshot. The body is the former
+/// sequential loop iteration: the level gate (Plan 053 skips) and
+/// `step_started` are handled by the caller so a level's branches share one
+/// deterministic prefix before fanning out.
+fn execute_level_node(
+    ctx: &NodeExecContext<'_>,
+    node: &Value,
+    entry: &LevelEntryState,
+) -> Result<BranchOutcome, RunnerError> {
+    let app = ctx.app;
+    let db = ctx.db;
+    let run_id = ctx.run_id;
+    let workflow_id = ctx.workflow_id;
+    let workflow = ctx.workflow;
+    let control = ctx.control;
+    let prompt_memory_context = ctx.prompt_memory_context;
+    let html_report_agents = ctx.html_report_agents;
+    let working_directory: Option<String> = ctx.working_directory.map(str::to_owned);
+    let trigger_context: String = ctx.trigger_context.to_owned();
+    let nodes: Vec<Value> = ctx.nodes.to_vec();
+    let edges: Vec<Value> = ctx.edges.to_vec();
+
+    let mut context_prompt = entry.context_prompt.clone();
+    let mut last_output = entry.last_output.clone();
+    let mut task_query_state = entry.task_query_state.clone();
+    let mut last_files_changed = entry.files_changed.clone();
+    let mut final_output = entry.final_output.clone();
+    let mut files_reset = false;
+    let node_id = node
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let node_type = node
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let data = node.get("data").cloned().unwrap_or(Value::Null);
+    let output_disposition = matches!(node_type.as_str(), "chooseOutput" | "output")
+        .then(|| OutputDisposition::capture(&data));
+    let label = data
+        .get("label")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&node_type)
+        .to_string();
+
+    let mut step_auth_required: Option<AgentAuthRequired> = None;
+    let mut step_agent_provider: Option<String> = None;
+    let mut step_agent_skill: Option<String> = None;
+    let mut step_agent_metadata: Option<SafeAgentRunMetadata> = None;
+    let mut step_evidence_inputs = Vec::new();
+    let mut persisted_input_prompt = context_prompt.render_reference_summary();
+    let mut step_input: Option<Value> = None;
+    let mut step_memory_recall_status: Option<&'static str> = None;
+    let mut step_memory_recall_omitted_count = 0usize;
+    let step_result = match node_type.as_str() {
+        "prompt" | "input" => {
+            let prompt = data
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            task_query_state.replace_with_authored_input(&prompt);
+            let attachments_block = format_attachments_context(&data);
+            let mut combined_value = PromptValue::text(TextOrigin::AuthoredTask, prompt.clone());
+            step_evidence_inputs.extend(typed_prompt_sources(run_id, &node_id, &combined_value));
+            let mut combined = if attachments_block.is_empty() {
+                prompt.clone()
+            } else if prompt.trim().is_empty() {
+                combined_value =
+                    PromptValue::text(TextOrigin::HostMetadata, attachments_block.clone());
+                attachments_block.clone()
+            } else {
+                combined_value.append_text(TextOrigin::HostMetadata, "\n\n");
+                combined_value.append_text(TextOrigin::HostMetadata, attachments_block.clone());
+                format!("{prompt}\n\n{attachments_block}")
+            };
+
+            // The Input node's script is an instruction to the agent, not a
+            // gate: it never fails the run, even when it exits non-zero.
+            // Executing it is opt-in; the default only mentions it.
+            if let Some(script) = data.get("script").filter(|v| v.is_object()) {
+                let block = format_script_instruction(script);
+                if !block.is_empty() {
+                    step_evidence_inputs.extend(typed_prompt_sources(
+                        run_id,
+                        &node_id,
+                        &PromptValue::text(TextOrigin::AuthoredTemplate, block.clone()),
+                    ));
+                    if !combined_value.is_empty() {
+                        combined_value.append_text(TextOrigin::AuthoredTemplate, "\n\n");
+                    }
+                    combined_value.append_text(TextOrigin::AuthoredTemplate, block.clone());
+                    combined = if combined.trim().is_empty() {
+                        block
+                    } else {
+                        format!("{combined}\n\n{block}")
+                    };
+                }
+                if script.get("run").and_then(Value::as_bool).unwrap_or(false) {
+                    let complete_last_output = last_output
+                        .render_complete(db, &prompt_memory_context)
+                        .map_err(|error| RunnerError::Message(error.to_string()))?;
+                    let (text, note) = match run_script(
+                        script,
+                        &combined,
+                        &complete_last_output,
+                        working_directory.as_deref(),
+                        control,
+                        None,
+                    ) {
+                        Ok((output, code)) => (
+                            format!("{}\n(exit {code})", output.trim_end()),
+                            (code != 0).then(|| format!("Script exited with status {code}")),
+                        ),
+                        Err(e) => (format!("(script failed: {e})"), Some(e)),
+                    };
+                    step_evidence_inputs.push(EvidenceSourceInput {
+                        run_id: run_id.into(),
+                        step_id: None,
+                        node_id: Some(node_id.clone()),
+                        origin: EvidenceOrigin::HostRecordedObservation,
+                        producer_identity: Some("local_script".into()),
+                        source_label: Some("input script result".into()),
+                        observed_at: Utc::now(),
+                        text: text.clone(),
+                        omission_reason: None,
+                    });
+                    combined = format!("{combined}\n\n## Script output\n\n```\n{text}\n```");
+                    combined_value.append_text(
+                        TextOrigin::ExternalObservation,
+                        format!("\n\n## Script output\n\n```\n{text}\n```"),
+                    );
+                    if let Some(note) = note {
+                        emit(
+                            app,
+                            RunEvent {
+                                run_id: run_id.into(),
+                                workflow_id: workflow_id.into(),
+                                kind: "step_log".into(),
+                                node_id: Some(node_id.clone()),
+                                node_type: Some(node_type.clone()),
+                                node_label: Some(label.clone()),
+                                status: Some("running".into()),
+                                message: format!("{note} — passing the output to the agent"),
+                                input: None,
+                                output: None,
+                                stats: None,
+                                activity: None,
+                                auth_required: None,
+                                at: Utc::now().to_rfc3339(),
+                            },
+                        )?;
+                    }
+                }
+            }
+
+            publish_step_input(
+                &mut step_input,
+                app,
+                run_id,
+                workflow_id,
+                &node_id,
+                &node_type,
+                &label,
+                text_step_input_snapshot("context", &combined, "Workflow input"),
+            );
+            context_prompt = combined_value;
+            let attach_count = data
+                .get("attachments")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let message = if attach_count == 0 {
+                "Loaded input into context".to_string()
+            } else {
+                format!(
+                    "Loaded input into context ({attach_count} attachment{})",
+                    if attach_count == 1 { "" } else { "s" }
+                )
+            };
+            emit(
+                app,
+                RunEvent {
+                    run_id: run_id.into(),
+                    workflow_id: workflow_id.into(),
+                    kind: "step_log".into(),
+                    node_id: Some(node_id.clone()),
+                    node_type: Some(node_type.clone()),
+                    node_label: Some(label.clone()),
+                    status: Some("running".into()),
+                    message,
+                    input: None,
+                    output: None,
+                    stats: None,
+                    activity: None,
+                    auth_required: None,
+                    at: Utc::now().to_rfc3339(),
+                },
+            )?;
+            Ok((combined, None::<String>, None::<String>, None::<Value>))
+        }
+        "identity" => {
+            let identity = format_identity(&data);
+            let output = if identity.is_empty() {
+                "Identity is empty; no instructions added".to_string()
+            } else {
+                identity
+            };
+            Ok((output, None, None, None))
+        }
+        "memory" => {
+            let memory_ids: Vec<String> = data
+                .get("memoryIds")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let text =
+                apply_memory_selection(&mut context_prompt, &mut last_output, memory_ids.clone());
+            if text.is_none() {
+                let msg = "No memories selected — skipped".to_string();
+                Ok((msg, None::<String>, None::<String>, None::<Value>))
+            } else {
+                let text = text.expect("non-empty selection has a summary");
+                publish_step_input(
+                    &mut step_input,
+                    app,
+                    run_id,
+                    workflow_id,
+                    &node_id,
+                    &node_type,
+                    &label,
+                    step_input_snapshot(
+                        "context",
+                        format!(
+                            "{} selected memor{}",
+                            memory_ids.len(),
+                            if memory_ids.len() == 1 { "y" } else { "ies" }
+                        ),
+                        serde_json::json!({
+                            "memoryIds": memory_ids.clone(),
+                            "resolved": text.clone(),
+                        }),
+                        false,
+                    ),
+                );
+                emit(
+                    app,
+                    RunEvent {
+                        run_id: run_id.into(),
+                        workflow_id: workflow_id.into(),
+                        kind: "step_log".into(),
+                        node_id: Some(node_id.clone()),
+                        node_type: Some(node_type.clone()),
+                        node_label: Some(label.clone()),
+                        status: Some("running".into()),
+                        message: format!(
+                            "Loaded {} memor{}",
+                            memory_ids.len(),
+                            if memory_ids.len() == 1 { "y" } else { "ies" }
+                        ),
+                        input: None,
+                        output: None,
+                        stats: None,
+                        activity: None,
+                        auth_required: None,
+                        at: Utc::now().to_rfc3339(),
+                    },
+                )?;
+                Ok((text, None::<String>, None::<String>, None::<Value>))
+            }
+        }
+        "agent" => {
+            debug_assert!(automatic_memory_eligible(&node_type));
+            let provider_str = data
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("claude_code");
+            let model = data
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let skill_names = parse_skill_names(&data);
+            let skill_label = if skill_names.is_empty() {
+                None
+            } else {
+                Some(
+                    skill_names
+                        .iter()
+                        .map(|s| format!("/{s}"))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )
+            };
+            let provider =
+                AgentProvider::from_str(provider_str).unwrap_or(AgentProvider::ClaudeCode);
+            let harness = AgentHarness::parse_persisted(data.get("harness"))
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
+            step_agent_provider = Some(provider.as_str().to_owned());
+            step_agent_skill = skill_label.clone();
+            step_agent_metadata = Some(SafeAgentRunMetadata::identity(provider, harness, None));
+
+            (|| -> Result<(String, Option<String>, Option<String>, Option<Value>), String> {
+                let capability_manifest = app
+                    .try_state::<crate::agents::capability_manifest::AgentCapabilityManifest>()
+                    .ok_or_else(|| crate::agents::NATIVE_RUNTIME_UNAVAILABLE.to_owned())?;
+                capability_manifest
+                    .require_execution(provider, harness)
+                    .map_err(|error| safe_agent_error(&error).to_owned())?;
+                let resolved_model = crate::agents::models::resolve_model_for_execution(
+                    provider,
+                    harness,
+                    model.as_deref(),
+                )
+                .map_err(|error| safe_agent_error(&error).to_owned())?;
+                step_agent_metadata = Some(SafeAgentRunMetadata::identity(
+                    provider,
+                    harness,
+                    resolved_model.as_deref(),
+                ));
+                let account_ref = if harness == AgentHarness::Alfred {
+                    data.get("accountRef")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(OpaqueAgentAccountRef::parse)
+                        .transpose()
+                        .map_err(|error| safe_agent_error(&error).to_owned())?
+                } else {
+                    None
+                };
+                let base_prompt = if context_prompt.is_empty() {
+                    last_output.clone()
+                } else {
+                    context_prompt.clone()
+                };
+                let query_text = task_query_state.query_text(context_prompt.is_empty());
+                let target = AgentExecutionTarget {
+                    provider,
+                    harness,
+                    account_ref,
+                    model: resolved_model.clone(),
+                    working_directory: working_directory.clone(),
+                    request_metadata: AgentRequestMetadata::new(run_id, &node_id)
+                        .map_err(|error| safe_agent_error(&error).to_owned())?,
+                };
+                let git_before = working_directory.as_deref().map(git_status_snapshot);
+                let model_label = resolved_model
+                    .as_deref()
+                    .map(|value| format!(" · `{value}`"))
+                    .unwrap_or_default();
+
+                let on_activity = |activity: &AgentActivity| {
+                    let safe_activity = safe_activity_for_run_event(activity, harness);
+                    let _ = emit(
+                        app,
+                        RunEvent {
+                            run_id: run_id.into(),
+                            workflow_id: workflow_id.into(),
+                            kind: "agent_activity".into(),
+                            node_id: Some(node_id.clone()),
+                            node_type: Some(node_type.clone()),
+                            node_label: Some(label.clone()),
+                            status: Some("running".into()),
+                            message: safe_activity.label.clone(),
+                            input: None,
+                            output: None,
+                            stats: step_agent_metadata.as_ref().map(safe_metadata_value),
+                            activity: Some(safe_activity),
+                            auth_required: None,
+                            at: Utc::now().to_rfc3339(),
+                        },
+                    );
+                };
+
+                // The Alfred harness resolves through the managed native
+                // router; the CLI path is untouched and never falls back.
+                let native_router = app.try_state::<crate::agents::native::NativeExecutionRouter>();
+                let response = with_composed_agent_prompt(
+                    db,
+                    workflow_id,
+                    working_directory.as_deref(),
+                    run_id,
+                    &node_id,
+                    &base_prompt,
+                    &query_text,
+                    &trigger_context,
+                    workflow.memory_retrieval_enabled,
+                    &nodes,
+                    &edges,
+                    html_report_agents.contains(&node_id),
+                    |prepared, prompt| {
+                        step_evidence_inputs.extend(prior_memory_sources(
+                            run_id,
+                            &node_id,
+                            &prepared.memory_references,
+                        ));
+                        if workflow.memory_retrieval_enabled {
+                            step_memory_recall_status = Some(if prepared.recall_unavailable {
+                                "unavailable"
+                            } else if prepared.recall_abstained {
+                                "abstained"
+                            } else {
+                                "included"
+                            });
+                            step_memory_recall_omitted_count = prepared.recall_omitted_count;
+                            let message = if prepared.recall_unavailable {
+                                "Memory recall unavailable; continuing without recalled context"
+                                    .to_string()
+                            } else if prepared.recall_abstained {
+                                "No relevant memories found for this task".to_string()
+                            } else {
+                                format!(
+                                    "Recalled {} memories ({} context bytes)",
+                                    prepared.recalled_count, prepared.recalled_bytes
+                                )
+                            };
+                            emit(
+                                app,
+                                RunEvent {
+                                    run_id: run_id.into(),
+                                    workflow_id: workflow_id.into(),
+                                    kind: "step_log".into(),
+                                    node_id: Some(node_id.clone()),
+                                    node_type: Some(node_type.clone()),
+                                    node_label: Some(label.clone()),
+                                    status: Some("running".into()),
+                                    message,
+                                    input: None,
+                                    output: None,
+                                    stats: None,
+                                    activity: None,
+                                    auth_required: None,
+                                    at: Utc::now().to_rfc3339(),
+                                },
+                            )
+                            .map_err(|error| error.to_string())?;
+                        }
+                        persisted_input_prompt = prompt.to_owned();
+                        let mut input =
+                            text_step_input_snapshot("prompt", prompt, "Prepared agent prompt");
+                        if let Some(status) = step_memory_recall_status {
+                            input["memoryRecallStatus"] = Value::String(status.to_owned());
+                            input["memoryRecallOmittedCount"] =
+                                serde_json::json!(step_memory_recall_omitted_count);
+                        }
+                        publish_step_input(
+                            &mut step_input,
+                            app,
+                            run_id,
+                            workflow_id,
+                            &node_id,
+                            &node_type,
+                            &label,
+                            input,
+                        );
+                        emit(
+                            app,
+                            RunEvent {
+                                run_id: run_id.into(),
+                                workflow_id: workflow_id.into(),
+                                kind: "step_log".into(),
+                                node_id: Some(node_id.clone()),
+                                node_type: Some(node_type.clone()),
+                                node_label: Some(label.clone()),
+                                status: Some("running".into()),
+                                message: format!(
+                                    "Running {} via {}{model_label}{}",
+                                    provider.label(),
+                                    match harness {
+                                        AgentHarness::Cli => "CLI",
+                                        AgentHarness::Alfred => "Alfred",
+                                    },
+                                    skill_label
+                                        .as_deref()
+                                        .map(|value| format!(" · {value}"))
+                                        .unwrap_or_default()
+                                ),
+                                input: None,
+                                output: None,
+                                stats: step_agent_metadata.as_ref().map(safe_metadata_value),
+                                activity: None,
+                                auth_required: None,
+                                at: Utc::now().to_rfc3339(),
+                            },
+                        )
+                        .map_err(|error| error.to_string())?;
+                        Ok(())
+                    },
+                    |prompt| {
+                        let request = AgentRequest {
+                            prompt,
+                            model: resolved_model.clone(),
+                            skill: None,
+                            skill_name: None,
+                            skill_names: skill_names.clone(),
+                            working_directory: working_directory.clone(),
+                            extra: Value::Null,
+                        };
+                        execute_target(
+                            &target,
+                            request,
+                            AgentRunHooks {
+                                control: Some(control),
+                                on_activity: Some(&on_activity),
+                            },
+                            native_router.as_ref().map(|router| {
+                                router.inner() as &dyn crate::agents::AgentNativeRuntime
+                            }),
+                        )
+                    },
+                )?;
+                match response {
+                    Ok(response) => {
+                        last_output =
+                            PromptValue::text(TextOrigin::GeneratedOutput, response.output.clone());
+                        task_query_state.clear_last_output();
+                        last_files_changed.clear();
+                        files_reset = true;
+                        let mut metadata = SafeAgentRunMetadata::from_untrusted(
+                            provider,
+                            harness,
+                            resolved_model.as_deref(),
+                            &response.metadata,
+                        );
+                        if let (Some(before), Some(dir)) =
+                            (&git_before, working_directory.as_deref())
+                        {
+                            let after = git_status_snapshot(dir);
+                            let files = diff_git_status(dir, before, &after);
+                            if !files.is_empty() {
+                                for file in &files {
+                                    if let (Some(path), Some(status)) = (
+                                        file.get("path").and_then(Value::as_str),
+                                        file.get("status").and_then(Value::as_str),
+                                    ) {
+                                        metadata.add_file_changed(path, status);
+                                    }
+                                }
+                                last_files_changed = files;
+                            }
+                        }
+                        let metadata_value = safe_metadata_value(&metadata);
+                        step_agent_metadata = Some(metadata);
+                        Ok((
+                            response.output,
+                            Some(provider.as_str().to_string()),
+                            skill_label,
+                            Some(metadata_value),
+                        ))
+                    }
+                    Err(AgentError::Cancelled) => Err("__cancelled__".into()),
+                    Err(error) => {
+                        if harness == AgentHarness::Cli {
+                            step_auth_required = auth_required(provider, &error.to_string());
+                        }
+                        if step_auth_required.is_some() {
+                            Err("agent_authentication_required".into())
+                        } else {
+                            Err(safe_agent_error(&error).into())
+                        }
+                    }
+                }
+            })()
+        }
+        "customAgent" => {
+            debug_assert!(automatic_memory_eligible(&node_type));
+            let command = data
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if command.is_empty() {
+                Err("Custom agent has no command".into())
+            } else {
+                let prompt_mode = data
+                    .get("promptMode")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("template");
+                let base_prompt = if context_prompt.is_empty() {
+                    last_output.clone()
+                } else {
+                    context_prompt.clone()
+                };
+                let query_text = task_query_state.query_text(context_prompt.is_empty());
+                let git_before = working_directory.as_deref().map(git_status_snapshot);
+
+                let line_sequence = AtomicUsize::new(0);
+                let on_line = |line: &str| {
+                    let sequence = line_sequence.fetch_add(1, Ordering::Relaxed);
+                    let activity = AgentActivity::new(
+                        format!("custom:{node_id}:{sequence}"),
+                        AgentActivityKind::Assistant,
+                        AgentActivityState::Completed,
+                        "Agent response",
+                        Some(line),
+                    );
+                    let _ = emit(
+                        app,
+                        RunEvent {
+                            run_id: run_id.into(),
+                            workflow_id: workflow_id.into(),
+                            kind: "agent_activity".into(),
+                            node_id: Some(node_id.clone()),
+                            node_type: Some(node_type.clone()),
+                            node_label: Some(label.clone()),
+                            status: Some("running".into()),
+                            message: activity.label.clone(),
+                            input: None,
+                            output: None,
+                            stats: None,
+                            activity: Some(activity),
+                            auth_required: None,
+                            at: Utc::now().to_rfc3339(),
+                        },
+                    );
+                };
+
+                let response = with_composed_agent_prompt(
+                    db,
+                    workflow_id,
+                    working_directory.as_deref(),
+                    run_id,
+                    &node_id,
+                    &base_prompt,
+                    &query_text,
+                    &trigger_context,
+                    workflow.memory_retrieval_enabled,
+                    &nodes,
+                    &edges,
+                    html_report_agents.contains(&node_id),
+                    |prepared, prompt| {
+                        step_evidence_inputs.extend(prior_memory_sources(
+                            run_id,
+                            &node_id,
+                            &prepared.memory_references,
+                        ));
+                        if workflow.memory_retrieval_enabled {
+                            step_memory_recall_status = Some(if prepared.recall_unavailable {
+                                "unavailable"
+                            } else if prepared.recall_abstained {
+                                "abstained"
+                            } else {
+                                "included"
+                            });
+                            step_memory_recall_omitted_count = prepared.recall_omitted_count;
+                            let message = if prepared.recall_unavailable {
+                                "Memory recall unavailable; continuing without recalled context"
+                                    .to_string()
+                            } else if prepared.recall_abstained {
+                                "No relevant memories found for this task".to_string()
+                            } else {
+                                format!(
+                                    "Recalled {} memories ({} context bytes)",
+                                    prepared.recalled_count, prepared.recalled_bytes
+                                )
+                            };
+                            emit(
+                                app,
+                                RunEvent {
+                                    run_id: run_id.into(),
+                                    workflow_id: workflow_id.into(),
+                                    kind: "step_log".into(),
+                                    node_id: Some(node_id.clone()),
+                                    node_type: Some(node_type.clone()),
+                                    node_label: Some(label.clone()),
+                                    status: Some("running".into()),
+                                    message,
+                                    input: None,
+                                    output: None,
+                                    stats: None,
+                                    activity: None,
+                                    auth_required: None,
+                                    at: Utc::now().to_rfc3339(),
+                                },
+                            )
+                            .map_err(|error| error.to_string())?;
+                        }
+                        persisted_input_prompt = prompt.to_owned();
+                        let mut input = step_input_snapshot(
+                            "prompt",
+                            step_input_summary(prompt, "Prepared custom-agent prompt"),
+                            serde_json::json!({
+                                "prompt": prompt,
+                                "command": command,
+                                "promptMode": prompt_mode,
+                                "memoryRecallStatus": step_memory_recall_status,
+                                "memoryRecallOmittedCount": step_memory_recall_omitted_count,
+                            }),
+                            false,
+                        );
+                        if let Some(status) = step_memory_recall_status {
+                            input["memoryRecallStatus"] = Value::String(status.to_owned());
+                            input["memoryRecallOmittedCount"] =
+                                serde_json::json!(step_memory_recall_omitted_count);
+                        }
+                        publish_step_input(
+                            &mut step_input,
+                            app,
+                            run_id,
+                            workflow_id,
+                            &node_id,
+                            &node_type,
+                            &label,
+                            input,
+                        );
+                        emit(
+                            app,
+                            RunEvent {
+                                run_id: run_id.into(),
+                                workflow_id: workflow_id.into(),
+                                kind: "step_log".into(),
+                                node_id: Some(node_id.clone()),
+                                node_type: Some(node_type.clone()),
+                                node_label: Some(label.clone()),
+                                status: Some("running".into()),
+                                message: format!("Running custom agent · `{command}`"),
+                                input: None,
+                                output: None,
+                                stats: None,
+                                activity: None,
+                                auth_required: None,
+                                at: Utc::now().to_rfc3339(),
+                            },
+                        )
+                        .map_err(|error| error.to_string())?;
+                        Ok(())
+                    },
+                    |prompt| {
+                        run_custom_agent(
+                            &command,
+                            prompt_mode,
+                            &prompt,
+                            working_directory.as_deref(),
+                            control,
+                            Some(&on_line),
+                        )
+                    },
+                )
+                .map_err(RunnerError::Message)?;
+                match response {
+                    Ok(text) => {
+                        last_output = PromptValue::text(TextOrigin::GeneratedOutput, text.clone());
+                        task_query_state.clear_last_output();
+                        last_files_changed.clear();
+                        files_reset = true;
+                        let mut metadata = serde_json::json!({
+                            "provider": "custom",
+                        });
+                        if let (Some(before), Some(dir)) =
+                            (&git_before, working_directory.as_deref())
+                        {
+                            let after = git_status_snapshot(dir);
+                            let files = diff_git_status(dir, before, &after);
+                            if !files.is_empty() {
+                                last_files_changed = files.clone();
+                                if let Value::Object(map) = &mut metadata {
+                                    map.insert("filesChanged".into(), Value::Array(files));
+                                }
+                            }
+                        }
+                        Ok((text, Some("custom".into()), None, Some(metadata)))
+                    }
+                    Err(err) if err == "cancelled" => Err("__cancelled__".into()),
+                    Err(e) => Err(e),
+                }
+            }
+        }
+        "chooseOutput" | "output" => {
+            let include_files = data
+                .get("includeFilesChanged")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let as_final = data
+                .get("asFinalResult")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let html_report = data
+                .get("htmlReport")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            let (body_value, body) = project_output_value(
+                db,
+                &prompt_memory_context,
+                &last_output,
+                &last_files_changed,
+                include_files,
+                html_report,
+            )?;
+            publish_step_input(
+                &mut step_input,
+                app,
+                run_id,
+                workflow_id,
+                &node_id,
+                &node_type,
+                &label,
+                step_input_snapshot(
+                    "disposition",
+                    if as_final {
+                        "Publish final result".into()
+                    } else {
+                        "Process upstream output".into()
+                    },
+                    serde_json::json!({
+                        "body": body.clone(),
+                        "asFinalResult": as_final,
+                        "includeFilesChanged": include_files,
+                        "htmlReport": html_report,
+                    }),
+                    false,
+                ),
+            );
+
+            last_output = body_value;
+            if as_final {
+                final_output = Some(body.clone());
+            }
+            Ok((body, None, None, None))
+        }
+        "template" => {
+            let template = data.get("template").and_then(|v| v.as_str()).unwrap_or("");
+            step_evidence_inputs.extend(typed_prompt_sources(
+                run_id,
+                &node_id,
+                &PromptValue::text(TextOrigin::AuthoredTemplate, template),
+            ));
+            let mode = data
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("append");
+            let cwd = working_directory.as_deref().unwrap_or("");
+            let (incoming_context, incoming_output) =
+                complete_prompt_values(db, &prompt_memory_context, &context_prompt, &last_output)
+                    .map_err(RunnerError::Message)?;
+            publish_step_input(
+                &mut step_input,
+                app,
+                run_id,
+                workflow_id,
+                &node_id,
+                &node_type,
+                &label,
+                step_input_snapshot(
+                    "context",
+                    if mode == "replace" {
+                        "Replace context".into()
+                    } else {
+                        "Append to context".into()
+                    },
+                    serde_json::json!({
+                        "context": incoming_context,
+                        "output": incoming_output,
+                        "template": template,
+                        "mode": mode,
+                        "cwd": cwd,
+                    }),
+                    false,
+                ),
+            );
+            let rendered_context_was_empty = context_prompt.is_empty();
+            let rendered = apply_template_transition(
+                &mut context_prompt,
+                &mut last_output,
+                template,
+                mode,
+                cwd,
+            );
+            task_query_state.apply_authored_template(template, mode, rendered_context_was_empty);
+            Ok((rendered, None, None, None))
+        }
+        "fileInject" => {
+            let paths: Vec<String> = data
+                .get("paths")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if paths.is_empty() {
+                Ok(("No paths selected — skipped".into(), None, None, None))
+            } else {
+                publish_step_input(
+                    &mut step_input,
+                    app,
+                    run_id,
+                    workflow_id,
+                    &node_id,
+                    &node_type,
+                    &label,
+                    step_input_snapshot(
+                        "file",
+                        format!(
+                            "{} path{}",
+                            paths.len(),
+                            if paths.len() == 1 { "" } else { "s" },
+                        ),
+                        serde_json::json!({ "paths": paths.clone() }),
+                        false,
+                    ),
+                );
+                let mut sections = Vec::new();
+                sections.push("## Injected files".to_string());
+                for path in &paths {
+                    sections.push(format!("### File\n`{path}`\n{}", read_file_brief(path)));
+                }
+                let text = sections.join("\n\n");
+                if !context_prompt.is_empty() {
+                    context_prompt.append_text(TextOrigin::ExternalObservation, "\n\n");
+                }
+                context_prompt.append_text(TextOrigin::ExternalObservation, text.clone());
+                last_output = PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                task_query_state.clear_last_output();
+                Ok((text, None, None, None))
+            }
+        }
+        "gitStatus" => {
+            let include_diff = data
+                .get("includeDiff")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            match working_directory.as_deref() {
+                None => Err("No working directory set on this workflow".into()),
+                Some(cwd) => {
+                    publish_step_input(
+                        &mut step_input,
+                        app,
+                        run_id,
+                        workflow_id,
+                        &node_id,
+                        &node_type,
+                        &label,
+                        step_input_snapshot(
+                            "git",
+                            if include_diff {
+                                "Status + diff".into()
+                            } else {
+                                "Status only".into()
+                            },
+                            serde_json::json!({
+                                "cwd": cwd,
+                                "includeDiff": include_diff,
+                            }),
+                            false,
+                        ),
+                    );
+                    let text = format_git_status_context(cwd, include_diff);
+                    if !context_prompt.is_empty() {
+                        context_prompt.append_text(TextOrigin::ExternalObservation, "\n\n");
+                    }
+                    context_prompt.append_text(TextOrigin::ExternalObservation, text.clone());
+                    last_output = PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                    task_query_state.clear_last_output();
+                    Ok((text, None, None, None))
+                }
+            }
+        }
+        "shell" => {
+            let command = data
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if command.is_empty() {
+                Err("Shell node has no command".into())
+            } else {
+                let append = data
+                    .get("appendOutput")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let cwd = working_directory.as_deref();
+                publish_step_input(
+                    &mut step_input,
+                    app,
+                    run_id,
+                    workflow_id,
+                    &node_id,
+                    &node_type,
+                    &label,
+                    step_input_snapshot(
+                        "script",
+                        step_input_summary(&command, "Shell command"),
+                        serde_json::json!({
+                            "command": command.clone(),
+                            "cwd": cwd,
+                            "appendOutput": append,
+                        }),
+                        false,
+                    ),
+                );
+                match run_shell_command(&command, cwd) {
+                    Ok((output, code)) => {
+                        let text = if output.trim().is_empty() {
+                            format!("(exit {code})")
+                        } else {
+                            format!("{output}\n(exit {code})")
+                        };
+                        if append {
+                            let block = if context_prompt.is_empty() {
+                                text.clone()
+                            } else {
+                                format!("\n\n## Shell output\n\n```\n{text}\n```")
+                            };
+                            context_prompt.append_text(TextOrigin::ExternalObservation, block);
+                        }
+                        last_output =
+                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                        task_query_state.clear_last_output();
+                        if code == 0 {
+                            Ok((text, None, None, None))
+                        } else {
+                            Err(format!("Command exited with status {code}\n{text}"))
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+        "script" => {
+            let append = data
+                .get("appendOutput")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
+            let line_sequence = AtomicUsize::new(0);
+            let on_line = |line: &str| {
+                let sequence = line_sequence.fetch_add(1, Ordering::Relaxed);
+                let activity = AgentActivity::new(
+                    format!("script:{node_id}:{sequence}"),
+                    AgentActivityKind::Command,
+                    AgentActivityState::Completed,
+                    "Script output",
+                    Some(line),
+                );
+                let _ = emit(
+                    app,
+                    RunEvent {
+                        run_id: run_id.into(),
+                        workflow_id: workflow_id.into(),
+                        kind: "agent_activity".into(),
+                        node_id: Some(node_id.clone()),
+                        node_type: Some(node_type.clone()),
+                        node_label: Some(label.clone()),
+                        status: Some("running".into()),
+                        message: activity.label.clone(),
+                        input: None,
+                        output: None,
+                        stats: None,
+                        activity: Some(activity),
+                        auth_required: None,
+                        at: Utc::now().to_rfc3339(),
+                    },
+                );
+            };
+
+            let complete_context = context_prompt
+                .render_complete(db, &prompt_memory_context)
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
+            let complete_last_output = last_output
+                .render_complete(db, &prompt_memory_context)
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
+            publish_step_input(
+                &mut step_input,
+                app,
+                run_id,
+                workflow_id,
+                &node_id,
+                &node_type,
+                &label,
+                step_input_snapshot(
+                    "script",
+                    if data.get("source").and_then(Value::as_str) == Some("file") {
+                        data.get("path")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Script")
+                            .to_owned()
+                    } else {
+                        "Inline script".into()
+                    },
+                    serde_json::json!({
+                        "script": data.clone(),
+                        "stdin": complete_last_output.clone(),
+                        "alfredOutput": complete_last_output.clone(),
+                        "alfredContext": complete_context.clone(),
+                        "cwd": working_directory.clone(),
+                    }),
+                    false,
+                ),
+            );
+            match run_script(
+                &data,
+                &complete_context,
+                &complete_last_output,
+                working_directory.as_deref(),
+                control,
+                Some(&on_line),
+            ) {
+                Ok((output, code)) => {
+                    let text = if output.trim().is_empty() {
+                        format!("(exit {code})")
+                    } else {
+                        format!("{output}\n(exit {code})")
+                    };
+                    if append {
+                        let block = if context_prompt.is_empty() {
+                            text.clone()
+                        } else {
+                            format!("\n\n## Script output\n\n```\n{text}\n```")
+                        };
+                        context_prompt.append_text(TextOrigin::ExternalObservation, block);
+                    }
+                    last_output = PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                    task_query_state.clear_last_output();
+                    if code == 0 {
+                        Ok((text, None, None, None))
+                    } else {
+                        Err(format!("Script exited with status {code}\n{text}"))
+                    }
+                }
+                Err(err) if err == "cancelled" => Err("__cancelled__".into()),
+                Err(e) => Err(e),
+            }
+        }
+        "appAction" => {
+            let provider_id = data.get("providerId").and_then(Value::as_str).unwrap_or("");
+            let action_id = data.get("actionId").and_then(Value::as_str).unwrap_or("");
+            let connection_id = data
+                .get("connectionId")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            match app.try_state::<IntegrationsState>() {
+                None => Err("Connected Apps service is unavailable".into()),
+                Some(integrations) => match integrations
+                    .actions
+                    .descriptor(provider_id, action_id)
+                    .ok_or_else(|| "This app action is not available.".to_string())
+                {
+                    Err(error) => Err(error),
+                    Ok(descriptor) => {
+                        let cwd = working_directory.as_deref().unwrap_or("");
+                        let action_result = with_prepared_action(
+                            db,
+                            &prompt_memory_context,
+                            &context_prompt,
+                            &last_output,
+                            &data,
+                            &descriptor,
+                            cwd,
+                            |request| {
+                                publish_step_input(
+                                    &mut step_input,
+                                    app,
+                                    run_id,
+                                    workflow_id,
+                                    &node_id,
+                                    &node_type,
+                                    &label,
+                                    step_input_snapshot(
+                                        "action",
+                                        format!("{} · {}", request.provider_id, request.action_id),
+                                        serde_json::to_value(request.clone())
+                                            .unwrap_or_else(|_| serde_json::json!({})),
+                                        false,
+                                    ),
+                                );
+                                tauri::async_runtime::block_on(integrations.execute_action(
+                                    db,
+                                    request,
+                                    ActionCancellation::new(control.cancel.clone()),
+                                ))
+                            },
+                        );
+                        match action_result {
+                            Err(error) => Err(error),
+                            Ok(result) => match result {
+                                Ok(result) => {
+                                    let text = action_result_text(&result);
+                                    let context_result = action_result_context(
+                                        &text,
+                                        descriptor.output_is_untrusted,
+                                    );
+                                    if !context_prompt.is_empty() {
+                                        context_prompt.append_text(
+                                            TextOrigin::ExternalObservation,
+                                            "\n\n",
+                                        );
+                                    }
+                                    context_prompt.append_text(
+                                        TextOrigin::ExternalObservation,
+                                        context_result,
+                                    );
+                                    last_output = PromptValue::text(
+                                        TextOrigin::ExternalObservation,
+                                        text.clone(),
+                                    );
+                                    task_query_state.clear_last_output();
+                                    let metadata = serde_json::json!({
+                                        "appAction": {
+                                            "providerId": provider_id,
+                                            "actionId": action_id,
+                                            "connectionId": connection_id,
+                                            "outputSchemaVersion": descriptor.output_schema_version,
+                                            "summary": result.summary,
+                                            "artifacts": result.artifacts,
+                                            "providerRequestId": result.provider_request_id,
+                                        }
+                                    });
+                                    Ok((text, None, None, Some(metadata)))
+                                }
+                                Err(error) if error.code == ActionErrorCode::Cancelled => {
+                                    Err("__cancelled__".into())
+                                }
+                                Err(error) => Err(format!(
+                                    "App action `{action_id}` failed for provider `{provider_id}` and connection `{connection_id}` ({}): {}",
+                                    error.code.as_str(),
+                                    error.message
+                                )),
+                            },
+                        }
+                    }
+                },
+            }
+        }
+        "http" => {
+            let method = data.get("method").and_then(|v| v.as_str()).unwrap_or("GET");
+            let url = data
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if url.is_empty() {
+                Err("HTTP node has no URL".into())
+            } else {
+                let cwd = working_directory.as_deref().unwrap_or("");
+                let body_tpl = data.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                let headers = data.get("headers").and_then(|v| v.as_str()).unwrap_or("");
+                let body = apply_prompt_template(body_tpl, &context_prompt, &last_output, cwd)
+                    .render_complete(db, &prompt_memory_context)
+                    .map_err(|error| RunnerError::Message(error.to_string()))?;
+                let url_r = apply_prompt_template(url, &context_prompt, &last_output, cwd)
+                    .render_complete(db, &prompt_memory_context)
+                    .map_err(|error| RunnerError::Message(error.to_string()))?;
+                let (safe_headers, headers_redacted) = redact_http_headers(headers);
+                let (safe_url, url_redacted) = redact_url_query(&url_r);
+                publish_step_input(
+                    &mut step_input,
+                    app,
+                    run_id,
+                    workflow_id,
+                    &node_id,
+                    &node_type,
+                    &label,
+                    step_input_snapshot(
+                        "request",
+                        format!("{method} {safe_url}"),
+                        serde_json::json!({
+                            "method": method,
+                            "url": safe_url,
+                            "headers": safe_headers,
+                            "body": body.clone(),
+                        }),
+                        headers_redacted || url_redacted,
+                    ),
+                );
+                match run_http_request(method, &url_r, headers, &body) {
+                    Ok(text) => {
+                        let block = if context_prompt.is_empty() {
+                            text.clone()
+                        } else {
+                            format!("\n\n## HTTP response\n\n```\n{text}\n```")
+                        };
+                        context_prompt.append_text(TextOrigin::ExternalObservation, block);
+                        last_output =
+                            PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                        task_query_state.clear_last_output();
+                        Ok((text, None, None, None))
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+        "notify" => {
+            let cwd = working_directory.as_deref().unwrap_or("");
+            let title = apply_prompt_template(
+                data.get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Alfred"),
+                &context_prompt,
+                &last_output,
+                cwd,
+            )
+            .render_complete(db, &prompt_memory_context)
+            .map_err(|error| RunnerError::Message(error.to_string()))?;
+            let body_value = apply_prompt_template(
+                data.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                &context_prompt,
+                &last_output,
+                cwd,
+            );
+            let body = body_value
+                .render_complete(db, &prompt_memory_context)
+                .map_err(|error| RunnerError::Message(error.to_string()))?;
+            let desktop = data
+                .get("desktop")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let webhook = data
+                .get("webhookUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let (safe_webhook, webhook_redacted) = redact_url_query(webhook);
+            publish_step_input(
+                &mut step_input,
+                app,
+                run_id,
+                workflow_id,
+                &node_id,
+                &node_type,
+                &label,
+                step_input_snapshot(
+                    "notification",
+                    if desktop && !webhook.is_empty() {
+                        "Desktop + webhook".into()
+                    } else if desktop {
+                        "Desktop notification".into()
+                    } else if !webhook.is_empty() {
+                        "Webhook notification".into()
+                    } else {
+                        "No notification destination".into()
+                    },
+                    serde_json::json!({
+                        "title": title.clone(),
+                        "body": body.clone(),
+                        "desktop": desktop,
+                        "webhookUrl": safe_webhook,
+                    }),
+                    webhook_redacted,
+                ),
+            );
+            let mut notes = Vec::new();
+            if desktop {
+                crate::notifications::notify_message(app, title.clone(), body.clone());
+                notes.push("desktop".to_string());
+            }
+            if !webhook.is_empty() {
+                let payload = serde_json::json!({ "title": title, "body": body }).to_string();
+                if let Err(e) =
+                    run_http_request("POST", webhook, "Content-Type: application/json", &payload)
+                {
+                    Err(format!("Notify webhook failed: {e}"))
+                } else {
+                    notes.push("webhook".to_string());
+                    let msg = format!("Notified via {}", notes.join(" + "));
+                    last_output = body_value.clone();
+                    task_query_state.clear_last_output();
+                    Ok((msg, None, None, None))
+                }
+            } else if notes.is_empty() {
+                Ok(("Notify skipped — nothing enabled".into(), None, None, None))
+            } else {
+                let msg = format!("Notified via {}", notes.join(" + "));
+                last_output = body_value;
+                task_query_state.clear_last_output();
+                Ok((msg, None, None, None))
+            }
+        }
+        "writeFile" => {
+            let path_raw = data
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if path_raw.is_empty() {
+                Err("Write file node has no path".into())
+            } else {
+                let cwd = working_directory.as_deref().unwrap_or("");
+                let content_tpl = data
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{{output}}");
+                let content_value =
+                    apply_prompt_template(content_tpl, &context_prompt, &last_output, cwd);
+                let content = content_value
+                    .render_complete(db, &prompt_memory_context)
+                    .map_err(|error| RunnerError::Message(error.to_string()))?;
+                let path = resolve_path(path_raw, working_directory.as_deref());
+                publish_step_input(
+                    &mut step_input,
+                    app,
+                    run_id,
+                    workflow_id,
+                    &node_id,
+                    &node_type,
+                    &label,
+                    step_input_snapshot(
+                        "file",
+                        format!("Write {} bytes", content.len()),
+                        serde_json::json!({
+                            "path": path.clone(),
+                            "content": content.clone(),
+                        }),
+                        false,
+                    ),
+                );
+                match write_text_file(&path, &content) {
+                    Ok(()) => {
+                        let msg = format!("Wrote {} bytes to `{path}`", content.len());
+                        last_output = content_value;
+                        task_query_state.clear_last_output();
+                        Ok((msg, None, None, None))
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+        "gitHost" => {
+            let action = data.get("action").and_then(|v| v.as_str()).unwrap_or("pr");
+            let cwd = working_directory.as_deref().unwrap_or("");
+            let title = apply_prompt_template(
+                data.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                &context_prompt,
+                &last_output,
+                cwd,
+            )
+            .render_complete(db, &prompt_memory_context)
+            .map_err(|error| RunnerError::Message(error.to_string()))?;
+            let body = apply_prompt_template(
+                data.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                &context_prompt,
+                &last_output,
+                cwd,
+            )
+            .render_complete(db, &prompt_memory_context)
+            .map_err(|error| RunnerError::Message(error.to_string()))?;
+            let base = data.get("base").and_then(|v| v.as_str()).unwrap_or("");
+            let repo = data.get("repo").and_then(|v| v.as_str()).unwrap_or("");
+            let head = data.get("head").and_then(|v| v.as_str()).unwrap_or("");
+            let draft = data.get("draft").and_then(|v| v.as_bool()).unwrap_or(false);
+            publish_step_input(
+                &mut step_input,
+                app,
+                run_id,
+                workflow_id,
+                &node_id,
+                &node_type,
+                &label,
+                step_input_snapshot(
+                    "git",
+                    if action == "issue" {
+                        "Create issue".into()
+                    } else {
+                        "Create PR".into()
+                    },
+                    serde_json::json!({
+                        "action": action,
+                        "repo": repo,
+                        "title": title.clone(),
+                        "body": body.clone(),
+                        "base": base,
+                        "head": head,
+                        "draft": draft,
+                    }),
+                    false,
+                ),
+            );
+            match run_git_host(
+                action,
+                repo,
+                &title,
+                &body,
+                base,
+                head,
+                draft,
+                working_directory.as_deref(),
+            ) {
+                Ok(text) => {
+                    last_output = PromptValue::text(TextOrigin::ExternalObservation, text.clone());
+                    task_query_state.clear_last_output();
+                    Ok((text, None, None, None))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        other => {
+            let msg = format!("Unknown node type `{other}` — skipped");
+            Ok((msg, None, None, None))
+        }
+    };
+
+    match step_result {
+        Ok((output, provider, skill, metadata)) => {
+            let output_text = output.clone();
+            let evidence_origin = match node_type.as_str() {
+                "agent" | "customAgent" => Some(EvidenceOrigin::ModelOutput),
+                "fileInject" | "gitStatus" | "shell" | "script" | "appAction" | "http"
+                | "notify" | "writeFile" | "gitHost" => {
+                    Some(EvidenceOrigin::HostRecordedObservation)
+                }
+                _ => None,
+            };
+            if let Some(origin) = evidence_origin {
+                step_evidence_inputs.push(EvidenceSourceInput {
+                    run_id: run_id.into(),
+                    step_id: None,
+                    node_id: Some(node_id.clone()),
+                    origin,
+                    producer_identity: provider.clone(),
+                    source_label: Some(format!("{label} result")),
+                    observed_at: Utc::now(),
+                    text: output.clone(),
+                    omission_reason: None,
+                });
+            }
+            let input = step_input.clone().unwrap_or_else(|| {
+                persisted_step_input(
+                    &persisted_input_prompt,
+                    step_memory_recall_status,
+                    step_memory_recall_omitted_count,
+                )
+            });
+            let output_json = match &metadata {
+                Some(stats) => serde_json::json!({ "text": output, "stats": stats }),
+                None => serde_json::json!({ "text": output }),
+            };
+            insert_step(
+                db,
+                run_id,
+                &node_id,
+                provider.as_deref(),
+                skill.as_deref(),
+                "completed",
+                &input,
+                &output_json,
+                None,
+                step_evidence_inputs,
+                output_disposition.as_ref(),
+            )?;
+            if output_disposition.is_some() {
+                output::persist_completed_output(app, db, run_id, &node_id);
+            }
+            emit(
+                app,
+                RunEvent {
+                    run_id: run_id.into(),
+                    workflow_id: workflow_id.into(),
+                    kind: "step_completed".into(),
+                    node_id: Some(node_id.clone()),
+                    node_type: Some(node_type.clone()),
+                    node_label: Some(label.clone()),
+                    status: Some("completed".into()),
+                    message: "Step completed".into(),
+                    input: None,
+                    output: Some(output),
+                    stats: metadata,
+                    activity: None,
+                    auth_required: None,
+                    at: Utc::now().to_rfc3339(),
+                },
+            )?;
+            return Ok(BranchOutcome::Completed(BranchExecution {
+                node_id,
+                label,
+                node_type,
+                output_text,
+                context_prompt,
+                last_output,
+                task_query_state,
+                files_changed: last_files_changed,
+                files_reset,
+                final_output,
+            }));
+        }
+        Err(err) if err == "__cancelled__" => {
+            let input = step_input.clone().unwrap_or_else(|| {
+                persisted_step_input(
+                    &persisted_input_prompt,
+                    step_memory_recall_status,
+                    step_memory_recall_omitted_count,
+                )
+            });
+            let metadata = step_agent_metadata.as_ref().map(safe_metadata_value);
+            let output = metadata
+                .as_ref()
+                .map(|stats| serde_json::json!({ "stats": stats }))
+                .unwrap_or_else(|| serde_json::json!({}));
+            insert_step(
+                db,
+                run_id,
+                &node_id,
+                step_agent_provider.as_deref(),
+                step_agent_skill.as_deref(),
+                "failed",
+                &input,
+                &output,
+                Some("Cancelled by user"),
+                step_evidence_inputs,
+                None,
+            )?;
+            emit(
+                app,
+                RunEvent {
+                    run_id: run_id.into(),
+                    workflow_id: workflow_id.into(),
+                    kind: "cancelled".into(),
+                    node_id: Some(node_id),
+                    node_type: Some(node_type),
+                    node_label: Some(label),
+                    status: Some("cancelled".into()),
+                    message: "Automation cancelled".into(),
+                    input: None,
+                    output: None,
+                    stats: metadata,
+                    activity: None,
+                    auth_required: None,
+                    at: Utc::now().to_rfc3339(),
+                },
+            )?;
+            return Ok(BranchOutcome::Cancelled);
+        }
+        Err(err) => {
+            let input = step_input.clone().unwrap_or_else(|| {
+                persisted_step_input(
+                    &persisted_input_prompt,
+                    step_memory_recall_status,
+                    step_memory_recall_omitted_count,
+                )
+            });
+            let metadata = step_agent_metadata.as_ref().map(safe_metadata_value);
+            let output = metadata
+                .as_ref()
+                .map(|stats| serde_json::json!({ "stats": stats }))
+                .unwrap_or_else(|| serde_json::json!({}));
+            insert_step(
+                db,
+                run_id,
+                &node_id,
+                step_agent_provider.as_deref(),
+                step_agent_skill.as_deref(),
+                "failed",
+                &input,
+                &output,
+                Some(&err),
+                step_evidence_inputs,
+                None,
+            )?;
+            emit(
+                app,
+                RunEvent {
+                    run_id: run_id.into(),
+                    workflow_id: workflow_id.into(),
+                    kind: "step_failed".into(),
+                    node_id: Some(node_id),
+                    node_type: Some(node_type),
+                    node_label: Some(label),
+                    status: Some("failed".into()),
+                    message: err.clone(),
+                    input: None,
+                    output: None,
+                    stats: metadata.clone(),
+                    activity: None,
+                    auth_required: step_auth_required.take(),
+                    at: Utc::now().to_rfc3339(),
+                },
+            )?;
+            // Fail fast: stop sibling branches through the shared
+            // cancellation flag. The level join still reports this
+            // branch's own error first in graph order.
+            control.request_cancel();
+            return Ok(BranchOutcome::Failed(BranchFailure {
+                err,
+                stats: metadata,
+            }));
+        }
+    }
+}
+
+/// Group nodes into Kahn waves: every node in a level has all of its
+/// predecessors in earlier levels, so a level's branches share no
+/// graph dependencies and may execute concurrently against one snapshot.
+///
+/// Ordering inside a level is deterministic: level 0 prefers `prompt`/`input`
+/// roots (natural left-to-right flow) and otherwise follows the saved node
+/// array, with successors discovered in edge order. Nodes that never become
+/// ready (dependency cycles) fall back to one sequential level each, in array
+/// order, so cyclic graphs keep running instead of deadlocking.
+fn execution_levels(nodes: &[Value], edges: &[Value]) -> Vec<Vec<Value>> {
     let mut by_id: HashMap<String, Value> = HashMap::new();
+    let mut order_index: HashMap<String, usize> = HashMap::new();
     let mut indegree: HashMap<String, usize> = HashMap::new();
     let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
 
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         if let Some(id) = node.get("id").and_then(|v| v.as_str()) {
             by_id.insert(id.to_string(), node.clone());
+            order_index.insert(id.to_string(), index);
             indegree.entry(id.to_string()).or_insert(0);
             outgoing.entry(id.to_string()).or_default();
         }
@@ -2676,56 +3588,231 @@ fn topological_order(nodes: &[Value], edges: &[Value]) -> Vec<Value> {
         }
     }
 
-    let mut queue: VecDeque<String> = indegree
-        .iter()
-        .filter(|(_, d)| **d == 0)
-        .map(|(id, _)| id.clone())
-        .collect();
-
-    // Prefer input/prompt roots first for a natural left-to-right flow.
-    queue.make_contiguous().sort_by_key(|id| {
+    let node_rank = |id: &str| -> (u8, usize) {
         let t = by_id
             .get(id)
             .and_then(|n| n.get("type"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if t == "prompt" || t == "input" {
-            0
-        } else {
-            1
-        }
-    });
+        let root = if t == "prompt" || t == "input" { 0 } else { 1 };
+        (root, order_index.get(id).copied().unwrap_or(usize::MAX))
+    };
 
-    let mut ordered = Vec::new();
+    let mut ready: Vec<String> = indegree
+        .iter()
+        .filter(|(_, d)| **d == 0)
+        .map(|(id, _)| id.clone())
+        .collect();
+    ready.sort_by_key(|id| node_rank(id));
+
     let mut visited = HashSet::new();
+    let mut levels: Vec<Vec<Value>> = Vec::new();
 
-    while let Some(id) = queue.pop_front() {
-        if !visited.insert(id.clone()) {
-            continue;
-        }
-        if let Some(node) = by_id.get(&id) {
-            ordered.push(node.clone());
-        }
-        if let Some(nexts) = outgoing.get(&id) {
-            for n in nexts {
-                if let Some(d) = indegree.get_mut(n) {
-                    *d = d.saturating_sub(1);
-                    if *d == 0 {
-                        queue.push_back(n.clone());
+    while !ready.is_empty() {
+        let mut wave = Vec::new();
+        let mut next: Vec<String> = Vec::new();
+        for id in ready.drain(..) {
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            if let Some(node) = by_id.get(&id) {
+                wave.push(node.clone());
+            }
+            if let Some(nexts) = outgoing.get(&id) {
+                for n in nexts {
+                    if let Some(d) = indegree.get_mut(n) {
+                        *d = d.saturating_sub(1);
+                        if *d == 0 {
+                            next.push(n.clone());
+                        }
                     }
                 }
             }
         }
+        // Successors surface in edge order; keep array order for stability.
+        next.sort_by_key(|id| order_index.get(id).copied().unwrap_or(usize::MAX));
+        next.dedup();
+        if !wave.is_empty() {
+            levels.push(wave);
+        }
+        ready = next;
     }
 
-    // Append any disconnected nodes not reached.
-    for (id, node) in &by_id {
-        if !visited.contains(id) {
-            ordered.push(node.clone());
+    // Cycle leftovers never become ready: run them one at a time, in array
+    // order, rather than dropping or deadlocking them.
+    let mut leftover: Vec<&Value> = nodes
+        .iter()
+        .filter(|node| {
+            node.get("id")
+                .and_then(|v| v.as_str())
+                .is_some_and(|id| !visited.contains(id))
+        })
+        .collect();
+    leftover.sort_by_key(|node| {
+        node.get("id")
+            .and_then(|v| v.as_str())
+            .and_then(|id| order_index.get(id))
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
+    for node in leftover {
+        levels.push(vec![node.clone()]);
+    }
+
+    levels
+}
+
+/// Mutable run state carried across execution levels. Each level's branches
+/// clone this snapshot; the join merges their results back into one entry
+/// for the next level.
+#[derive(Debug, Clone, Default)]
+struct LevelEntryState {
+    context_prompt: PromptValue,
+    last_output: PromptValue,
+    task_query_state: TaskQueryState,
+    files_changed: Vec<Value>,
+    final_output: Option<String>,
+}
+
+/// One branch's updated state plus the step output downstream joins consume.
+#[derive(Debug)]
+struct BranchExecution {
+    node_id: String,
+    label: String,
+    node_type: String,
+    /// Step output text (agent response, tool result, …) for the join block.
+    output_text: String,
+    context_prompt: PromptValue,
+    last_output: PromptValue,
+    task_query_state: TaskQueryState,
+    files_changed: Vec<Value>,
+    /// True when the branch ran an agent step, which resets file attribution.
+    files_reset: bool,
+    final_output: Option<String>,
+}
+
+fn branch_output_origin(node_type: &str) -> TextOrigin {
+    match node_type {
+        "agent" | "customAgent" => TextOrigin::GeneratedOutput,
+        _ => TextOrigin::ExternalObservation,
+    }
+}
+
+/// Deterministic fan-in for one finished level. Single-branch levels pass
+/// state through untouched (sequential parity). Wider levels join in graph
+/// order:
+///
+/// * context: append-only suffixes concatenate after the entry snapshot; an
+///   overwriting branch (input/template replace) wins for what follows it,
+///   mirroring sequential last-writer-wins.
+/// * last output: labeled per-branch sections (`## <label>`) concatenated,
+///   so a downstream judge sees every debater instead of only the last one.
+/// * task query: per-field last-changed-wins against the entry snapshot.
+/// * files: union in order, unless a branch ran an agent step (which resets
+///   attribution, as in sequential runs).
+/// * final output: last branch that set one wins, else the entry's.
+fn merge_level_states(entry: &LevelEntryState, branches: &[BranchExecution]) -> LevelEntryState {
+    debug_assert!(!branches.is_empty());
+    if branches.len() == 1 {
+        let branch = &branches[0];
+        return LevelEntryState {
+            context_prompt: branch.context_prompt.clone(),
+            last_output: branch.last_output.clone(),
+            task_query_state: branch.task_query_state.clone(),
+            files_changed: branch.files_changed.clone(),
+            final_output: branch.final_output.clone(),
+        };
+    }
+
+    let entry_len = entry.context_prompt.parts.len();
+    let mut context_prompt = entry.context_prompt.clone();
+    for branch in branches {
+        let parts = &branch.context_prompt.parts;
+        if parts.len() >= entry_len && parts[..entry_len] == entry.context_prompt.parts[..] {
+            context_prompt
+                .parts
+                .extend(parts[entry_len..].iter().cloned());
+        } else {
+            context_prompt = branch.context_prompt.clone();
         }
     }
 
-    ordered
+    let mut joined = PromptValue::default();
+    let mut context_sections = PromptValue::default();
+    for branch in branches {
+        if branch.output_text.trim().is_empty() {
+            continue;
+        }
+        let section = format!("## {}\n\n{}", branch.label, branch.output_text);
+        if !joined.is_empty() {
+            joined.append_text(TextOrigin::HostMetadata, "\n\n---\n\n");
+        }
+        joined.append_text(branch_output_origin(&branch.node_type), section.clone());
+        // Branches that appended to context already surface there; only
+        // context-silent branches (agent steps) need their output lifted
+        // into context so downstream agents actually see the join.
+        if branch.context_prompt.parts == entry.context_prompt.parts {
+            if !context_sections.is_empty() {
+                context_sections.append_text(TextOrigin::HostMetadata, "\n\n---\n\n");
+            }
+            context_sections.append_text(branch_output_origin(&branch.node_type), section);
+        }
+    }
+    let last_output = if joined.is_empty() {
+        entry.last_output.clone()
+    } else {
+        joined
+    };
+    if !context_sections.is_empty() {
+        if !context_prompt.is_empty() {
+            context_prompt.append_text(TextOrigin::HostMetadata, "\n\n");
+        }
+        context_prompt.append(&context_sections);
+    }
+
+    let mut task_query_state = entry.task_query_state.clone();
+    for branch in branches {
+        if branch.task_query_state.current_context != entry.task_query_state.current_context {
+            task_query_state.current_context = branch.task_query_state.current_context.clone();
+        }
+        if branch.task_query_state.last_output != entry.task_query_state.last_output {
+            task_query_state.last_output = branch.task_query_state.last_output.clone();
+        }
+    }
+
+    let mut files_changed = if branches.iter().any(|b| b.files_reset) {
+        Vec::new()
+    } else {
+        entry.files_changed.clone()
+    };
+    for branch in branches {
+        if branch.files_reset {
+            files_changed.extend(branch.files_changed.iter().cloned());
+        } else {
+            let files = &branch.files_changed;
+            let base = entry.files_changed.len();
+            if files.len() >= base && files[..base] == entry.files_changed[..] {
+                files_changed.extend(files[base..].iter().cloned());
+            } else if files != &entry.files_changed {
+                files_changed.extend(files.iter().cloned());
+            }
+        }
+    }
+
+    let mut final_output = entry.final_output.clone();
+    for branch in branches {
+        if branch.final_output != entry.final_output {
+            final_output = branch.final_output.clone();
+        }
+    }
+
+    LevelEntryState {
+        context_prompt,
+        last_output,
+        task_query_state,
+        files_changed,
+        final_output,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3461,6 +4548,177 @@ mod tests {
         assert!(!serialized.contains("/private/working/directory"));
     }
 
+    /// Walks the real execution order with the real gate, so the interaction
+    /// between `execution_levels` and `conditions` is covered without needing
+    /// an app handle. Returns (ran, skipped) node ids in execution order.
+    fn simulate_walk(nodes: &[Value], edges: &[Value]) -> (Vec<String>, Vec<String>) {
+        let order: Vec<Value> = execution_levels(nodes, edges)
+            .into_iter()
+            .flatten()
+            .collect();
+        let incoming = conditions::incoming_edges(nodes, edges);
+        let mut outputs: HashMap<String, String> = HashMap::new();
+        let mut ran = Vec::new();
+        let mut skipped = Vec::new();
+        for node in order {
+            let id = node
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            if conditions::skip_reason(&id, &incoming, &outputs, "", "").is_some() {
+                skipped.push(id);
+                continue;
+            }
+            // Each node's output is its own id, so conditions can target it.
+            outputs.insert(id.clone(), id.clone());
+            ran.push(id);
+        }
+        (ran, skipped)
+    }
+
+    fn walk_node(id: &str) -> Value {
+        serde_json::json!({ "id": id, "type": "agent", "data": { "label": id } })
+    }
+
+    fn walk_edge(source: &str, target: &str, needle: Option<&str>) -> Value {
+        let mut edge = serde_json::json!({
+            "id": format!("{source}->{target}"),
+            "source": source,
+            "target": target,
+        });
+        if let Some(needle) = needle {
+            edge["data"] = serde_json::json!({
+                "condition": {
+                    "source": "output",
+                    "operator": "contains",
+                    "value": needle,
+                }
+            });
+        }
+        edge
+    }
+
+    #[test]
+    fn a_graph_without_conditions_runs_every_reachable_step() {
+        let nodes = vec![walk_node("a"), walk_node("b"), walk_node("c")];
+        let edges = vec![walk_edge("a", "b", None), walk_edge("b", "c", None)];
+        let (ran, skipped) = simulate_walk(&nodes, &edges);
+        assert_eq!(ran, vec!["a", "b", "c"]);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn fan_out_runs_every_branch_whose_condition_passes() {
+        // `gen` outputs "gen", so only the branches matching it fire.
+        let nodes = vec![
+            walk_node("gen"),
+            walk_node("claude"),
+            walk_node("codex"),
+            walk_node("shell"),
+        ];
+        let edges = vec![
+            walk_edge("gen", "claude", Some("gen")),
+            walk_edge("gen", "codex", Some("gen")),
+            walk_edge("gen", "shell", Some("nope")),
+        ];
+        let (ran, skipped) = simulate_walk(&nodes, &edges);
+        assert!(ran.contains(&"claude".to_string()));
+        assert!(ran.contains(&"codex".to_string()));
+        assert_eq!(skipped, vec!["shell"]);
+    }
+
+    #[test]
+    fn a_false_condition_skips_the_whole_branch_behind_it() {
+        let nodes = vec![
+            walk_node("gen"),
+            walk_node("codex"),
+            walk_node("slack"),
+            walk_node("out"),
+        ];
+        let edges = vec![
+            walk_edge("gen", "codex", Some("nope")),
+            walk_edge("codex", "slack", None),
+            walk_edge("slack", "out", None),
+        ];
+        let (ran, skipped) = simulate_walk(&nodes, &edges);
+        assert_eq!(ran, vec!["gen"]);
+        assert_eq!(skipped, vec!["codex", "slack", "out"]);
+    }
+
+    #[test]
+    fn a_join_runs_once_when_only_one_input_branch_is_live() {
+        let nodes = vec![
+            walk_node("a"),
+            walk_node("live"),
+            walk_node("dead"),
+            walk_node("join"),
+        ];
+        let edges = vec![
+            walk_edge("a", "live", Some("a")),
+            walk_edge("a", "dead", Some("nope")),
+            walk_edge("live", "join", None),
+            walk_edge("dead", "join", None),
+        ];
+        let (ran, skipped) = simulate_walk(&nodes, &edges);
+        assert_eq!(ran.iter().filter(|id| *id == "join").count(), 1);
+        assert_eq!(skipped, vec!["dead"]);
+    }
+
+    #[test]
+    fn a_root_runs_even_when_every_other_branch_is_skipped() {
+        let nodes = vec![walk_node("root"), walk_node("leaf")];
+        let edges = vec![walk_edge("root", "leaf", Some("nope"))];
+        let (ran, skipped) = simulate_walk(&nodes, &edges);
+        assert_eq!(ran, vec!["root"]);
+        assert_eq!(skipped, vec!["leaf"]);
+    }
+
+    #[test]
+    fn step_input_redacts_sensitive_headers_and_url_queries() {
+        let (headers, headers_redacted) = redact_http_headers(
+            "Content-Type: application/json\nAuthorization: Bearer secret\nX-Api-Key: key",
+        );
+        assert!(headers_redacted);
+        assert!(headers.contains("Content-Type: application/json"));
+        assert!(headers.contains("Authorization: [redacted]"));
+        assert!(headers.contains("X-Api-Key: [redacted]"));
+        assert!(!headers.contains("Bearer secret"));
+
+        let (url, url_redacted) =
+            redact_url_query("https://hooks.example.test/send?token=secret");
+        assert!(url_redacted);
+        assert_eq!(url, "https://hooks.example.test/send?[redacted]");
+    }
+
+    #[test]
+    fn step_input_text_is_bounded_on_a_utf8_boundary() {
+        let text = "🙂".repeat(MAX_LIVE_STEP_INPUT_BYTES);
+        let snapshot = text_step_input_snapshot("prompt", &text, "Prompt");
+        assert_eq!(snapshot["truncated"], Value::Bool(true));
+        let captured = snapshot["body"].as_str().expect("captured text");
+        assert!(captured.len() <= MAX_LIVE_STEP_INPUT_BYTES);
+        assert!(captured.starts_with('🙂'));
+        assert!(captured.is_char_boundary(captured.len()));
+        assert_eq!(
+            snapshot["originalBytes"].as_u64(),
+            Some(text.len() as u64)
+        );
+    }
+
+    #[test]
+    fn step_input_snapshot_is_versioned_and_display_safe() {
+        let snapshot = step_input_snapshot(
+            "request",
+            "POST https://example.test".into(),
+            serde_json::json!({"authorization": "[redacted]"}),
+            true,
+        );
+        assert_eq!(snapshot["version"], serde_json::json!(1));
+        assert_eq!(snapshot["kind"], "request");
+        assert_eq!(snapshot["redacted"], true);
+    }
+
     #[test]
     fn script_extension_maps_interpreters() {
         assert_eq!(script_extension("bash"), ".sh");
@@ -3471,6 +4729,159 @@ mod tests {
         assert_eq!(script_extension("cmd.exe"), ".cmd");
         // An unknown interpreter still gets a dispatchable file.
         assert_eq!(script_extension("some-runner"), ".sh");
+    }
+
+    fn level_node(id: &str, kind: &str) -> Value {
+        json!({"id": id, "type": kind, "data": {"label": id}})
+    }
+
+    fn level_ids(levels: &[Vec<Value>]) -> Vec<Vec<String>> {
+        levels
+            .iter()
+            .map(|level| {
+                level
+                    .iter()
+                    .map(|n| n.get("id").and_then(|v| v.as_str()).unwrap().to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn edge(source: &str, target: &str) -> Value {
+        json!({"id": format!("{source}->{target}"), "source": source, "target": target})
+    }
+
+    #[test]
+    fn execution_levels_group_fan_out_and_fan_in() {
+        // input -> moderator -> {for, against, observer} -> judge
+        let nodes = vec![
+            level_node("input", "input"),
+            level_node("moderator", "identity"),
+            level_node("for", "agent"),
+            level_node("against", "agent"),
+            level_node("observer", "agent"),
+            level_node("judge", "agent"),
+        ];
+        let edges = vec![
+            edge("input", "moderator"),
+            edge("moderator", "for"),
+            edge("moderator", "against"),
+            edge("moderator", "observer"),
+            edge("for", "judge"),
+            edge("against", "judge"),
+            edge("observer", "judge"),
+        ];
+        let levels = execution_levels(&nodes, &edges);
+        assert_eq!(
+            level_ids(&levels),
+            vec![
+                vec!["input".to_string()],
+                vec!["moderator".to_string()],
+                vec![
+                    "for".to_string(),
+                    "against".to_string(),
+                    "observer".to_string()
+                ],
+                vec!["judge".to_string()],
+            ]
+        );
+        // Flattening preserves the classic sequential walk for linear graphs.
+        let flat: Vec<String> = execution_levels(&nodes, &edges)
+            .into_iter()
+            .flatten()
+            .map(|n| n.get("id").and_then(|v| v.as_str()).unwrap().to_string())
+            .collect();
+        assert_eq!(
+            flat,
+            vec!["input", "moderator", "for", "against", "observer", "judge"]
+        );
+    }
+
+    #[test]
+    fn execution_levels_isolate_cycles_sequentially() {
+        let nodes = vec![level_node("a", "agent"), level_node("b", "agent")];
+        let edges = vec![edge("a", "b"), edge("b", "a")];
+        let levels = execution_levels(&nodes, &edges);
+        // Cyclic nodes never run concurrently: one level each, array order.
+        assert_eq!(
+            level_ids(&levels),
+            vec![vec!["a".to_string()], vec!["b".to_string()]]
+        );
+    }
+
+    #[test]
+    fn merge_level_states_concatenates_parallel_agent_outputs() {
+        let entry = LevelEntryState {
+            context_prompt: PromptValue::text(TextOrigin::AuthoredTask, "Debate GraphQL"),
+            last_output: PromptValue::default(),
+            task_query_state: TaskQueryState::default(),
+            files_changed: Vec::new(),
+            final_output: None,
+        };
+        let branch = |label: &str, text: &str| BranchExecution {
+            node_id: label.to_string(),
+            label: label.to_string(),
+            node_type: "agent".to_string(),
+            output_text: text.to_string(),
+            context_prompt: entry.context_prompt.clone(),
+            last_output: PromptValue::text(TextOrigin::GeneratedOutput, text),
+            task_query_state: entry.task_query_state.clone(),
+            files_changed: Vec::new(),
+            files_reset: true,
+            final_output: None,
+        };
+        let merged = merge_level_states(
+            &entry,
+            &[
+                branch("Argue FOR", "for text"),
+                branch("Argue AGAINST", "against text"),
+            ],
+        );
+        let last = merged.last_output.render_without_memory();
+        assert!(
+            last.contains("## Argue FOR"),
+            "join keeps attribution: {last}"
+        );
+        assert!(last.contains("for text"), "{last}");
+        assert!(last.contains("## Argue AGAINST"), "{last}");
+        assert!(last.contains("against text"), "{last}");
+        assert!(
+            last.find("for text").unwrap() < last.find("against text").unwrap(),
+            "join follows graph order: {last}"
+        );
+        // Agent branches are context-silent, so the join lands in context for
+        // the downstream judge (agents read context first).
+        let context = merged.context_prompt.render_without_memory();
+        assert!(context.contains("Debate GraphQL"), "{context}");
+        assert!(context.contains("for text"), "{context}");
+        assert!(context.contains("against text"), "{context}");
+    }
+
+    #[test]
+    fn merge_level_states_single_branch_passes_through() {
+        let entry = LevelEntryState {
+            context_prompt: PromptValue::text(TextOrigin::AuthoredTask, "task"),
+            last_output: PromptValue::text(TextOrigin::GeneratedOutput, "old"),
+            task_query_state: TaskQueryState::default(),
+            files_changed: vec![json!({"path": "a", "status": "modified"})],
+            final_output: Some("old final".to_string()),
+        };
+        let branch = BranchExecution {
+            node_id: "solo".to_string(),
+            label: "Solo".to_string(),
+            node_type: "agent".to_string(),
+            output_text: "new".to_string(),
+            context_prompt: entry.context_prompt.clone(),
+            last_output: PromptValue::text(TextOrigin::GeneratedOutput, "new"),
+            task_query_state: entry.task_query_state.clone(),
+            files_changed: vec![json!({"path": "b", "status": "modified"})],
+            files_reset: true,
+            final_output: Some("new final".to_string()),
+        };
+        let merged = merge_level_states(&entry, &[branch]);
+        assert_eq!(merged.last_output.render_without_memory(), "new");
+        assert_eq!(merged.files_changed.len(), 1);
+        assert_eq!(merged.final_output.as_deref(), Some("new final"));
     }
 
     #[test]
@@ -3539,6 +4950,7 @@ mod tests {
             node_label: None,
             status: Some("running".into()),
             message: activity.label.clone(),
+            input: None,
             output: None,
             stats: None,
             activity: Some(activity),

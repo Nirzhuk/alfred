@@ -1,0 +1,27 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 2,
+  "minAlfredVersion": "1.0.0",
+  "title": "Unknown operator",
+  "description": "An operator this build does not understand must be rejected, never coerced.",
+  "graph": {
+    "nodes": [
+      { "id": "input", "type": "input", "data": { "label": "Check", "prompt": "Run the test suite." }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent", "type": "agent", "data": { "label": "Agent", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 220, "y": 0 } }
+    ],
+    "edges": [
+      {
+        "id": "input-agent",
+        "source": "input",
+        "target": "agent",
+        "data": { "condition": { "source": "output", "operator": "isNearlyEmpty", "value": "x" } }
+      }
+    ]
+  },
+  "parameters": [],
+  "requirements": [
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" },
+    { "kind": "harness", "name": "cli", "provider": "claude_code" }
+  ],
+  "starts": []
+}

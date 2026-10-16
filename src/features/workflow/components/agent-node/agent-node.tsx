@@ -2,7 +2,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { agentHarness, agentSkillNames, type AgentNodeData } from "../../types";
 import { useWorkflowStore } from "../../store";
 import { AgentMark, agentLabel } from "../../../../components/agent-mark";
-import { NodeOutputPreview } from "../node-output-preview";
+import { NodeRunResult } from "../node-run-result";
 
 type AlfredNode = Node<AgentNodeData, "agent">;
 
@@ -45,7 +45,7 @@ export function AgentNode({ id, data }: NodeProps<AlfredNode>) {
         ) : (
           <p className="wf-node-skill muted">No skills</p>
         )}
-        <NodeOutputPreview nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} />
       </div>
       <Handle
         className="wf-handle"

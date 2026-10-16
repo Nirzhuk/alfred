@@ -1,7 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Icon } from "../../../../components/icon";
 import type { OutputNodeData } from "../../types";
-import { NodeOutputPreview } from "../node-output-preview";
+import { NodeRunResult } from "../node-run-result";
 
 type OutputFlowNode = Node<OutputNodeData, "chooseOutput">;
 
@@ -44,7 +44,7 @@ export function ChooseOutputNode({ id, data }: NodeProps<OutputFlowNode>) {
         ) : (
           <p className="wf-node-skill muted">Preview only</p>
         )}
-        <NodeOutputPreview nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} />
       </div>
       <Handle
         className="wf-handle"

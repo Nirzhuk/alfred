@@ -37,7 +37,23 @@
         "source": { "type": "string", "minLength": 1, "maxLength": 96 },
         "target": { "type": "string", "minLength": 1, "maxLength": 96 },
         "sourceHandle": { "type": ["string", "null"], "maxLength": 96 },
-        "targetHandle": { "type": ["string", "null"], "maxLength": 96 }
+        "targetHandle": { "type": ["string", "null"], "maxLength": 96 },
+        "data": { "$ref": "#/$defs/edgeData" }
+      }
+    },
+    "edgeData": {
+      "type": "object", "additionalProperties": false,
+      "description": "Per-connection settings. Absent means the connection always fires.",
+      "properties": { "condition": { "$ref": "#/$defs/edgeCondition" } }
+    },
+    "edgeCondition": {
+      "type": "object", "additionalProperties": false, "required": ["source", "operator"],
+      "description": "Gate on this connection. The branch behind it runs only when this is true.",
+      "properties": {
+        "source": { "enum": ["output", "context", "trigger"] },
+        "operator": { "enum": ["contains", "notContains", "equals", "notEquals", "matches", "isEmpty", "isNotEmpty"] },
+        "value": { "type": "string", "maxLength": 512 },
+        "caseSensitive": { "type": "boolean" }
       }
     },
     "graph": {

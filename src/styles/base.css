@@ -142,7 +142,7 @@ select,
 .wf-node-input,
 .run-console-detail pre,
 .run-output-card pre,
-.wf-node-output-preview {
+.wf-node-result-preview > span:first-child {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;

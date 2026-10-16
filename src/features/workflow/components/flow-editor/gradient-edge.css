@@ -1,0 +1,38 @@
+/* Conditional connections (Plan 053). A connection with no condition keeps the
+   plain gradient stroke it has always had; only the gated ones are marked. */
+
+.react-flow__edge-path.edge-conditional {
+  stroke-dasharray: 6 5;
+}
+
+/* The target was skipped on this run, so this connection did not fire. The dash
+   pattern and the chip text carry the state alongside the reduced opacity. */
+.react-flow__edge-path.edge-not-fired {
+  opacity: 0.35;
+  stroke-dasharray: 2 6;
+}
+
+.edge-condition-chip {
+  position: absolute;
+  max-width: 220px; /* geometry: keeps a long condition from spanning the canvas */
+  padding: var(--space-0-5) var(--space-1-5);
+  border: 1px solid var(--ink-mid);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The chip is a label. The edge underneath owns the click that opens the
+     editor, so the chip must never swallow it. */
+  pointer-events: none;
+}
+
+.edge-condition-chip.is-not-fired {
+  opacity: 0.6;
+  border-style: dashed;
+}
