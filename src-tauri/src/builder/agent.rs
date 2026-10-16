@@ -5,7 +5,7 @@
 
 use super::{
     data_dir, load_config, mcp_config_json, system_prompt, write_private, BuilderConfig,
-    BuilderSendInput, BuilderTurnResult, StreamPayload, STREAM_EVENT,
+    BuilderImage, BuilderSendInput, BuilderTurnResult, StreamPayload, STREAM_EVENT,
 };
 use crate::agents::active::RunControl;
 use crate::agents::process::{find_bin, lock_claude_invocation, run_cmd_with_stdin_env};
@@ -84,13 +84,28 @@ pub fn run(
     let model = input.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
     let session = input.session_id.as_deref().filter(|s| !s.is_empty());
 
+    // Claude takes images inline on stdin; Codex takes file paths.
+    let mut stdin = String::new();
     let args = match agent {
         BuilderAgent::ClaudeCode => {
             let mcp_path = dir.join("builder-mcp.json");
-            write_private(&mcp_path, &mcp_config_json(port, token, &config).to_string())?;
-            claude_args(&input.message, &mcp_path, &system_prompt(&config), model, session)
+            write_private(&mcp_path, mcp_config_json(port, token, &config).to_string())?;
+            let streamed = !input.images.is_empty();
+            if streamed {
+                stdin = claude_image_message(&input.message, &input.images);
+            }
+            claude_args(
+                (!streamed).then_some(input.message.as_str()),
+                &mcp_path,
+                &system_prompt(&config),
+                model,
+                session,
+            )
         }
-        BuilderAgent::Codex => codex_args(&input.message, port, &config, model, session),
+        BuilderAgent::Codex => {
+            let images = save_images(&workspace, &input.images)?;
+            codex_args(&input.message, port, &config, model, session, &images)
+        }
     };
 
     // Claude processes share one Keychain item; wait for any workflow step
@@ -175,7 +190,7 @@ pub fn run(
         TURN_TIMEOUT,
         Some(control),
         Some(&on_line),
-        "",
+        &stdin,
         if agent == BuilderAgent::Codex { &envs } else { &[] },
     );
     exited.store(true, Ordering::SeqCst);
@@ -212,16 +227,60 @@ pub fn run(
     })
 }
 
+/// One `stream-json` user turn: the images, then the text.
+fn claude_image_message(message: &str, images: &[BuilderImage]) -> String {
+    let mut content: Vec<Value> = images
+        .iter()
+        .map(|image| {
+            json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": image.media_type, "data": image.data },
+            })
+        })
+        .collect();
+    content.push(json!({ "type": "text", "text": message }));
+    let line = json!({ "type": "user", "message": { "role": "user", "content": content } });
+    format!("{line}\n")
+}
+
+/// Codex reads images from disk; keep them in the agent's workspace.
+// ponytail: attachments are never pruned; they are small and owner-only.
+fn save_images(workspace: &Path, images: &[BuilderImage]) -> Result<Vec<PathBuf>, String> {
+    use base64::Engine;
+    let dir = workspace.join("attachments");
+    images
+        .iter()
+        .map(|image| {
+            let ext = match image.media_type.as_str() {
+                "image/jpeg" => "jpg",
+                "image/gif" => "gif",
+                "image/webp" => "webp",
+                _ => "png",
+            };
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&image.data)
+                .map_err(|e| e.to_string())?;
+            let path = dir.join(format!("{}.{ext}", uuid::Uuid::new_v4()));
+            write_private(&path, bytes)?;
+            Ok(path)
+        })
+        .collect()
+}
+
+/// `message` is None when the turn arrives as `stream-json` on stdin.
 fn claude_args(
-    message: &str,
+    message: Option<&str>,
     mcp_path: &Path,
     system: &str,
     model: Option<&str>,
     session: Option<&str>,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec![
-        "-p".into(),
-        message.into(),
+    let mut args: Vec<String> = vec!["-p".into()];
+    match message {
+        Some(message) => args.push(message.into()),
+        None => args.extend(["--input-format".into(), "stream-json".into()]),
+    }
+    args.extend([
         "--output-format".into(),
         "stream-json".into(),
         "--verbose".into(),
@@ -236,7 +295,7 @@ fn claude_args(
         "--strict-mcp-config".into(),
         "--append-system-prompt".into(),
         system.into(),
-    ];
+    ]);
     if let Some(model) = model {
         args.extend(["--model".into(), model.into()]);
     }
@@ -258,8 +317,8 @@ fn toml_table<'a>(pairs: impl Iterator<Item = (&'a String, &'a String)>) -> Stri
     format!("{{ {} }}", body.join(", "))
 }
 
-/// Codex takes the whole MCP table as one `-c` override, which also replaces
-/// the user's global servers: the agent gets exactly what Setup shows.
+/// Codex takes Alfred's API and the Setup servers as one `-c` override. It
+/// merges with the user's own `config.toml` servers rather than replacing them.
 pub fn codex_mcp_servers(port: u16, config: &BuilderConfig) -> String {
     let mut servers = vec![format!(
         "alfred = {{ url = {}, bearer_token_env_var = {} }}",
@@ -293,6 +352,7 @@ fn codex_args(
     config: &BuilderConfig,
     model: Option<&str>,
     session: Option<&str>,
+    images: &[PathBuf],
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "exec".into(),
@@ -308,8 +368,14 @@ fn codex_args(
     if let Some(model) = model {
         args.extend(["-m".into(), model.into()]);
     }
+    if session.is_some() {
+        args.push("resume".into());
+    }
+    // `--image=` takes exactly one path; a bare `-i` would swallow the prompt.
+    args.extend(images.iter().map(|path| format!("--image={}", path.display())));
+    args.push("--".into());
     if let Some(session) = session {
-        args.extend(["resume".into(), session.into()]);
+        args.push(session.into());
     }
     args.push(message.into());
     args
@@ -478,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_mcp_table_is_strict_and_escaped() {
+    fn codex_mcp_table_is_escaped() {
         let config = BuilderConfig {
             rules: vec![],
             mcp_servers: vec![BuilderMcpServer {
@@ -499,11 +565,28 @@ mod tests {
     }
 
     #[test]
-    fn codex_resume_comes_after_exec_options() {
-        let args = codex_args("hi", 1, &BuilderConfig::default(), Some("gpt-5"), Some("abc"));
+    fn codex_resume_takes_images_then_separator_id_and_prompt() {
+        let images = [PathBuf::from("/w/a.png")];
+        let args = codex_args("-hi", 1, &BuilderConfig::default(), Some("gpt-5"), Some("abc"), &images);
         let resume = args.iter().position(|a| a == "resume").unwrap();
         assert!(args.iter().position(|a| a == "--json").unwrap() < resume);
-        assert_eq!(args[resume + 1], "abc");
-        assert_eq!(args.last().unwrap(), "hi");
+        assert_eq!(&args[resume + 1..], ["--image=/w/a.png", "--", "abc", "-hi"]);
+        let fresh = codex_args("hi", 1, &BuilderConfig::default(), None, None, &images);
+        assert_eq!(&fresh[fresh.len() - 3..], ["--image=/w/a.png", "--", "hi"]);
+    }
+
+    #[test]
+    fn claude_images_go_inline_before_the_text() {
+        let line = claude_image_message(
+            "what is this?",
+            &[BuilderImage { media_type: "image/png".into(), data: "AAAA".into() }],
+        );
+        assert!(line.ends_with('\n'));
+        let value: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["type"], "user");
+        assert_eq!(value["message"]["content"][0]["source"]["media_type"], "image/png");
+        assert_eq!(value["message"]["content"][1]["text"], "what is this?");
+        let args = claude_args(None, Path::new("/m.json"), "sys", None, None);
+        assert_eq!(&args[..3], ["-p", "--input-format", "stream-json"]);
     }
 }

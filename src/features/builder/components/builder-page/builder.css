@@ -29,6 +29,7 @@
 }
 
 .builder-chat {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -220,6 +221,144 @@
   line-height: var(--leading-relaxed);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.builder-user-stack {
+  max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1-5);
+}
+
+.builder-user-stack .builder-bubble {
+  max-width: 100%;
+}
+
+.builder-bubble-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+}
+
+.builder-bubble-images img {
+  display: block;
+  /* geometry: sent-image thumbnail */
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+  object-fit: cover;
+}
+
+/* Drop target over the whole chat while a file is dragged in. */
+.builder-drop {
+  position: absolute;
+  inset: var(--space-3);
+  z-index: var(--layer-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-xl);
+  border: 2px dashed var(--accent-border-strong);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  animation: builder-rise var(--duration-standard) var(--ease-emphasized) both;
+}
+
+.builder-drop strong {
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.builder-drop > span:last-child {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.builder-drop-icon {
+  display: grid;
+  place-items: center;
+  /* geometry: drop badge */
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+  color: var(--accent-ink);
+  background: linear-gradient(165deg, var(--brand-alfred), var(--brand-alfred-deep));
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--brand-alfred) 35%, transparent);
+  animation: alfred-mustache-idle 1.6s var(--ease-standard) infinite;
+}
+
+/* Composer attachment tray */
+.builder-attachments {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space-1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.builder-attachment {
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* geometry: tray thumbnail */
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface-inset);
+  animation: builder-pop var(--duration-slow) var(--ease-emphasized) both;
+}
+
+.builder-attachment img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.builder-attachment.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.builder-attachment-remove {
+  position: absolute;
+  /* geometry: corner badge overlapping the thumbnail edge */
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.builder-attachment:hover .builder-attachment-remove,
+.builder-attachment.is-error .builder-attachment-remove,
+.builder-attachment-remove:focus-visible {
+  opacity: 1;
+}
+
+.builder-attachment-remove:hover {
+  background: var(--control-background-hover);
 }
 
 .builder-avatar {

@@ -694,6 +694,7 @@ pub fn run() {
             builder::builder_info,
             builder::builder_send,
             builder::builder_cancel,
+            builder::builder_read_image,
             builder::chats::builder_list_chats,
             builder::chats::builder_load_chat,
             builder::chats::builder_save_chat,

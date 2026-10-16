@@ -48,7 +48,14 @@ export type AssistantMessage = {
   currentMessageId?: string;
 };
 
-export type UserMessage = { id: string; role: "user"; text: string; at: number };
+export type UserMessage = {
+  id: string;
+  role: "user";
+  text: string;
+  at: number;
+  /** Thumbnails of the images sent with this message. */
+  images?: string[];
+};
 export type ChatMessage = UserMessage | AssistantMessage;
 
 type Json = Record<string, unknown>;

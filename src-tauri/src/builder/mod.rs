@@ -25,6 +25,11 @@ const MAX_RULES: usize = 50;
 const MAX_RULE_BYTES: usize = 8 * 1024;
 const MAX_MCP_SERVERS: usize = 20;
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
+pub const MAX_IMAGES: usize = 6;
+/// Claude rejects images over 5 MB of base64, which is ~3.75 MB decoded.
+pub const MAX_IMAGE_BYTES: usize = 3_750_000;
+const MAX_DROPPED_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
+pub const SENDABLE_IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 pub struct BuilderState {
     pub mcp_token: String,
@@ -103,7 +108,7 @@ fn config_path() -> Result<PathBuf, String> {
 }
 
 /// Owner-only: MCP env vars and headers often carry tokens.
-fn write_private(path: &PathBuf, contents: &str) -> Result<(), String> {
+fn write_private(path: &PathBuf, contents: impl AsRef<[u8]>) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -330,6 +335,15 @@ pub fn builder_info(state: State<'_, BuilderState>) -> BuilderInfo {
     }
 }
 
+/// One image for the agent, already sized by the page.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuilderImage {
+    pub media_type: String,
+    /// Base64, no data-URL prefix.
+    pub data: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuilderSendInput {
@@ -341,6 +355,8 @@ pub struct BuilderSendInput {
     pub model: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub images: Vec<BuilderImage>,
 }
 
 #[derive(Debug, Serialize)]
@@ -385,6 +401,7 @@ pub async fn builder_send(
     if input.message.len() > MAX_MESSAGE_BYTES {
         return Err("Message is too long.".into());
     }
+    validate_images(&input.images)?;
     tauri::async_runtime::spawn_blocking(move || run_turn(&app, input))
         .await
         .map_err(|e| e.to_string())?
@@ -432,6 +449,74 @@ fn run_turn(app: &AppHandle, input: BuilderSendInput) -> Result<BuilderTurnResul
         .unwrap_or_else(|e| e.into_inner())
         .remove(&input.chat_id);
     result
+}
+
+pub fn validate_images(images: &[BuilderImage]) -> Result<(), String> {
+    use base64::Engine;
+    if images.len() > MAX_IMAGES {
+        return Err(format!("Attach at most {MAX_IMAGES} images per message."));
+    }
+    for image in images {
+        if !SENDABLE_IMAGE_TYPES.contains(&image.media_type.as_str()) {
+            return Err("Images must be PNG, JPEG, GIF or WebP.".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&image.data)
+            .map_err(|_| "An attached image could not be read.".to_string())?;
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err("An attached image is larger than 3.75 MB.".into());
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DroppedImage {
+    pub name: String,
+    pub media_type: String,
+    pub data: String,
+}
+
+/// Read an image the user dropped or picked, so the page can size it. Only
+/// paths the user chose reach this, and only image extensions are read.
+#[tauri::command]
+pub async fn builder_read_image(path: String) -> Result<DroppedImage, String> {
+    use base64::Engine;
+    let path = PathBuf::from(path);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let media_type = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "heic" | "heif" => "image/heic",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        _ => return Err("Only images can be attached.".into()),
+    };
+    let size = std::fs::metadata(&path).map_err(|_| "That file could not be read.".to_string())?.len();
+    if size > MAX_DROPPED_IMAGE_BYTES {
+        return Err("That image is larger than 40 MB.".into());
+    }
+    let bytes = tauri::async_runtime::spawn_blocking(move || std::fs::read(&path).map(|b| (b, path)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|_| "That file could not be read.".to_string())?;
+    let (bytes, path) = bytes;
+    Ok(DroppedImage {
+        name: path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("image")
+            .to_string(),
+        media_type: media_type.into(),
+        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+    })
 }
 
 #[tauri::command]
@@ -506,6 +591,22 @@ mod tests {
         assert!(validate_config(with(vec![server("a", "ftp")])).is_err());
         let ok = validate_config(with(vec![server("a", "stdio")])).unwrap();
         assert!(!ok.mcp_servers[0].id.is_empty());
+    }
+
+    #[test]
+    fn image_validation_bounds_count_type_and_size() {
+        use base64::Engine;
+        let image = |media_type: &str, len: usize| BuilderImage {
+            media_type: media_type.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(vec![0u8; len]),
+        };
+        assert!(validate_images(&[image("image/png", 10)]).is_ok());
+        assert!(validate_images(&[image("image/svg+xml", 10)]).is_err());
+        assert!(validate_images(&[image("image/png", MAX_IMAGE_BYTES + 1)]).is_err());
+        let many: Vec<_> = (0..=MAX_IMAGES).map(|_| image("image/png", 1)).collect();
+        assert!(validate_images(&many).is_err());
+        let bad = BuilderImage { media_type: "image/png".into(), data: "%%%".into() };
+        assert!(validate_images(&[bad]).is_err());
     }
 
     #[test]

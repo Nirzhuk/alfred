@@ -1,8 +1,12 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type ClipboardEvent,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
@@ -12,7 +16,15 @@ import type { PhosphorIconName } from "../../../../components/icon/phosphor";
 import { SelectControl } from "../../../../components/select-control";
 import { nodeAccentColor } from "../../../workflow/node-colors";
 import { useWorkflowStore } from "../../../workflow/store";
-import type { BuilderAgentId } from "../../api";
+import { readBuilderImage, type BuilderAgentId } from "../../api";
+import {
+  base64ToBlob,
+  IMAGE_EXTENSIONS,
+  isImagePath,
+  MAX_IMAGES,
+  prepareImage,
+  type PendingImage,
+} from "../../images";
 import { useBuilderStore } from "../../store";
 import {
   isWorking,
@@ -385,6 +397,9 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
   const { init, send, stop, newChat, openChat, deleteChat, setAgent, setModel, saveConfig } =
     useBuilderStore.getState();
   const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState<PendingImage[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [rail, setRail] = useState<"chats" | "setup" | null>("chats");
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -421,10 +436,112 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
     input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
   }, [draft]);
 
-  const submit = (text = draft) => {
-    if (!text.trim() || working || !ready) return;
+  const pendingCount = useRef(0);
+  pendingCount.current = pending.length;
+
+  /** Decode, size, and thumbnail each image; the tray shows progress. */
+  const addImages = (items: Array<{ name: string; blob: () => Promise<Blob> }>) => {
+    const room = MAX_IMAGES - pendingCount.current;
+    setAttachError(items.length > room ? `Up to ${MAX_IMAGES} images per message.` : null);
+    for (const item of items.slice(0, Math.max(0, room))) {
+      const id = crypto.randomUUID();
+      pendingCount.current += 1;
+      setPending((list) => [...list, { id, name: item.name, status: "loading" }]);
+      void item
+        .blob()
+        .then(prepareImage)
+        .then((image) =>
+          setPending((list) => list.map((p) => (p.id === id ? { ...p, ...image, status: "ready" } : p))),
+        )
+        .catch((error: unknown) =>
+          setPending((list) =>
+            list.map((p) =>
+              p.id === id
+                ? { ...p, status: "error", error: error instanceof Error ? error.message : String(error) }
+                : p,
+            ),
+          ),
+        );
+    }
+  };
+
+  const addPaths = (paths: string[]) => {
+    const images = paths.filter(isImagePath);
+    if (images.length === 0) {
+      if (paths.length) setAttachError("Only images can be attached.");
+      return;
+    }
+    addImages(
+      images.map((path) => ({
+        name: path.split(/[\\/]/).pop() ?? "image",
+        blob: () => readBuilderImage(path).then((file) => base64ToBlob(file.data, file.mediaType)),
+      })),
+    );
+    inputRef.current?.focus();
+  };
+  const addPathsRef = useRef(addPaths);
+  addPathsRef.current = addPaths;
+
+  // Tauri owns file drops; the page only hears paths. Mounted only while the
+  // Builder is on screen, so drops elsewhere in Alfred are unaffected.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let alive = true;
+    void getCurrentWebview()
+      .onDragDropEvent(({ payload }) => {
+        if (payload.type === "enter") setDragging(true);
+        else if (payload.type === "leave") setDragging(false);
+        else if (payload.type === "drop") {
+          setDragging(false);
+          addPathsRef.current(payload.paths);
+        }
+      })
+      .then((stop) => {
+        if (alive) unlisten = stop;
+        else stop();
+      });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) return;
+    event.preventDefault();
+    addImages(files.map((file) => ({ name: file.name || "Pasted image", blob: async () => file })));
+  };
+
+  const pickImages = async () => {
+    const picked = await open({
+      multiple: true,
+      directory: false,
+      title: "Attach images",
+      filters: [{ name: "Images", extensions: IMAGE_EXTENSIONS }],
+    }).catch(() => null);
+    if (picked) addPaths(Array.isArray(picked) ? picked : [picked]);
+  };
+
+  const readyImages = pending.filter((p) => p.status === "ready");
+  const loadingImages = pending.some((p) => p.status === "loading");
+  const canSend = (draft.trim().length > 0 || readyImages.length > 0) && !loadingImages && ready && !working;
+
+  const submit = () => {
+    if (!canSend) return;
     pinned.current = true;
+    const images = readyImages.map((p) => ({ mediaType: p.mediaType!, data: p.data!, thumb: p.thumb! }));
     setDraft("");
+    setPending([]);
+    setAttachError(null);
+    void send(draft, images);
+  };
+
+  /** Starters and card buttons send fixed text, never the tray's images. */
+  const sendText = (text: string) => {
+    if (working || !ready) return;
+    pinned.current = true;
     void send(text);
   };
 
@@ -435,7 +552,7 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
     }
   };
 
-  const toggleRail = (tab: "chats" | "setup") => setRail((open) => (open === tab ? null : tab));
+  const toggleRail = (tab: "chats" | "setup") => setRail((current) => (current === tab ? null : tab));
 
   return (
     <section className="settings-page builder-page" aria-label="Workflow Builder">
@@ -478,6 +595,16 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
             </div>
           </header>
 
+          {dragging ? (
+            <div className="builder-drop" role="status">
+              <span className="builder-drop-icon">
+                <Icon name="image" size={24} />
+              </span>
+              <strong>Drop images for {agent?.label ?? "the agent"}</strong>
+              <span>PNG, JPEG, GIF, WebP or HEIC · up to {MAX_IMAGES}</span>
+            </div>
+          ) : null}
+
           <div
             ref={threadRef}
             className="builder-thread"
@@ -487,13 +614,24 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
             }}
           >
             {messages.length === 0 ? (
-              <EmptyState ready={ready} onPick={(prompt) => submit(prompt)} />
+              <EmptyState ready={ready} onPick={sendText} />
             ) : (
               <div className="builder-messages">
                 {messages.map((message) =>
                   message.role === "user" ? (
                     <article key={message.id} className="builder-message is-user">
-                      <div className="builder-bubble user-select-text">{message.text}</div>
+                      <div className="builder-user-stack">
+                        {message.images?.length ? (
+                          <div className="builder-bubble-images">
+                            {message.images.map((thumb, i) => (
+                              <img key={i} src={thumb} alt={`Attached image ${i + 1}`} draggable={false} />
+                            ))}
+                          </div>
+                        ) : null}
+                        {message.text ? (
+                          <div className="builder-bubble user-select-text">{message.text}</div>
+                        ) : null}
+                      </div>
                     </article>
                   ) : (
                     <AssistantBlock
@@ -503,7 +641,7 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
                       now={now}
                       busy={working}
                       onOpenWorkflow={onOpenWorkflow}
-                      onSend={submit}
+                      onSend={sendText}
                     />
                   ),
                 )}
@@ -524,11 +662,33 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
                 <span>Install {agent.label} and make sure it is on your PATH, or pick another agent.</span>
               </p>
             ) : null}
-            {saveError ? (
+            {saveError || attachError ? (
               <p className="builder-error">
                 <Icon name="warning-circle" size={16} />
-                <span>{saveError}</span>
+                <span>{attachError ?? saveError}</span>
               </p>
+            ) : null}
+            {pending.length ? (
+              <ul className="builder-attachments" aria-label="Attached images">
+                {pending.map((image) => (
+                  <li key={image.id} className={`builder-attachment is-${image.status}`} title={image.error ?? image.name}>
+                    {image.thumb ? <img src={image.thumb} alt={image.name} draggable={false} /> : null}
+                    {image.status === "loading" ? <span className="builder-spinner" aria-label="Preparing image" /> : null}
+                    {image.status === "error" ? <Icon name="warning-circle" size={18} label={image.error} /> : null}
+                    <button
+                      type="button"
+                      className="builder-attachment-remove"
+                      aria-label={`Remove ${image.name}`}
+                      onClick={() => {
+                        setPending((list) => list.filter((p) => p.id !== image.id));
+                        setAttachError(null);
+                      }}
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             ) : null}
             <textarea
               ref={inputRef}
@@ -538,8 +698,19 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
               aria-label="Message the Workflow Builder"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={onPaste}
             />
             <div className="builder-composer-bar">
+              <button
+                type="button"
+                className="ghost builder-icon-button"
+                aria-label="Attach images"
+                title="Attach images (or drop / paste them)"
+                disabled={working || pending.length >= MAX_IMAGES}
+                onClick={() => void pickImages()}
+              >
+                <Icon name="image" size={18} />
+              </button>
               <SelectControl
                 density="compact"
                 aria-label="Agent"
@@ -582,7 +753,7 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
                   className="builder-send"
                   aria-label="Send"
                   title="Send"
-                  disabled={!draft.trim() || !ready}
+                  disabled={!canSend}
                 >
                   <Icon name="arrow-up" size={16} />
                 </button>

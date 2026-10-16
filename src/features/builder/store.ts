@@ -25,6 +25,11 @@ export type BuilderChat = {
   messages: ChatMessage[];
 };
 
+export type SendImage = api.BuilderImage & { thumb: string };
+
+/** What the agent reads when an image arrives without words. */
+export const IMAGE_ONLY_PROMPT = "Take a look at the attached image.";
+
 type Prefs = { lastChatId: string | null; agent: api.BuilderAgentId; model: string };
 
 function readPrefs(): Prefs {
@@ -48,7 +53,7 @@ function writePrefs(prefs: Prefs) {
 export function chatTitle(messages: ChatMessage[]): string {
   const first = messages.find((m) => m.role === "user");
   const text = first?.role === "user" ? first.text.replace(/\s+/g, " ").trim() : "";
-  if (!text) return "New chat";
+  if (!text) return first?.role === "user" && first.images?.length ? "Image" : "New chat";
   return text.length > TITLE_CHARS ? `${text.slice(0, TITLE_CHARS - 1)}…` : text;
 }
 
@@ -85,7 +90,7 @@ type BuilderStore = {
   saveError: string | null;
   working: boolean;
   init: () => Promise<void>;
-  send: (text: string) => Promise<void>;
+  send: (text: string, images?: SendImage[]) => Promise<void>;
   stop: () => Promise<void>;
   newChat: () => void;
   openChat: (id: string) => Promise<void>;
@@ -167,9 +172,10 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
       }
     },
 
-    send: async (text) => {
-      const message = text.trim();
-      if (!message || get().working) return;
+    send: async (text, images = []) => {
+      const typed = text.trim();
+      if ((!typed && images.length === 0) || get().working) return;
+      const message = typed || IMAGE_ONLY_PROMPT;
       const assistantId = crypto.randomUUID();
       const now = Date.now();
       set((state) => ({
@@ -178,7 +184,13 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
           ...state.chat,
           messages: [
             ...state.chat.messages,
-            { id: crypto.randomUUID(), role: "user", text: message, at: now },
+            {
+              id: crypto.randomUUID(),
+              role: "user",
+              text: typed,
+              at: now,
+              images: images.length ? images.map((image) => image.thumb) : undefined,
+            },
             newAssistantMessage(assistantId, now),
           ],
         },
@@ -193,6 +205,7 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
           agent: chat.agent,
           model: chat.model || null,
           sessionId: chat.sessionId,
+          images: images.map(({ mediaType, data }) => ({ mediaType, data })),
         });
         if (get().chat.id === chat.id) {
           set((state) => ({ chat: { ...state.chat, sessionId: result.sessionId ?? state.chat.sessionId } }));

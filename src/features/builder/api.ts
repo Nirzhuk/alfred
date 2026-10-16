@@ -60,12 +60,15 @@ export function getBuilderInfo(): Promise<BuilderInfo> {
   return invoke("builder_info");
 }
 
+export type BuilderImage = { mediaType: string; data: string };
+
 export function sendBuilderMessage(input: {
   chatId: string;
   message: string;
   agent: BuilderAgentId;
   model?: string | null;
   sessionId?: string | null;
+  images?: BuilderImage[];
 }): Promise<BuilderTurnResult> {
   return invoke("builder_send", { input });
 }
@@ -95,4 +98,10 @@ export function saveBuilderChat(chat: object): Promise<void> {
 
 export function deleteBuilderChat(id: string): Promise<void> {
   return invoke("builder_delete_chat", { id });
+}
+
+export type DroppedImage = { name: string; mediaType: string; data: string };
+
+export function readBuilderImage(path: string): Promise<DroppedImage> {
+  return invoke("builder_read_image", { path });
 }
