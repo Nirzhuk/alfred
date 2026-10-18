@@ -9,6 +9,16 @@ const WEEKDAYS: Record<string, string> = {
   "7": "Sundays",
 };
 
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
 const SIMPLE_FIELD = /^(?:\*|\*\/\d+|\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$/;
 
 function clockTime(hour: string, minute: string): string | null {
@@ -19,22 +29,47 @@ function clockTime(hour: string, minute: string): string | null {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function localClockTime(
-  nextRunAt: string | null | undefined,
+/**
+ * Local clock time and weekday of a fire instant, or null when the value is
+ * missing or unreadable.
+ */
+function instantInZone(
+  value: string | null | undefined,
   timeZone?: string,
-): string | null {
-  if (!nextRunAt) return null;
-  const date = new Date(nextRunAt);
+): { time: string; weekday: number } | null {
+  if (!value) return null;
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat(undefined, {
+  const parts = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
+    weekday: "short",
     timeZone,
   }).formatToParts(date);
   const hour = parts.find((part) => part.type === "hour")?.value;
   const minute = parts.find((part) => part.type === "minute")?.value;
-  return hour && minute ? `${hour}:${minute}` : null;
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  if (!hour || !minute || weekday == null) return null;
+  return { time: `${hour}:${minute}`, weekday: WEEKDAY_INDEX[weekday] ?? 0 };
+}
+
+/** Whether a UTC day-of-week field covers the given weekday. */
+function dayOfWeekMatches(pattern: string, weekday: number): boolean {
+  if (pattern === "*") return true;
+  if (pattern === "1-5") return weekday >= 1 && weekday <= 5;
+  if (!/^\d+$/.test(pattern)) return false;
+  return Number(pattern) % 7 === weekday;
+}
+
+/** IANA zone of the viewer, or `local` when the environment cannot name it. */
+function localTimeZoneLabel(timeZone?: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeZone }).resolvedOptions()
+      .timeZone;
+  } catch {
+    return "local";
+  }
 }
 
 /** Compact, human-readable text for a six-field Alfred cron expression. */
@@ -53,39 +88,51 @@ export function formatScheduleLabel(
     if (hour === "*" && interval) return `every ${interval} min`;
   }
 
-  const time = localClockTime(nextRunAt, timeZone) ?? clockTime(hour, minute);
-  if (!time || dayOfMonth !== "*" || month !== "*") return cron;
-  if (dayOfWeek === "*") return `${time} daily`;
-  if (dayOfWeek === "1-5") return `${time} weekdays`;
-  if (WEEKDAYS[dayOfWeek]) return `${time} ${WEEKDAYS[dayOfWeek]}`;
+  if (dayOfMonth !== "*" || month !== "*") return cron;
+  const instant = instantInZone(nextRunAt, timeZone);
+  // The day set is stored in UTC. Pairing it with a clock read from the fire
+  // instant is only honest while that instant also lands on one of those days
+  // locally; otherwise describe the stored UTC basis and say so.
+  const localClockIsValid = Boolean(
+    instant && dayOfWeekMatches(dayOfWeek, instant.weekday),
+  );
+  const time = localClockIsValid ? instant!.time : clockTime(hour, minute);
+  if (!time) return cron;
+  // Without a fire instant the compact label already describes the stored UTC
+  // basis; with one, it says so whenever the local day disagrees with it.
+  const zone = instant && !localClockIsValid ? " (UTC)" : "";
+  if (dayOfWeek === "*") return `${time} daily${zone}`;
+  if (dayOfWeek === "1-5") return `${time} weekdays${zone}`;
+  if (WEEKDAYS[dayOfWeek]) return `${time} ${WEEKDAYS[dayOfWeek]}${zone}`;
   return cron;
 }
 
 /**
- * Sentence-style description of a six-field Alfred cron, or null when the
- * expression is not a known everyday pattern.
+ * Recurrence of a six-field Alfred cron on its stored UTC basis, e.g.
+ * `Weekdays at 07:00 UTC`. Null when the expression is not an everyday
+ * pattern, so callers show the cron itself rather than a guess. Sub-daily
+ * intervals carry no day claim and are described without a zone.
  */
-export function describeSchedule(
-  cron: string,
-  nextRunAt?: string | null,
-  timeZone?: string,
-): string | null {
-  const trimmed = cron.trim();
-  if (!trimmed) return null;
-  const compact = formatScheduleLabel(trimmed, nextRunAt, timeZone);
-  if (compact === trimmed) return null;
-  if (compact === "hourly") return "Every hour";
-  const interval = compact.match(/^every (\d+) min$/);
-  if (interval) return `Every ${interval[1]} minutes`;
-  const daily = compact.match(/^(\d{2}:\d{2}) daily$/);
-  if (daily) return `Every day at ${daily[1]}`;
-  const weekdays = compact.match(/^(\d{2}:\d{2}) weekdays$/);
-  if (weekdays) return `Weekdays at ${weekdays[1]}`;
-  const named = compact.match(
-    /^(\d{2}:\d{2}) (Sundays|Mondays|Tuesdays|Wednesdays|Thursdays|Fridays|Saturdays)$/,
-  );
-  if (named) return `${named[2]} at ${named[1]}`;
-  return compact;
+export function describeScheduleUtc(cron: string): string | null {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 6) return null;
+  const [seconds, minute, hour, dayOfMonth, month, dayOfWeek] = fields;
+  if (seconds !== "0" && seconds !== "00") return null;
+  if (dayOfMonth !== "*" || month !== "*") return null;
+
+  if (hour === "*") {
+    if (dayOfWeek !== "*") return null;
+    if (minute === "0") return "Every hour";
+    const interval = minute.match(/^\*\/(\d+)$/)?.[1];
+    return interval ? `Every ${interval} minutes` : null;
+  }
+
+  const time = clockTime(hour, minute);
+  if (!time) return null;
+  if (dayOfWeek === "*") return `Every day at ${time} UTC`;
+  if (dayOfWeek === "1-5") return `Weekdays at ${time} UTC`;
+  if (WEEKDAYS[dayOfWeek]) return `${WEEKDAYS[dayOfWeek]} at ${time} UTC`;
+  return null;
 }
 
 /** Locale date for a schedule fire time, or null when there is nothing to show. */
@@ -111,6 +158,29 @@ export function formatNextRunLabel(
     timeZone,
   });
   return `${day} at ${time}`;
+}
+
+/**
+ * Fire time in the viewer's zone with the zone spelled out after it, e.g.
+ * `Thursday, 24 Sep 2026 at 09:00 CEST`. The zone label is short where the
+ * environment provides one and the IANA name otherwise.
+ */
+export function formatNextRunWithZone(
+  value: string | Date | null | undefined,
+  timeZone?: string,
+  locale?: string,
+): string | null {
+  const label = formatNextRunLabel(value, timeZone, locale);
+  if (!label) return null;
+  const date = value instanceof Date ? value : new Date(value as string);
+  const parts = new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    hourCycle: "h23",
+    timeZone,
+    timeZoneName: "short",
+  }).formatToParts(date);
+  const name = parts.find((part) => part.type === "timeZoneName")?.value;
+  return `${label} ${name ?? localTimeZoneLabel(timeZone)}`;
 }
 
 function fieldMatches(raw: string, value: number, sundayWrap = false): boolean {

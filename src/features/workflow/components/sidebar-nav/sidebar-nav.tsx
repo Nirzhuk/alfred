@@ -192,7 +192,7 @@ export function SidebarNav({
         onClick={onNewWorkflow}
       />
       <NavButton
-        label="Workflow Builder"
+        label="Speak with Alfred"
         icon={<Icon name="sparkle" size={18} />}
         active={view === "builder"}
         onClick={() => onChange("builder")}

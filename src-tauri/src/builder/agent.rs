@@ -1,4 +1,4 @@
-//! Runs one Workflow Builder turn on a local agent CLI.
+//! Runs one Speak with Alfred turn on a local agent CLI.
 //!
 //! Every agent's output is translated into Claude Code's `stream-json` event
 //! shape, so the page folds one event language no matter which CLI answered.

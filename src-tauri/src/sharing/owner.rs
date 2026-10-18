@@ -4,20 +4,26 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub const OWNER_CREDENTIAL_REF: &str = "workflow-share-owner-capability-v1";
-const OWNER_SERVICE: &str = "com.nirzhuk.alfred.workflow-sharing";
+
+fn credential_service() -> &'static str {
+    crate::app_identity::credential_service(
+        "com.nirzhuk.alfred.workflow-sharing",
+        "com.nirzhuk.alfred.workflow-sharing.dev",
+    )
+}
 
 pub trait OwnerCapabilityStore: Send + Sync {
     fn get(&self) -> Result<Option<String>, String>;
     fn put(&self, value: &str) -> Result<(), String>;
 }
 
-/// Production owner storage. The capability is generated before the first
+/// OS-backed owner storage. The capability is generated before the first
 /// upload and remains outside SQLite, URLs, React state, and logs.
 #[derive(Default)]
 pub struct KeyringOwnerStore;
 impl OwnerCapabilityStore for KeyringOwnerStore {
     fn get(&self) -> Result<Option<String>, String> {
-        let entry = keyring::Entry::new(OWNER_SERVICE, OWNER_CREDENTIAL_REF)
+        let entry = keyring::Entry::new(credential_service(), OWNER_CREDENTIAL_REF)
             .map_err(|error| error.to_string())?;
         match entry.get_password() {
             Ok(value) => Ok(Some(value)),
@@ -26,7 +32,7 @@ impl OwnerCapabilityStore for KeyringOwnerStore {
         }
     }
     fn put(&self, value: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new(OWNER_SERVICE, OWNER_CREDENTIAL_REF)
+        let entry = keyring::Entry::new(credential_service(), OWNER_CREDENTIAL_REF)
             .map_err(|error| error.to_string())?;
         entry.set_password(value).map_err(|error| error.to_string())
     }

@@ -43,9 +43,11 @@ use directories::ProjectDirs;
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 use uuid::Uuid;
+
+static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -200,9 +202,71 @@ impl Db {
 }
 
 
+pub(crate) fn initialize_app_data_dir(tauri_root: &Path) -> Result<(), DbError> {
+    let root = resolve_app_data_dir(tauri_root, crate::app_identity::is_development())?;
+    APP_DATA_DIR
+        .set(root)
+        .map_err(|_| DbError::Other("app data directory already initialized".into()))
+}
+
+fn resolve_app_data_dir(tauri_root: &Path, development: bool) -> Result<PathBuf, DbError> {
+    if cfg!(target_os = "macos") || development {
+        Ok(tauri_root.to_path_buf())
+    } else {
+        // Production historically used ProjectDirs. On Linux and Windows its
+        // layout differs from Tauri's identifier-based root; keep existing data.
+        Ok(ProjectDirs::from("com", "nirzhuk", "alfred")
+            .ok_or(DbError::NoAppDir)?
+            .data_dir()
+            .to_path_buf())
+    }
+}
+
 pub fn app_data_dir() -> Result<PathBuf, DbError> {
-    let dirs = ProjectDirs::from("com", "nirzhuk", "alfred").ok_or(DbError::NoAppDir)?;
-    Ok(dirs.data_dir().to_path_buf())
+    APP_DATA_DIR
+        .get()
+        .cloned()
+        .ok_or_else(|| DbError::Other("app data directory is not initialized".into()))
+}
+
+#[cfg(test)]
+pub(crate) fn initialize_test_app_data_dir() {
+    APP_DATA_DIR.get_or_init(|| {
+        std::env::temp_dir().join(format!("alfred-storage-test-{}", Uuid::new_v4()))
+    });
+}
+
+#[cfg(test)]
+mod storage_path_tests {
+    use super::*;
+
+    #[test]
+    fn development_uses_its_configured_root_not_the_production_layout() {
+        let development = Path::new("isolated-fixture/development");
+        let production = Path::new("isolated-fixture/production");
+        let development_root = resolve_app_data_dir(development, true).unwrap();
+        let production_root = resolve_app_data_dir(production, false).unwrap();
+
+        assert_eq!(development_root, development);
+        assert_ne!(development_root, production_root);
+    }
+
+    #[test]
+    fn production_keeps_its_existing_platform_layout() {
+        let configured_root = Path::new("isolated-fixture/production");
+        let actual = resolve_app_data_dir(configured_root, false).unwrap();
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(actual, configured_root);
+
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            actual,
+            ProjectDirs::from("com", "nirzhuk", "alfred")
+                .unwrap()
+                .data_dir()
+        );
+    }
 }
 
 #[cfg(test)]

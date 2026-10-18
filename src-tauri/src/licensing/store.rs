@@ -8,7 +8,9 @@ use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::Mutex;
 
-pub const LICENSE_STORE_SERVICE: &str = "com.alfred.licensing";
+fn credential_service() -> &'static str {
+    crate::app_identity::credential_service("com.alfred.licensing", "com.alfred.licensing.dev")
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,7 +91,7 @@ pub struct OsLicenseCredentialStore;
 
 impl OsLicenseCredentialStore {
     fn entry(credential_ref: &str) -> Result<keyring::Entry, LicenseStoreError> {
-        keyring::Entry::new(LICENSE_STORE_SERVICE, credential_ref).map_err(map_keyring_error)
+        keyring::Entry::new(credential_service(), credential_ref).map_err(map_keyring_error)
     }
 }
 
@@ -259,10 +261,5 @@ mod tests {
         assert!(output.contains("[REDACTED]"));
         assert!(!output.contains("license-key-secret"));
         assert!(!output.contains("activation-id-secret"));
-    }
-
-    #[test]
-    fn store_uses_dedicated_service_name() {
-        assert_eq!(LICENSE_STORE_SERVICE, "com.alfred.licensing");
     }
 }

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import { Icon } from "../../../../components/icon";
 import { Modal, ModalHeader } from "../../../../components/modal";
 import { SelectControl } from "../../../../components/select-control";
 import { LockedCapability } from "../../../licensing/components";
 import {
-  formatNextRunLabel,
+  formatNextRunWithZone,
   previewNextRunAt,
 } from "../../schedule-label";
 import {
@@ -77,6 +78,13 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
   const [cronMode, setCronMode] = useState(false);
   const [customCron, setCustomCron] = useState("");
   const [onMissed, setOnMissed] = useState<OnMissed>("run");
+  // The stored scheduler's parser is the authority on a rule's next time: the
+  // editor's own preview only understands the everyday subset.
+  const [cronPreview, setCronPreview] = useState<{
+    cron: string;
+    nextRunAt: string | null;
+    error: string | null;
+  } | null>(null);
 
   useEffect(() => {
     void loadSchedule(workflowId);
@@ -112,12 +120,52 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
 
   const scheduleForWorkflow =
     schedule?.workflowId === workflowId ? schedule : null;
+
+  useEffect(() => {
+    if (!isTauri() || !cron) {
+      setCronPreview(null);
+      return;
+    }
+    let live = true;
+    // Debounced: a cron expression is edited keystroke by keystroke.
+    const timeout = window.setTimeout(() => {
+      void api.previewScheduleNextRun(cron).then(
+        (nextRunAt) => {
+          if (live) setCronPreview({ cron, nextRunAt, error: null });
+        },
+        (error) => {
+          if (live) {
+            setCronPreview({
+              cron,
+              nextRunAt: null,
+              error: typeof error === "string" ? error : String(error),
+            });
+          }
+        },
+      );
+    }, 250);
+    return () => {
+      live = false;
+      window.clearTimeout(timeout);
+    };
+  }, [cron]);
+
   const savedNextRun =
-    scheduleForWorkflow?.cron === cron
-      ? formatNextRunLabel(scheduleForWorkflow.nextRunAt)
+    scheduleForWorkflow?.cron === cron && scheduleForWorkflow.enabled
+      ? formatNextRunWithZone(scheduleForWorkflow.nextRunAt)
       : null;
+  const preview =
+    isTauri() || !cron
+      ? cronPreview?.cron === cron
+        ? cronPreview
+        : null
+      : {
+          cron,
+          nextRunAt: previewNextRunAt(cron)?.toISOString() ?? null,
+          error: null,
+        };
   const nextRunLabel =
-    savedNextRun ?? formatNextRunLabel(previewNextRunAt(cron));
+    savedNextRun ?? formatNextRunWithZone(preview?.nextRunAt ?? null);
   const showTime = !cronMode && pickerUsesTime(picker.repeat);
 
   return (
@@ -253,12 +301,23 @@ export function ScheduleModal({ workflowId, workflowName, onClose, decision }: P
             </>
           )}
 
-          {nextRunLabel ? (
+          {preview?.error ? (
             <div className="field">
               <span>Next run</span>
+              <p className="schedule-next-run error">{preview.error}</p>
+            </div>
+          ) : nextRunLabel ? (
+            <div className="field">
+              <span>{savedNextRun ? "Next run" : "Next run (preview)"}</span>
               <p className="schedule-next-run">{nextRunLabel}</p>
             </div>
           ) : null}
+
+          <p className="hint">
+            Recurrences are stored in UTC. Times in the canvas and the Schedules
+            list are shown in your own zone, so they can shift by an hour when
+            daylight saving changes.
+          </p>
 
           <label className="field">
             <span>If Alfred was closed at the scheduled time</span>

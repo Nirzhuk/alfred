@@ -10,7 +10,12 @@ use keyring_core::api::CredentialStoreApi;
 #[cfg(target_os = "macos")]
 use std::sync::LazyLock;
 
-pub const TOKEN_STORE_SERVICE: &str = "com.alfred.connected-apps";
+fn credential_service() -> &'static str {
+    crate::app_identity::credential_service(
+        "com.alfred.connected-apps",
+        "com.alfred.connected-apps.dev",
+    )
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,7 +188,7 @@ fn delete_secret(credential_ref: &str) -> Result<(), TokenStoreError> {
 
 #[cfg(not(target_os = "macos"))]
 fn platform_entry(credential_ref: &str) -> Result<keyring::Entry, TokenStoreError> {
-    keyring::Entry::new(TOKEN_STORE_SERVICE, credential_ref).map_err(map_keyring_error)
+    keyring::Entry::new(credential_service(), credential_ref).map_err(map_keyring_error)
 }
 
 /// macOS data-protection keychain. Access follows the app's code signature, so
@@ -270,7 +275,7 @@ fn protected_entry(credential_ref: &str) -> Result<keyring::Entry, TokenStoreErr
     // without a prompt. This-device-only keeps tokens out of iCloud backups.
     let modifiers = HashMap::from([("access-policy", "after-first-unlock-this-device-only")]);
     let inner = protected_store()
-        .build(TOKEN_STORE_SERVICE, credential_ref, Some(&modifiers))
+        .build(credential_service(), credential_ref, Some(&modifiers))
         .map_err(map_keyring_error)?;
     Ok(keyring::Entry { inner })
 }
@@ -278,7 +283,7 @@ fn protected_entry(credential_ref: &str) -> Result<keyring::Entry, TokenStoreErr
 #[cfg(target_os = "macos")]
 fn legacy_entry(credential_ref: &str) -> Result<keyring::Entry, TokenStoreError> {
     let inner = legacy_store()
-        .build(TOKEN_STORE_SERVICE, credential_ref, None)
+        .build(credential_service(), credential_ref, None)
         .map_err(map_keyring_error)?;
     Ok(keyring::Entry { inner })
 }

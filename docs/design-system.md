@@ -204,7 +204,7 @@ at least 28px in dense chrome and 32px for ordinary controls.
 - Use emerald only when the interface is communicating action, location,
   focus, progress, or success. Hover is neutral.
 - `--brand-alfred` and `--brand-alfred-deep` are the app-icon teal. They paint
-  only Alfred's own mustache mark (the Workflow Builder orb), never controls,
+  only Alfred's own mustache mark (the Speak with Alfred orb), never controls,
   states, or text, and stay fixed across themes like third-party agent marks.
 - On macOS, the transparent window installs one full-window native
   `NSVisualEffectView` through [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
@@ -471,6 +471,8 @@ their unused markup, helpers, and field CSS.
   React Flow without adding graph-paper line guides behind the workflow.
 - Pattern contrast stays subordinate to nodes and connections. It organizes
   the editing surface; it is never used as decoration on cards or pages.
+- Canvas zoom ranges from 25% to 100%. Initial framing and Fit canvas use the same
+  limits so large workflows can fit without changing node sizes.
 
 ## Motion
 

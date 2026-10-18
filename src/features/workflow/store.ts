@@ -36,7 +36,9 @@ import {
   type RunStepStatus,
   type RunSummary,
   type Schedule,
+  type ScheduleLayout,
   type ScheduleListItem,
+  type SchedulePreview,
   type Skill,
   type StepInputSnapshot,
   type Trigger,
@@ -55,6 +57,10 @@ import {
   canPinMemory,
   sortMemories,
 } from "./memories";
+import {
+  normalizeSchedulePosition,
+  stripScheduleCanvasElements,
+} from "./schedule-canvas";
 import { notifyRunFinished, shouldNotifyAboutRun } from "../../native";
 import { useToastStore } from "../../components/toast/toast-store";
 
@@ -280,6 +286,18 @@ type WorkflowStore = {
   providerModels: ProviderModels[];
   agentCapabilityManifest: AgentCapabilityManifest | null;
   schedule: Schedule | null;
+  /** Saved canvas position of the active workflow's schedule node. */
+  scheduleLayout: ScheduleLayout | null;
+  /**
+   * Preview of a cron from the backend's own parser. The node uses it to tell
+   * an invalid expression from one that simply has no next time yet; the
+   * editor's JavaScript preview is never treated as authoritative.
+   */
+  schedulePreview: SchedulePreview | null;
+  /** Enabled-only write in flight for the active schedule's switch. */
+  scheduleTogglePending: boolean;
+  /** Last failed canvas write for the active schedule (toggle or position). */
+  scheduleCanvasError: string | null;
   /** Saved schedules for labels across the entire workflow sidebar. */
   workflowSchedules: ScheduleListItem[];
   /** Runs missed while Alfred was closed, waiting on the user's decision. */
@@ -331,6 +349,28 @@ type WorkflowStore = {
     onMissed: OnMissed;
   }) => Promise<void>;
   clearSchedule: (workflowId: string) => Promise<void>;
+  /**
+   * Turn the schedule on or off without touching its recurrence. The guard is
+   * the row as rendered, so a write that lost the race to another edit is
+   * rejected and the persisted state is re-read.
+   */
+  setScheduleEnabled: (input: {
+    workflowId: string;
+    scheduleId: string;
+    enabled: boolean;
+  }) => Promise<void>;
+  /** Ask the backend parser about a cron; no-op when the same one is cached. */
+  previewScheduleCron: (cron: string) => Promise<void>;
+  /** In-memory position while the schedule node is being dragged. */
+  moveScheduleNode: (scheduleId: string, position: { x: number; y: number }) => void;
+  /**
+   * Persist a dragged position. A failed write re-reads the schedule so the
+   * node returns to the position the database actually holds.
+   */
+  saveScheduleLayout: (
+    scheduleId: string,
+    position: { x: number; y: number },
+  ) => Promise<void>;
   /** Load the missed-run list the user still has to answer. */
   loadMissedSchedules: () => Promise<void>;
   /**
@@ -481,9 +521,29 @@ async function migrateLegacyMemories(workflowId: string): Promise<boolean> {
 
 let runUnlisten: UnlistenFn | null = null;
 let outputPersistenceUnlisten: UnlistenFn | null = null;
+let scheduleUnlisten: UnlistenFn[] | null = null;
 let usageRequestSequence = 0;
 let workflowSelectionSequence = 0;
+let schedulePreviewSequence = 0;
 const workflowSaves = new Map<string, Promise<boolean>>();
+const scheduleLayoutSaves = new Map<string, Promise<void>>();
+
+/** State that belongs to one workflow's schedule and its canvas node. */
+function emptyScheduleCanvasState() {
+  return {
+    schedule: null,
+    scheduleLayout: null,
+    schedulePreview: null,
+    scheduleTogglePending: false,
+    scheduleCanvasError: null,
+  };
+}
+
+function scheduleErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 type WorkflowPermissionField =
   | "memoryRetrievalEnabled"
@@ -604,6 +664,27 @@ export async function installRunEventBridge() {
   });
 }
 
+/**
+ * Keep the visible schedule in step with the database.
+ *
+ * `schedules://changed` covers edits made outside this window (the MCP tool,
+ * the quick-access popover), and `scheduler://fired` covers the ticker moving
+ * a schedule's next run forward after it started one. A run of another
+ * workflow only refreshes the cross-workflow list.
+ */
+export async function installScheduleEventBridge() {
+  if (scheduleUnlisten) return;
+  const refresh = () => {
+    const state = useWorkflowStore.getState();
+    if (state.activeWorkflowId) void state.loadSchedule(state.activeWorkflowId);
+    void state.refreshWorkflowSchedules();
+  };
+  scheduleUnlisten = await Promise.all([
+    listen("schedules://changed", refresh),
+    listen("scheduler://fired", refresh),
+  ]);
+}
+
 export async function installOutputPersistenceEventBridge() {
   if (outputPersistenceUnlisten) return;
   outputPersistenceUnlisten = await listen<OutputPersistenceEvent>(
@@ -632,7 +713,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   skills: [],
   providerModels: FALLBACK_PROVIDER_MODELS,
   agentCapabilityManifest: null,
-  schedule: null,
+  ...emptyScheduleCanvasState(),
   workflowSchedules: [],
   missedSchedules: [],
   triggers: [],
@@ -769,8 +850,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   loadSchedule: async (workflowId) => {
     try {
       const schedule = await api.getWorkflowSchedule(workflowId);
+      // A slow response must never replace the node of a workflow the user
+      // has already switched to.
+      if (get().activeWorkflowId !== workflowId) return;
+      const layout = schedule
+        ? await api.getScheduleLayout(schedule.id).catch(() => null)
+        : null;
+      if (get().activeWorkflowId !== workflowId) return;
       set((state) => ({
         schedule,
+        scheduleLayout: layout,
+        schedulePreview: null,
         workflowSchedules: schedule
           ? [
               ...state.workflowSchedules.filter(
@@ -788,7 +878,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             ),
       }));
     } catch (e) {
-      set({ schedule: null, error: String(e) });
+      if (get().activeWorkflowId !== workflowId) return;
+      set({ ...emptyScheduleCanvasState(), error: String(e) });
     }
   },
 
@@ -798,7 +889,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       const schedule = await api.upsertWorkflowSchedule(input);
       set((state) => ({
-        schedule,
+        // The active slot belongs to the displayed workflow only.
+        ...(state.activeWorkflowId === input.workflowId
+          ? { schedule, scheduleCanvasError: null }
+          : {}),
         workflowSchedules: [
           ...state.workflowSchedules.filter(
             (item) => item.workflowId !== input.workflowId,
@@ -823,7 +917,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       await api.deleteWorkflowSchedule(workflowId);
       set((state) => ({
-        schedule: null,
+        ...(state.activeWorkflowId === workflowId
+          ? emptyScheduleCanvasState()
+          : {}),
         workflowSchedules: state.workflowSchedules.filter(
           (item) => item.workflowId !== workflowId,
         ),
@@ -831,6 +927,119 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }));
     } catch (e) {
       set({ loading: false, error: String(e) });
+    }
+  },
+
+  setScheduleEnabled: async ({ workflowId, scheduleId, enabled }) => {
+    const current = get().schedule;
+    if (!current || current.id !== scheduleId) return;
+    // One enabled write at a time: a second click while the first is in
+    // flight would race the guard and show an error for no reason.
+    if (get().scheduleTogglePending) return;
+    set({ scheduleTogglePending: true, scheduleCanvasError: null });
+    try {
+      const schedule = await api.setScheduleEnabled({
+        scheduleId,
+        enabled,
+        guard: { cron: current.cron, enabled: current.enabled },
+      });
+      set((state) => ({
+        scheduleTogglePending: false,
+        ...(state.schedule?.id === scheduleId ? { schedule } : {}),
+        workflowSchedules: state.workflowSchedules.map((item) =>
+          item.id === scheduleId
+            ? {
+                ...item,
+                enabled: schedule.enabled,
+                nextRunAt: schedule.nextRunAt,
+                cron: schedule.cron,
+              }
+            : item,
+        ),
+      }));
+    } catch (e) {
+      // Persisted state wins: re-read so the switch cannot keep showing a
+      // value the backend refused, and report the failure at the node.
+      set({
+        scheduleTogglePending: false,
+        scheduleCanvasError: scheduleErrorMessage(e),
+      });
+      await get().loadSchedule(workflowId);
+    }
+  },
+
+  previewScheduleCron: async (cron) => {
+    const trimmed = cron.trim();
+    if (!trimmed || get().schedulePreview?.cron === trimmed) return;
+    const request = ++schedulePreviewSequence;
+    try {
+      const nextRunAt = await api.previewScheduleNextRun(trimmed);
+      if (request !== schedulePreviewSequence) return;
+      set({ schedulePreview: { cron: trimmed, nextRunAt, error: null } });
+    } catch (e) {
+      if (request !== schedulePreviewSequence) return;
+      set({
+        schedulePreview: {
+          cron: trimmed,
+          nextRunAt: null,
+          error: scheduleErrorMessage(e),
+        },
+      });
+    }
+  },
+
+  moveScheduleNode: (scheduleId, position) => {
+    set((state) =>
+      state.schedule?.id === scheduleId
+        ? {
+            scheduleLayout: {
+              scheduleId,
+              x: position.x,
+              y: position.y,
+              updatedAt: state.scheduleLayout?.updatedAt ?? "",
+            },
+          }
+        : state,
+    );
+  },
+
+  saveScheduleLayout: async (scheduleId, position) => {
+    if (get().schedule?.id !== scheduleId) return;
+    const normalized = normalizeSchedulePosition(position);
+    const previous = scheduleLayoutSaves.get(scheduleId);
+    const write = (async () => {
+      // Positions move fast; keep one write in flight per schedule and let the
+      // last drag land after it instead of stacking invokes.
+      if (previous) await previous;
+      try {
+        const layout = await api.setScheduleLayout({
+          scheduleId,
+          x: normalized.x,
+          y: normalized.y,
+        });
+        set((state) =>
+          state.schedule?.id === scheduleId
+            ? { scheduleLayout: layout, scheduleCanvasError: null }
+            : state,
+        );
+      } catch (e) {
+        set((state) =>
+          state.schedule?.id === scheduleId
+            ? { scheduleCanvasError: scheduleErrorMessage(e) }
+            : state,
+        );
+        const activeId = get().activeWorkflowId;
+        // The database position wins; a rejected write never stays on screen.
+        if (activeId) await get().loadSchedule(activeId);
+      }
+    })();
+    scheduleLayoutSaves.set(scheduleId, write);
+    try {
+      await write;
+    } finally {
+      if (scheduleLayoutSaves.get(scheduleId) === write) {
+        scheduleLayoutSaves.delete(scheduleId);
+      }
     }
   },
 
@@ -948,7 +1157,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       workflowLoading: true,
       error: null,
       selectedNodeId: null,
-      schedule: null,
+      ...emptyScheduleCanvasState(),
       triggers: [],
       appTriggerStatuses: [],
     });
@@ -1051,7 +1260,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         nodes: [],
         edges: [],
         memories: [],
-        schedule: null,
+        ...emptyScheduleCanvasState(),
         selectedNodeId: null,
         dirty: false,
         workflowLoading: false,
@@ -1069,7 +1278,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       workflowLoading: true,
       error: null,
       selectedNodeId: null,
-      schedule: null,
+      ...emptyScheduleCanvasState(),
     });
     try {
       const workflow = await api.createWorkflow({
@@ -1092,7 +1301,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         dirty: false,
         loading: false,
         workflowLoading: false,
-        schedule: null,
+        ...emptyScheduleCanvasState(),
         triggers: [],
         appTriggerStatuses: [],
         selectedOutput: null,
@@ -1351,7 +1560,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             nodes: [],
             edges: [],
             memories: [],
-            schedule: null,
+            ...emptyScheduleCanvasState(),
             triggers: [],
             appTriggerStatuses: [],
             selectedNodeId: null,
@@ -1382,7 +1591,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       try {
         const workflow = await api.updateWorkflow({
           id: activeWorkflowId,
-          graph: { nodes: normalizeNodes(nodes), edges },
+          // Defense in depth: the schedule node and its arrows are composed at
+          // render time and must never reach the saved executable graph.
+          graph: stripScheduleCanvasElements({
+            nodes: normalizeNodes(nodes),
+            edges,
+          }),
         });
         set((state) => ({
           workflows: state.workflows.map((item) =>

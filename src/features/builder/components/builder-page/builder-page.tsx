@@ -354,10 +354,9 @@ function EmptyState({ onPick, ready }: { onPick: (prompt: string) => void; ready
   return (
     <div className="builder-empty">
       <AlfredOrb size="hero" />
-      <h2>What should Alfred automate?</h2>
+      <h2>How can I help today?</h2>
       <p>
-        Describe it in plain words. The agent designs the workflow, builds it on your canvas through Alfred's API,
-        and can test-run it for you.
+        Ask me anything about your workflows, or describe a new one. I design, build, run and schedule them through Alfred's own API, your rules, and your MCP servers.
       </p>
       <div className="builder-starters">
         {STARTERS.map((starter, i) => (
@@ -555,12 +554,12 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
   const toggleRail = (tab: "chats" | "setup") => setRail((current) => (current === tab ? null : tab));
 
   return (
-    <section className="settings-page builder-page" aria-label="Workflow Builder">
+    <section className="settings-page builder-page" aria-label="Speak with Alfred">
       <div className={["builder-layout", rail ? "" : "rail-closed"].filter(Boolean).join(" ")}>
         <div className="builder-chat">
           <header className="builder-header">
             <AlfredOrb busy={working} />
-            <h1 className="builder-header-title">Workflow Builder</h1>
+            <h1 className="builder-header-title">Speak with Alfred</h1>
             <div className="builder-header-actions">
               <button
                 type="button"
@@ -694,8 +693,8 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
               ref={inputRef}
               rows={1}
               value={draft}
-              placeholder={working ? "Alfred is working…" : "Describe a workflow, or ask to change one…"}
-              aria-label="Message the Workflow Builder"
+              placeholder={working ? "Alfred is working…" : "Ask Alfred, or describe a workflow…"}
+              aria-label="Message Alfred"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onKeyDown}
               onPaste={onPaste}

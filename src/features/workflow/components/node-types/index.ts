@@ -5,6 +5,7 @@ import { ChooseOutputNode } from "../choose-output-node";
 import { IdentityNode } from "../identity-node/identity-node";
 import { MemoryNode } from "../memory-node";
 import { InputNode } from "../prompt-node";
+import { ScheduleNode } from "../schedule-node";
 import {
   FileInjectNode,
   CustomAgentNode,
@@ -19,6 +20,8 @@ import {
 } from "../utility-nodes/utility-nodes";
 
 export const nodeTypes: NodeTypes = {
+  /** Render-only: the workflow's schedule. Never saved into a graph. */
+  schedule: ScheduleNode,
   /** Legacy type id — still used by existing graphs. */
   prompt: InputNode,
   input: InputNode,

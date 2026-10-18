@@ -9,17 +9,8 @@ import {
 import { useWorkflowStore } from "../../store";
 import { openLockedCapabilityCheckout } from "../../../licensing/components/locked-capability/locked-capability";
 import * as api from "../../api";
-import { describeSchedule } from "../../schedule-label";
+import { describeScheduleUtc, formatNextRunWithZone } from "../../schedule-label";
 import { type OnMissed, type ScheduleListItem } from "../../types";
-function formatNextRun(value: string | null | undefined) {
-  if (!value) return "Not scheduled";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
 
 /** Only the choices that differ from the default catch-up are worth a badge. */
 function missedPolicyLabel(policy: OnMissed): string | null {
@@ -30,8 +21,16 @@ function missedPolicyLabel(policy: OnMissed): string | null {
 
 type Props = {
   onClose: () => void;
-  onOpenWorkflow: (workflowId: string) => void;
-  onEditSchedule: (workflowId: string, workflowName: string) => void;
+  /** Open the workflow and focus the schedule node this row describes. */
+  onOpenWorkflow: (target: ScheduleTarget) => void;
+  /** Same, and open the schedule settings. */
+  onEditSchedule: (target: ScheduleTarget) => void;
+};
+
+type ScheduleTarget = {
+  workflowId: string;
+  workflowName: string;
+  scheduleId: string;
 };
 
 export function SchedulesPage({
@@ -191,7 +190,13 @@ export function SchedulesPage({
                     <button
                       type="button"
                       className="schedules-card-name"
-                      onClick={() => onOpenWorkflow(row.workflowId)}
+                      onClick={() =>
+                        onOpenWorkflow({
+                          workflowId: row.workflowId,
+                          workflowName: row.workflowName,
+                          scheduleId: row.id,
+                        })
+                      }
                     >
                       {row.workflowName}
                     </button>
@@ -204,9 +209,12 @@ export function SchedulesPage({
                     </span>
                   </div>
                   <p className="schedules-card-meta">
-                    {describeSchedule(row.cron, row.nextRunAt) ?? row.cron}
+                    {describeScheduleUtc(row.cron) ?? row.cron}
                     <span aria-hidden> · </span>
-                    Next {formatNextRun(row.nextRunAt)}
+                    {!row.enabled
+                      ? "Off"
+                      : (formatNextRunWithZone(row.nextRunAt) ??
+                        "Next run is being scheduled")}
                     {missedPolicyLabel(row.onMissed) ? (
                       <>
                         <span aria-hidden> · </span>
@@ -231,7 +239,11 @@ export function SchedulesPage({
                         : `Edit ${row.workflowName}`
                     }
                     onClick={() =>
-                      onEditSchedule(row.workflowId, row.workflowName)
+                      onEditSchedule({
+                        workflowId: row.workflowId,
+                        workflowName: row.workflowName,
+                        scheduleId: row.id,
+                      })
                     }
                   >
                     Edit
@@ -239,7 +251,13 @@ export function SchedulesPage({
                   <button
                     type="button"
                     className="ghost"
-                    onClick={() => onOpenWorkflow(row.workflowId)}
+                    onClick={() =>
+                      onOpenWorkflow({
+                        workflowId: row.workflowId,
+                        workflowName: row.workflowName,
+                        scheduleId: row.id,
+                      })
+                    }
                   >
                     Open
                   </button>

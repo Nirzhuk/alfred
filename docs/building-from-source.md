@@ -65,8 +65,24 @@ if you want to run a real workflow.
 bun run dev
 ```
 
-This starts the Tauri desktop application and its Vite frontend. Alfred is
-not a standalone website; do not use the Vite server as a deployed app.
+This starts Alfred Dev and its Vite frontend. The launcher applies
+`src-tauri/tauri.dev.conf.json`, setting the app name to `Alfred Dev` and the
+identifier to `com.nirzhuk.alfred.dev`. It can run alongside production Alfred.
+Alfred is not a standalone website; do not use Vite as a deployed app.
+
+Dev starts with separate workflows, history, settings, runtime profiles, and
+Alfred-owned credentials. It does not copy production data. On macOS its data
+lives in `~/Library/Application Support/com.nirzhuk.alfred.dev/`; production
+continues using `~/Library/Application Support/com.nirzhuk.alfred/`.
+Existing production storage locations on Windows and Linux are also preserved.
+
+Quick Access uses `CmdOrCtrl+Alt+Shift+Space` in dev instead of production's
+`CmdOrCtrl+Shift+Space`. Webhooks use port `8788` instead of `8787`, unless
+`ALFRED_HTTP_PORT` is set. Dev does not register the production import-link scheme.
+External CLI logins and workspace files are still shared, as is the host
+Keychain used by managed Claude Code subscription profiles.
+
+Restart an existing `bun run dev` command to pick up the dev configuration.
 
 ## 4. Run the checks
 
@@ -93,6 +109,20 @@ Tauri creates bundles for the current host OS under
 `src-tauri/target/release/bundle/`. Build each operating system's installers on
 that operating system unless you have deliberately configured and tested a
 cross-compilation toolchain.
+
+`bun run build` retains the production identity. To build an installable
+Alfred Dev with optimized release code and isolated dev storage, use:
+
+```bash
+bun run build:dev
+# macOS app bundle only:
+bun run build:dev --bundles app
+```
+
+The macOS result is
+`src-tauri/target/release/bundle/macos/Alfred Dev.app`.
+Build profile and app identity are independent: an optimized dev bundle still
+uses dev data and credentials.
 
 Local packages normally will not carry the maintainers' Apple notarization,
 Windows Authenticode signature, or updater signature. Operating systems may

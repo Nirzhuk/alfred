@@ -1,5 +1,5 @@
 //! Loopback MCP server (streamable HTTP, JSON responses only) exposing
-//! Alfred's internal API to the Workflow Builder agent.
+//! Alfred's internal API to the Speak with Alfred agent.
 //!
 //! Bound to 127.0.0.1 on an ephemeral port and gated by a per-process bearer
 //! token that only reaches the agent through an owner-only config file.
@@ -219,17 +219,17 @@ pub fn tool_definitions() -> Vec<Value> {
             &[],
         ),
         tool("list_connected_apps", "Connected app accounts and the actions appAction steps can call.", json!({}), &[]),
-        tool("list_rules", "Rules the user gave the Workflow Builder.", json!({}), &[]),
+        tool("list_rules", "Standing rules the user set for you.", json!({}), &[]),
         tool(
             "add_rule",
-            "Save a rule for the Workflow Builder (applies from the next message). Only when the user asks.",
+            "Save a standing rule for yourself (applies from the next message). Only when the user asks.",
             json!({ "name": { "type": "string" }, "body": { "type": "string" } }),
             &["name", "body"],
         ),
-        tool("list_mcp_servers", "MCP servers the user added for the Workflow Builder (secrets redacted).", json!({}), &[]),
+        tool("list_mcp_servers", "MCP servers the user added for you (secrets redacted).", json!({}), &[]),
         tool(
             "add_mcp_server",
-            "Add an MCP server for the Workflow Builder (available from the next message). Only when the user asks.",
+            "Add an MCP server for yourself (available from the next message). Only when the user asks.",
             json!({
                 "name": { "type": "string", "description": "letters, digits, - and _" },
                 "transport": { "type": "string", "enum": ["stdio", "http"] },

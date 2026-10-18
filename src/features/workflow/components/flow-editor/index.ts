@@ -1,1 +1,4 @@
-export { FlowEditor } from "./flow-editor";
+export {
+  FlowEditor,
+  type ScheduleFocusRequest,
+} from "./flow-editor";

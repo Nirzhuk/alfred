@@ -1,0 +1,89 @@
+/* The workflow's schedule on the canvas.
+   Meta, not a step: the node holds no persisted data of its own, and this fixed
+   width keeps the default position beside the roots it starts predictable
+   (see the matching constant in schedule-canvas.ts). */
+.wf-node-schedule {
+  width: 240px;
+}
+
+/* A schedule starts the whole workflow, so its band stays neutral instead of
+   borrowing a step type's identity hue. Lock state is carried by the mark, not
+   by border play. */
+.wf-node-schedule .wf-node-header {
+  background: var(--surface-raised);
+}
+
+.schedule-node-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.schedule-node-recurrence {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+  color: var(--ink);
+}
+
+.schedule-node-state {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.schedule-node-error {
+  margin: var(--space-1-5) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--danger);
+}
+
+.schedule-node-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
+}
+
+.schedule-node-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.schedule-node-buttons {
+  display: flex;
+  gap: var(--space-0-5);
+}
+
+.schedule-node-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  padding: 0;
+}
+
+/* Generated start arrows. They sit under the cards (negative z-index inside the
+   transformed viewport) and are dashed, so they read as a different kind of
+   connection from the step-to-step edges. */
+.schedule-arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.schedule-arrow-path {
+  fill: none;
+  stroke: var(--accent-edge);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-dasharray: 4 4;
+  stroke-opacity: 0.6;
+}

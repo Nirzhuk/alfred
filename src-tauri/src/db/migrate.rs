@@ -87,6 +87,16 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
     )?;
     // Existing schedules keep today's behaviour: catch up as soon as Alfred opens.
     ensure_column(conn, "schedules", "on_missed", "TEXT NOT NULL DEFAULT 'run'")?;
+    // Canvas position of the schedule node. Display-only, and cascades with the
+    // schedule row so a removed schedule cannot leave an orphan position.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schedule_canvas_layout (
+           schedule_id TEXT PRIMARY KEY NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+           x REAL NOT NULL,
+           y REAL NOT NULL,
+           updated_at TEXT NOT NULL
+         );",
+    )?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_workflows_folder_id ON workflows(folder_id);",
     )?;
@@ -1731,6 +1741,70 @@ mod tests {
             on_missed, "run",
             "existing schedules must keep catching up on open"
         );
+    }
+
+    #[test]
+    fn existing_schedules_keep_their_recurrence_when_the_layout_table_arrives() {
+        let conn = Connection::open_in_memory().expect("open database");
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .expect("enable foreign keys");
+        conn.execute_batch(include_str!("schema.sql"))
+            .expect("initialize legacy fixture");
+        // The layout table is newer than the fixture that already has schedules.
+        conn.execute_batch("DROP TABLE schedule_canvas_layout;")
+            .expect("remove the newer table from the fixture");
+        conn.execute(
+            "INSERT INTO workflows
+               (id, name, description, working_directory, sort_order, graph_json, created_at, updated_at)
+             VALUES ('legacy-workflow', 'Legacy', '', '', 0, '{}', 'now', 'now')",
+            [],
+        )
+        .expect("insert existing workflow");
+        conn.execute(
+            "INSERT INTO schedules
+               (id, workflow_id, cron, enabled, next_run_at, on_missed, created_at, updated_at)
+             VALUES ('legacy-schedule', 'legacy-workflow', '0 0 9 * * 1-5', 1,
+                     '2026-09-08T09:00:00Z', 'skip', 'now', 'now')",
+            [],
+        )
+        .expect("insert existing schedule");
+
+        apply_migrations(&conn).expect("upgrade fixture");
+        // Running twice must stay a no-op, including for saved layouts.
+        apply_migrations(&conn).expect("repeat upgrade");
+        conn.execute(
+            "INSERT INTO schedule_canvas_layout (schedule_id, x, y, updated_at)
+             VALUES ('legacy-schedule', 10.0, 20.0, 'now')",
+            [],
+        )
+        .expect("insert layout");
+        apply_migrations(&conn).expect("upgrade with a saved layout");
+
+        let (cron, enabled, next_run_at, on_missed): (String, i64, Option<String>, String) = conn
+            .query_row(
+                "SELECT cron, enabled, next_run_at, on_missed FROM schedules
+                 WHERE id = 'legacy-schedule'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("load the migrated schedule");
+        assert_eq!(cron, "0 0 9 * * 1-5");
+        assert_eq!(enabled, 1, "an enabled schedule stays enabled");
+        assert_eq!(
+            next_run_at.as_deref(),
+            Some("2026-09-08T09:00:00Z"),
+            "the stored next-run instant is preserved"
+        );
+        assert_eq!(on_missed, "skip");
+
+        let layout: (f64, f64) = conn
+            .query_row(
+                "SELECT x, y FROM schedule_canvas_layout WHERE schedule_id = 'legacy-schedule'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("load the saved layout");
+        assert_eq!(layout, (10.0, 20.0));
     }
 
     #[test]

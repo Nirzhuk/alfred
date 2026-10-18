@@ -6,7 +6,7 @@
 //! schedule's own `on_missed` choice catches it up, drops it, or waits for the
 //! user to answer from the missed list.
 
-use crate::db::{parse_rfc3339, Db, OnMissed, UpsertScheduleInput};
+use crate::db::{parse_rfc3339, Db, OnMissed, ScheduleEnabledGuard, UpsertScheduleInput};
 use crate::runner::{start_run, RunTrigger};
 use chrono::{DateTime, Utc};
 use cron::Schedule;
@@ -105,6 +105,37 @@ pub fn upsert_schedule(
         next_run_at,
     )
     .map_err(|e| SchedulerError::Message(e.to_string()))
+}
+
+/// Turn a schedule on or off without touching its recurrence.
+///
+/// An enabled schedule computes its next occurrence from now; a disabled one
+/// clears it. Setting the value the schedule already has is a no-op, so a
+/// switch that was already applied elsewhere never re-encodes cron. The guard
+/// rejects a write that lost the race to a recurrence edit or another toggle.
+pub fn set_schedule_enabled(
+    db: &Db,
+    schedule_id: &str,
+    enabled: bool,
+    guard: &ScheduleEnabledGuard,
+) -> Result<crate::db::Schedule, SchedulerError> {
+    let schedule = db
+        .get_schedule(schedule_id)
+        .map_err(|e| SchedulerError::Message(e.to_string()))?
+        .ok_or_else(|| SchedulerError::Message(format!("schedule not found: {schedule_id}")))?;
+
+    if schedule.enabled == enabled {
+        return Ok(schedule);
+    }
+
+    let next_run_at = if enabled {
+        Some(next_run_from_cron(&schedule.cron, Utc::now())?.to_rfc3339())
+    } else {
+        None
+    };
+
+    db.set_schedule_enabled(schedule_id, enabled, next_run_at, guard)
+        .map_err(|e| SchedulerError::Message(e.to_string()))
 }
 
 /// Check due schedules and start runs. Returns how many runs were started.
@@ -567,5 +598,124 @@ mod tests {
         assert!(resolve_missed_with(&db, &busy.id, MissedDecision::Run, now, &mut start).is_err());
         assert_eq!(missed_schedules(&db, opened_at).unwrap().len(), 1);
         assert_eq!(next_run(&db, &busy).unwrap(), at("2026-09-08T09:00:00Z"));
+    }
+
+    /// The guard a caller sends when it toggles a row exactly as rendered.
+    fn guard(schedule: &Schedule) -> ScheduleEnabledGuard {
+        ScheduleEnabledGuard {
+            cron: schedule.cron.clone(),
+            enabled: schedule.enabled,
+        }
+    }
+
+    fn disabled_schedule(db: &Db, name: &str, cron: &str, on_missed: OnMissed) -> Schedule {
+        let schedule = schedule_with(db, name, cron, None, on_missed);
+        set_schedule_enabled(db, &schedule.id, false, &guard(&schedule)).unwrap()
+    }
+
+    #[test]
+    fn enabling_arms_the_next_run_and_disabling_clears_it() {
+        let db = Db::open_in_memory().unwrap();
+        let paused = disabled_schedule(&db, "Paused", "0 0 9 * * 1-5", OnMissed::Skip);
+
+        let enabled = set_schedule_enabled(&db, &paused.id, true, &guard(&paused)).unwrap();
+        assert!(enabled.enabled);
+        assert_eq!(enabled.cron, paused.cron);
+        assert_eq!(enabled.on_missed, OnMissed::Skip);
+        assert!(next_run(&db, &enabled).unwrap() > Utc::now());
+
+        let disabled = set_schedule_enabled(&db, &enabled.id, false, &guard(&enabled)).unwrap();
+        assert!(!disabled.enabled);
+        assert_eq!(disabled.cron, paused.cron);
+        assert_eq!(disabled.on_missed, OnMissed::Skip);
+        assert_eq!(disabled.next_run_at, None);
+    }
+
+    #[test]
+    fn setting_the_value_a_schedule_already_has_changes_nothing() {
+        let db = Db::open_in_memory().unwrap();
+        let due = schedule(&db, "Already on", "0 0 9 * * *", Some("2026-09-08T09:00:00Z"));
+
+        let again = set_schedule_enabled(&db, &due.id, true, &guard(&due)).unwrap();
+        assert_eq!(again.enabled, due.enabled);
+        assert_eq!(again.next_run_at, due.next_run_at);
+        assert_eq!(again.updated_at, due.updated_at);
+
+        let paused = disabled_schedule(&db, "Already off", "0 0 9 * * *", OnMissed::Run);
+        let again = set_schedule_enabled(&db, &paused.id, false, &guard(&paused)).unwrap();
+        assert_eq!(again.enabled, false);
+        assert_eq!(again.updated_at, paused.updated_at);
+    }
+
+    #[test]
+    fn a_toggle_that_lost_the_race_to_a_recurrence_edit_is_rejected() {
+        let db = Db::open_in_memory().unwrap();
+        let paused = disabled_schedule(&db, "Edited", "0 0 9 * * *", OnMissed::Run);
+        let stale = guard(&paused);
+
+        // Another surface edits the recurrence while this toggle is in flight.
+        db.upsert_schedule(
+            UpsertScheduleInput {
+                workflow_id: paused.workflow_id.clone(),
+                cron: "0 30 7 * * *".into(),
+                enabled: false,
+                on_missed: OnMissed::Run,
+            },
+            None,
+        )
+        .unwrap();
+
+        let rejected = set_schedule_enabled(&db, &paused.id, true, &stale);
+        assert!(
+            rejected.is_err(),
+            "a toggle rendered against a different recurrence must not arm the new one"
+        );
+
+        // The persisted recurrence wins; the stale toggle changed nothing.
+        let persisted = db.get_schedule(&paused.id).unwrap().unwrap();
+        assert_eq!(persisted.cron, "0 30 7 * * *");
+        assert!(!persisted.enabled);
+        assert_eq!(persisted.next_run_at, None);
+
+        // The same toggle succeeds once it is rendered against the saved rule.
+        let accepted = set_schedule_enabled(&db, &paused.id, true, &guard(&persisted)).unwrap();
+        assert!(accepted.enabled);
+        assert_eq!(accepted.cron, "0 30 7 * * *");
+        assert!(accepted.next_run_at.is_some());
+    }
+
+    #[test]
+    fn a_stale_toggle_that_targets_the_persisted_value_changes_nothing() {
+        let db = Db::open_in_memory().unwrap();
+        let paused = disabled_schedule(&db, "Already on", "0 0 9 * * *", OnMissed::Run);
+        let stale = guard(&paused);
+
+        // Another surface enables it while the switch for "off" is in flight.
+        let enabled = set_schedule_enabled(&db, &paused.id, true, &guard(&paused)).unwrap();
+
+        // Turning off from the stale render is a real change against the guard
+        // the caller rendered... but the target it saw (off) is what it wanted,
+        // so only the guard mismatch decides: the write is rejected.
+        assert!(set_schedule_enabled(&db, &paused.id, false, &stale).is_err());
+        let persisted = db.get_schedule(&paused.id).unwrap().unwrap();
+        assert!(persisted.enabled);
+        assert_eq!(persisted.next_run_at, enabled.next_run_at);
+
+        // Requesting the value the row already has never touches it.
+        let again = set_schedule_enabled(&db, &paused.id, true, &stale).unwrap();
+        assert_eq!(again.updated_at, enabled.updated_at);
+        assert_eq!(again.next_run_at, enabled.next_run_at);
+    }
+
+    #[test]
+    fn a_removed_schedule_cannot_be_toggled_back_to_life() {
+        let db = Db::open_in_memory().unwrap();
+        let paused = disabled_schedule(&db, "Removed", "0 0 9 * * *", OnMissed::Run);
+        let stale = guard(&paused);
+        db.delete_schedule_for_workflow(&paused.workflow_id)
+            .unwrap();
+
+        assert!(set_schedule_enabled(&db, &paused.id, true, &stale).is_err());
+        assert!(db.get_schedule(&paused.id).unwrap().is_none());
     }
 }

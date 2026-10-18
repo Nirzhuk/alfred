@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Alfred Dev",
+  "identifier": "com.nirzhuk.alfred.dev",
+  "plugins": {
+    "deep-link": {
+      "desktop": []
+    }
+  }
+}

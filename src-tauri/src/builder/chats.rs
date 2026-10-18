@@ -1,4 +1,4 @@
-//! Workflow Builder chat history: one owner-only JSON file per chat.
+//! Speak with Alfred chat history: one owner-only JSON file per chat.
 //!
 //! The page owns the message shape; Rust only checks the id, bounds the size,
 //! and reads the summary fields for the history list.
@@ -85,6 +85,7 @@ mod tests {
 
     #[test]
     fn chat_ids_must_be_uuids() {
+        crate::db::initialize_test_app_data_dir();
         assert!(chat_path("../../etc/passwd").is_err());
         assert!(chat_path("not-a-uuid").is_err());
         let path = chat_path("61C25329-C153-4327-8D52-F04F32B7903D").unwrap();

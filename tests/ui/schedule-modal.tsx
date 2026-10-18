@@ -48,6 +48,10 @@ mockIPC(
       }
       case "delete_workflow_schedule":
         return null;
+      case "get_schedule_layout":
+        return null;
+      case "preview_schedule_next_run":
+        return "2026-09-07T09:00:00Z";
       default:
         if (command.startsWith("plugin:")) return null;
         throw new Error(`Unmocked schedule fixture IPC: ${command}`);

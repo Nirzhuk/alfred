@@ -37,7 +37,7 @@ workflow remaining active or on the schedule-node UI.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 043 | Manage schedules through a connected canvas node | P1 | M | Existing scheduler and canvas | TODO |
+| 043 | Manage schedules through a connected canvas node | P1 | M | Existing scheduler and canvas | IN PROGRESS — canvas node, arrows, enabled-only writes, layout persistence, and overview navigation implemented; verification recorded in [docs/canvas-schedules.md](../docs/canvas-schedules.md) |
 | 044 | Track follow-ups and prepare replies for review | P1 | XL | Existing Connected Apps; selected-thread reader and Inbox built in this plan | TODO |
 
 [Plan 043](043-schedule-node-on-canvas.md) preserves one canonical schedule,
@@ -80,6 +80,27 @@ workflow is still running.
 [Plan 054](054-live-step-inputs-on-canvas.md) defines versioned runtime-input
 snapshots, live event and History parity, the tabbed node result card, the full
 step-data viewer, redaction, and concurrent-run isolation.
+
+---
+
+## Track P — Speak with Alfred
+
+Grow the Speak with Alfred chat (formerly Workflow Builder) into a personal
+assistant: it remembers what the user approved, searches past memories, runs,
+and chats, speaks in an atelier persona, and takes voice input. Both plans build
+on the uncommitted `src-tauri/src/builder/` and `src/features/builder/` work;
+commit it first.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| [055](055-speak-with-alfred-memory.md) | Speak with Alfred remembers the user, and speaks in the atelier's voice | P1 | L (~4–5 days) | Speak with Alfred; memory store (045–051) | TODO |
+| [056](056-speak-with-alfred-voice-input.md) | Voice input for Speak with Alfred | P2 | M (spike ½ h, macOS 1–1½ days, Win/Linux later) | Speak with Alfred composer | TODO |
+
+Plan 055 reuses the existing memory store and FTS search without touching the
+workflow memory review queue or Plans 046/052. Every new memory needs a user
+click. Plan 056 starts with a 30-minute spike that decides between WebKit's
+speech API and native on-device `SFSpeechRecognizer`; Windows/Linux (Whisper)
+is a separate optional track.
 
 ---
 

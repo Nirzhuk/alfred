@@ -30,6 +30,7 @@ import type {
   RunHistoryItem,
   RunSummary,
   Schedule,
+  ScheduleLayout,
   ScheduleListItem,
   Skill,
   Trigger,
@@ -265,6 +266,51 @@ export async function deleteWorkflowSchedule(
   workflowId: string,
 ): Promise<void> {
   return invoke("delete_workflow_schedule", { workflowId });
+}
+
+/**
+ * Authoritative next fire time for a cron expression, from the same six-field
+ * parser the ticker runs on. Throws the parser's message for invalid input, so
+ * advanced expressions are never guessed from the editor's subset.
+ */
+export async function previewScheduleNextRun(cron: string): Promise<string> {
+  return invoke("preview_schedule_next_run", { cron });
+}
+
+/**
+ * Enabled-only toggle: `guard` carries the cron and enabled value the caller
+ * rendered, so a write that lost the race to another edit is rejected instead
+ * of applied. Cron and the missed-run policy are untouched.
+ */
+export async function setScheduleEnabled(input: {
+  scheduleId: string;
+  enabled: boolean;
+  guard: { cron: string; enabled: boolean };
+}): Promise<Schedule> {
+  return invoke("set_schedule_enabled", {
+    scheduleId: input.scheduleId,
+    enabled: input.enabled,
+    guard: input.guard,
+  });
+}
+
+/** Saved canvas position, or null before the first drag. */
+export async function getScheduleLayout(
+  scheduleId: string,
+): Promise<ScheduleLayout | null> {
+  return invoke("get_schedule_layout", { scheduleId });
+}
+
+export async function setScheduleLayout(input: {
+  scheduleId: string;
+  x: number;
+  y: number;
+}): Promise<ScheduleLayout> {
+  return invoke("set_schedule_layout", {
+    scheduleId: input.scheduleId,
+    x: input.x,
+    y: input.y,
+  });
 }
 
 export async function listWorkflowTriggers(

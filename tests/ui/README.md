@@ -52,3 +52,10 @@ IPC-mocked, and neither reads a user database:
   — the real `ScheduleModal` over mocked IPC (`policy=none` renders a workflow
   with no saved schedule), covering the missed-run choice control inside the
   modal. Invocations are recorded in `window.scheduleFixture.calls`.
+- `http://localhost:1420/tests/ui/schedule-canvas.html?scenario=chain&theme=dark`
+  — the real `WorkflowCanvas` over mocked IPC, covering the schedule node and
+  its generated start arrows. Scenarios: `chain`, `branches`, `empty`,
+  `disabled`, `invalid`, `over-limit`; add `&license=unlicensed` for a
+  distribution build whose only free schedule slot is taken. Inspect through
+  `window.scheduleCanvasFixture` (`node()`, `arrows()`, `calls`, `layouts`,
+  `store`, `errors`). Nothing runs and no workflow leaves the browser.

@@ -158,6 +158,7 @@ fn configure_notification<R: Runtime>(
     app: &AppHandle<R>,
     notification: &mut notify_rust::Notification,
 ) {
+    notification.appname(app.config().product_name.as_deref().unwrap_or("Alfred"));
     let sound = selected_sound(app);
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -197,28 +198,33 @@ fn install_development_notification_identity<R: Runtime>(app: &AppHandle<R>) -> 
     use std::process::Command;
 
     let identifier = app.config().identifier.as_str();
+    let product_name = app.config().product_name.as_deref().unwrap_or("Alfred");
     let bundle = app
         .path()
         .app_local_data_dir()
         .map_err(|error| error.to_string())?
         .join("notification-identity")
-        .join("Alfred.app");
+        .join(format!("{product_name}.app"));
     let contents = bundle.join("Contents");
     let macos = contents.join("MacOS");
     let resources = contents.join("Resources");
     fs::create_dir_all(&macos).map_err(|error| error.to_string())?;
     fs::create_dir_all(&resources).map_err(|error| error.to_string())?;
+    let display_name = product_name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
 
     let info = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDisplayName</key><string>Alfred</string>
+  <key>CFBundleDisplayName</key><string>{display_name}</string>
   <key>CFBundleExecutable</key><string>AlfredNotificationIdentity</string>
   <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundleIdentifier</key><string>{identifier}</string>
-  <key>CFBundleName</key><string>Alfred</string>
+  <key>CFBundleName</key><string>{display_name}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.5.0</string>
   <key>CFBundleVersion</key><string>1</string>

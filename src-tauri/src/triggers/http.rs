@@ -15,7 +15,6 @@ use std::io::Read;
 use tauri::{AppHandle, Manager};
 use tiny_http::{Header, Request, Response, Server};
 
-const DEFAULT_PORT: u16 = 8787;
 /// Bodies above this are rejected rather than buffered.
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 
@@ -23,7 +22,7 @@ pub fn configured_port() -> u16 {
     std::env::var("ALFRED_HTTP_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(DEFAULT_PORT)
+        .unwrap_or_else(|| if crate::app_identity::is_development() { 8788 } else { 8787 })
 }
 
 /// Bind the listener and serve it on a background thread. Returns the bound port.

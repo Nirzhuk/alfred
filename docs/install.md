@@ -153,8 +153,9 @@ binary support.
 - **Schedules & triggers** — cron, file watchers, and local webhooks only fire
   while Alfred is running (including when the window is closed but the app
   stays in the menu bar / tray). Fully quitting the app pauses automations.
-- **Webhooks** — listen on loopback only (default port `8787`). Override with
-  the `ALFRED_HTTP_PORT` environment variable and restart the app.
+- **Webhooks** — listen on loopback only (default port `8787` for Alfred,
+  `8788` for Alfred Dev). Override with the `ALFRED_HTTP_PORT` environment
+  variable and restart the app.
 - **Permissions** — agent steps inherit whatever tools and file access those
   CLIs already have. Treat workflow prompts like instructions you would type
   into the agent yourself.

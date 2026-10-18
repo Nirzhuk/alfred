@@ -1,5 +1,6 @@
 mod agent_accounts;
 mod agents;
+mod app_identity;
 mod builder;
 mod commands;
 mod db;
@@ -37,8 +38,13 @@ use tauri::{Emitter, Manager, State, WindowEvent};
 use triggers::app::AppEventRuntime;
 use triggers::TriggerRuntime;
 
-#[cfg(desktop)]
-const QUICK_ACCESS_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
+fn quick_access_shortcut() -> &'static str {
+    if app_identity::is_development() {
+        "CmdOrCtrl+Alt+Shift+Space"
+    } else {
+        "CmdOrCtrl+Shift+Space"
+    }
+}
 
 struct GlobalShortcutPreference(Mutex<String>);
 
@@ -90,7 +96,7 @@ fn main_window_ready(window: tauri::Window, trace: State<'_, StartupTrace>) {
 
 impl Default for GlobalShortcutPreference {
     fn default() -> Self {
-        Self(Mutex::new(QUICK_ACCESS_SHORTCUT.to_string()))
+        Self(Mutex::new(quick_access_shortcut().to_string()))
     }
 }
 
@@ -229,14 +235,9 @@ async fn start_background_services(handle: tauri::AppHandle) {
     });
 }
 
-pub fn run() {
-    let startup_trace =
-        StartupTrace(std::env::var_os("ALFRED_STARTUP_TRACE").map(|_| Instant::now()));
-    startup_trace.mark("run_enter");
-    let database = Db::open().expect("failed to open sqlite database");
-    database
-        .capture_output_recovery_snapshot()
-        .expect("failed to capture output recovery snapshot");
+fn initialize_app_state(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let database = Db::open()?;
+    database.capture_output_recovery_snapshot()?;
 
     // Native-agent accounts and runtimes. The registry stays empty until a
     // provider plan registers one; until then Alfred-harness steps surface
@@ -253,7 +254,7 @@ pub fn run() {
     let host_broker = Arc::new(HostApprovalBroker::new());
     // The resolver needs its own handle because the managed `Db` is owned by
     // Tauri state; SQLite is safe to open twice against the same file.
-    let resolver_db = Arc::new(Db::open().expect("failed to open sqlite database"));
+    let resolver_db = Arc::new(Db::open()?);
     let lookup_service = Arc::new(db::agent_memory_lookup::AgentMemoryLookupService::new(
         Arc::clone(&resolver_db),
         resolver_db.artifact_root(),
@@ -307,38 +308,61 @@ pub fn run() {
     .with_memory_lookup_permission_resolver(memory_lookup_permission_resolver)
     .with_release_binding_validator(release_binding_validator);
 
-    let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_dialog::init())
-        .manage(database)
-        .manage(startup_trace)
-        .manage(agent_accounts)
-        .manage(Arc::clone(&managed_runtime))
-        .manage(Arc::clone(&native_registry))
-        .manage(Arc::clone(&host_broker))
-        .manage(native_router)
-        .manage(IntegrationsState::default())
-        .manage(LicensingState::default())
-        .manage(notifications::NotificationPreferences::default())
-        .manage(GlobalShortcutPreference::default())
-        .manage(TriggerRuntime::default())
-        .manage(scheduler::SchedulerRuntime::new())
-        .manage(AppEventRuntime::default())
-        .manage(builder::BuilderState::default());
+    app.manage(database);
+    app.manage(agent_accounts);
+    app.manage(managed_runtime);
+    app.manage(native_registry);
+    app.manage(host_broker);
+    app.manage(native_router);
+    app.manage(IntegrationsState::default());
+    app.manage(LicensingState::default());
+    app.manage(notifications::NotificationPreferences::default());
+    app.manage(GlobalShortcutPreference::default());
+    app.manage(TriggerRuntime::default());
+    app.manage(scheduler::SchedulerRuntime::new());
+    app.manage(AppEventRuntime::default());
+    app.manage(builder::BuilderState::default());
 
     // Sharing is opt-in by an explicit service origin. Keeping the state
     // absent when no origin is configured prevents source builds from
     // silently publishing to an in-memory or guessed production service.
-    match sharing::SharingState::from_environment() {
-        Ok(Some(sharing_state)) => builder = builder.manage(sharing_state),
-        Ok(None) => builder = builder.manage(sharing::SharingState::disabled()),
+    let sharing_state = match sharing::SharingState::from_environment() {
+        Ok(Some(sharing_state)) => sharing_state,
+        Ok(None) => sharing::SharingState::disabled(),
         Err(error) => {
             eprintln!("workflow sharing disabled: {error}");
-            builder = builder.manage(sharing::SharingState::disabled());
+            sharing::SharingState::disabled()
         }
+    };
+    app.manage(sharing_state);
+    Ok(())
+}
+
+pub fn run() {
+    let startup_trace =
+        StartupTrace(std::env::var_os("ALFRED_STARTUP_TRACE").map(|_| Instant::now()));
+    startup_trace.mark("run_enter");
+    let mut builder = tauri::Builder::default();
+
+    // The single-instance gate must run before other plugins and before any
+    // database migration or credential-backed service is constructed in setup.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
     }
+
+    builder = builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(startup_trace);
 
     #[cfg(desktop)]
     {
@@ -346,14 +370,6 @@ pub fn run() {
         use tauri_plugin_window_state::StateFlags;
 
         builder = builder
-            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-                let _ = args;
-            }))
             .plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(|app, _shortcut, event| {
@@ -381,6 +397,13 @@ pub fn run() {
     builder
         .setup(|app| {
             app.state::<StartupTrace>().mark("setup_enter");
+            app_identity::initialize(&app.config().identifier)?;
+            let tauri_data_root = app.path().app_data_dir()?;
+            db::initialize_app_data_dir(&tauri_data_root)?;
+            initialize_app_state(app)?;
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_title(app.config().product_name.as_deref().unwrap_or("Alfred"))?;
+            }
             // Resume identity-bearing pending memory reviews left by a prior
             // process. The runner performs a fresh capability check before
             // reserving any provider slot; legacy rows were classified by DB
@@ -397,10 +420,10 @@ pub fn run() {
                     eprintln!("output persistence recovery unavailable: {error}");
                 }
             });
-            if let Some(root) = app.path().app_data_dir().ok() {
+            {
                 let resource_root = app.path().resource_dir().ok();
                 let plane = app.state::<Arc<ManagedRuntimeControlPlane>>();
-                if let Err(error) = plane.initialize(&root, resource_root.as_deref()) {
+                if let Err(error) = plane.initialize(&tauri_data_root, resource_root.as_deref()) {
                     eprintln!("managed runtime state unavailable: {error}");
                 }
                 if let Err(error) = plane.bind_native_collaborators(
@@ -522,7 +545,7 @@ pub fn run() {
                     .0
                     .lock()
                     .map(|value| value.clone())
-                    .unwrap_or_else(|_| QUICK_ACCESS_SHORTCUT.to_string());
+                    .unwrap_or_else(|_| quick_access_shortcut().to_string());
                 if let Err(error) = app.global_shortcut().register(shortcut.as_str()) {
                     eprintln!("global quick-access shortcut {shortcut} is unavailable: {error}");
                 }
@@ -640,6 +663,10 @@ pub fn run() {
             commands::list_schedules,
             commands::get_workflow_schedule,
             commands::upsert_workflow_schedule,
+            commands::preview_schedule_next_run,
+            commands::set_schedule_enabled,
+            commands::get_schedule_layout,
+            commands::set_schedule_layout,
             commands::list_missed_schedules,
             commands::resolve_missed_schedule,
             commands::delete_workflow_schedule,

@@ -9,7 +9,8 @@ use crate::db::{
     ApproveMemoryCandidateInput, CreateMemoryInput, CreateWorkflowInput, Db, HistorySearchHit,
     HistorySearchInput, ListMemoryCandidatesInput, Memory, MemoryCandidate, MemoryEvidenceItem,
     MemoryReviewJob, MemoryReviewSettings, MemoryWithOrigin, OnMissed, OutputReceipt,
-    RunHistoryDetail, RunHistoryItem, Schedule, ScheduleListItem, Trigger,
+    RunHistoryDetail, RunHistoryItem, Schedule, ScheduleEnabledGuard, ScheduleLayout,
+    ScheduleListItem, Trigger,
     UpdateMemoryCandidateInput, UpdateMemoryInput, UpdateMemoryReviewSettingsInput,
     UpdateWorkflowInput, UpsertTriggerInput, Workflow, WorkflowFolder, WorkflowMemoryReview,
 };
@@ -481,6 +482,57 @@ pub fn upsert_workflow_schedule(
     crate::tray::refresh(&app);
     let _ = app.emit("schedules://changed", ());
     Ok(schedule)
+}
+
+/// Authoritative next-occurrence preview. Uses the same six-field parser the
+/// ticker runs on, so an advanced expression an editor preview cannot read is
+/// still answered truthfully (or rejected).
+#[tauri::command]
+pub fn preview_schedule_next_run(cron: String) -> Result<String, String> {
+    scheduler::next_run_from_cron(&cron, chrono::Utc::now())
+        .map(|next| next.to_rfc3339())
+        .map_err(|e| e.to_string())
+}
+
+/// Enabled-only mutation for the canvas switch and the overview. Cron and the
+/// missed-run policy are untouched, so toggling never re-encodes a recurrence
+/// through the picker.
+#[tauri::command]
+pub fn set_schedule_enabled(
+    app: AppHandle,
+    db: State<'_, Db>,
+    schedule_id: String,
+    enabled: bool,
+    guard: ScheduleEnabledGuard,
+) -> Result<Schedule, String> {
+    let schedule = scheduler::set_schedule_enabled(&db, &schedule_id, enabled, &guard)
+        .map_err(|e| e.to_string())?;
+    crate::tray::refresh(&app);
+    let _ = app.emit("schedules://changed", ());
+    Ok(schedule)
+}
+
+/// Saved canvas position of a schedule node, or null before the first drag.
+#[tauri::command]
+pub fn get_schedule_layout(
+    db: State<'_, Db>,
+    schedule_id: String,
+) -> Result<Option<crate::db::ScheduleLayout>, String> {
+    db.get_schedule_layout(&schedule_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Persist a dragged position. No `schedules://changed` event: a position is
+/// presentation, not schedule data, and nothing else reads it.
+#[tauri::command]
+pub fn set_schedule_layout(
+    db: State<'_, Db>,
+    schedule_id: String,
+    x: f64,
+    y: f64,
+) -> Result<crate::db::ScheduleLayout, String> {
+    db.set_schedule_layout(&schedule_id, x, y)
+        .map_err(|e| e.to_string())
 }
 
 /// Scheduled runs that were missed while Alfred was closed and wait on the

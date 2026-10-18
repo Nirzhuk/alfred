@@ -6167,6 +6167,17 @@ button.primary.danger-solid:hover:not(:disabled) {
   font-size: var(--text-md);
 }
 
+/* Transient guidance from the canvas itself (a refused mixed deletion, for
+   example): quieter than an error, and gone on its own. */
+.canvas-notice {
+  padding: var(--space-0-5) var(--space-1-5);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
 .canvas {
   position: relative;
   flex: 1;

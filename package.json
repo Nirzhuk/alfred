@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node ./scripts/guard-desktop-tauri.mjs dev",
     "build": "node ./scripts/guard-desktop-tauri.mjs build",
+    "build:dev": "node ./scripts/guard-desktop-tauri.mjs build --config src-tauri/tauri.dev.conf.json",
     "dev:frontend": "vite",
     "build:frontend": "tsc && vite build",
     "test": "bun test",

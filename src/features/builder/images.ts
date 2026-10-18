@@ -1,5 +1,5 @@
 /**
- * Images for the Workflow Builder: whatever the user drops, pastes, or picks
+ * Images for Speak with Alfred: whatever the user drops, pastes, or picks
  * becomes a JPEG/PNG/GIF/WebP the agent CLIs accept, plus a small thumbnail
  * the chat keeps in its history.
  */

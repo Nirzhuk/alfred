@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_SHORTCUTS,
   findReservedShortcutConflict,
   findShortcutConflict,
   formatShortcut,
   shortcutFromKeyboardEvent,
+  type ShortcutMap,
 } from "../src/features/settings/shortcuts";
 
 function keyEvent(
@@ -57,9 +57,17 @@ describe("keyboard shortcut preferences", () => {
   });
 
   test("finds platform-equivalent conflicts", () => {
+    const shortcuts: ShortcutMap = {
+      quickAccess: "Alt+Space",
+      newWorkflow: "CmdOrCtrl+N",
+      saveWorkflow: "CmdOrCtrl+S",
+      runWorkflow: "CmdOrCtrl+R",
+      deleteWorkflow: "CmdOrCtrl+Backspace",
+      openSettings: "CmdOrCtrl+Comma",
+    };
     expect(
       findShortcutConflict(
-        DEFAULT_SHORTCUTS,
+        shortcuts,
         "Cmd+N",
         "quickAccess",
         true,
@@ -67,7 +75,7 @@ describe("keyboard shortcut preferences", () => {
     ).toBe("newWorkflow");
     expect(
       findShortcutConflict(
-        DEFAULT_SHORTCUTS,
+        shortcuts,
         "Alt+N",
         "quickAccess",
         true,

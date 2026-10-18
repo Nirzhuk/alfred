@@ -30,7 +30,7 @@ import { WorkflowContextMenu } from "../workflow-context-menu";
 import { WorkflowFolderContextMenu } from "../workflow-folder-context-menu";
 import { WorkflowFolderModal } from "../workflow-folder-modal";
 import { WorkflowList, type ScrolledFolder } from "../workflow-list";
-import { FlowEditor } from "../flow-editor";
+import { FlowEditor, type ScheduleFocusRequest } from "../flow-editor";
 import {
   MemoriesInspector,
   type MemoriesInspectorMode,
@@ -74,6 +74,7 @@ export function WorkflowCanvas() {
     workflows,
     workflowFolders,
     workflowSchedules,
+    schedule,
     openWorkflowIds,
     createWorkflow,
     deleteWorkflowFolder,
@@ -103,6 +104,7 @@ export function WorkflowCanvas() {
     activeRun,
     memories,
     runLogs,
+    previewScheduleCron,
   } = useWorkflowStore();
 
   const activeWorkflow = workflows.find(
@@ -218,6 +220,16 @@ export function WorkflowCanvas() {
     id: string;
     name: string;
   } | null>(null);
+  /** Focus request handed to the canvas: select the node, maybe open settings. */
+  const [scheduleFocus, setScheduleFocus] = useState<ScheduleFocusRequest | null>(
+    null,
+  );
+  const [removeScheduleTarget, setRemoveScheduleTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  /** Guidance shown next to the toolbar when a mixed deletion is refused. */
+  const [canvasNotice, setCanvasNotice] = useState<string | null>(null);
   const [triggersTarget, setTriggersTarget] = useState<{
     id: string;
     name: string;
@@ -364,6 +376,21 @@ export function WorkflowCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openCodeUsageRefreshKey, loadAgentUsage]);
 
+  // The backend parser is the authority on a saved cron, so the node can tell
+  // an invalid rule from one that simply has no next time yet.
+  const activeScheduleCron =
+    schedule && schedule.workflowId === activeWorkflowId ? schedule.cron : null;
+  useEffect(() => {
+    if (!isTauri() || !activeScheduleCron) return;
+    void previewScheduleCron(activeScheduleCron);
+  }, [activeScheduleCron, previewScheduleCron]);
+
+  useEffect(() => {
+    if (!canvasNotice) return;
+    const timeout = window.setTimeout(() => setCanvasNotice(null), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [canvasNotice]);
+
   useEffect(() => {
     const openSchedule = () => {
       cancelPendingMemoryNavigation();
@@ -375,6 +402,18 @@ export function WorkflowCanvas() {
       }
       const name = list.find((w) => w.id === id)?.name ?? "Workflow";
       setScheduleTarget({ id, name });
+    };
+    const removeSchedule = () => {
+      const { activeWorkflowId: id, workflows: list, schedule: active } =
+        useWorkflowStore.getState();
+      if (!id || !active) return;
+      const name = list.find((w) => w.id === id)?.name ?? "this workflow";
+      setRemoveScheduleTarget({ id, name });
+    };
+    const scheduleDeleteBlocked = () => {
+      setCanvasNotice(
+        "Remove the schedule on its own first, then delete the selected steps.",
+      );
     };
     const openDelete = () => {
       cancelPendingMemoryNavigation();
@@ -524,6 +563,11 @@ export function WorkflowCanvas() {
       }
     };
     window.addEventListener("alfred:open-schedule", openSchedule);
+    window.addEventListener("alfred:remove-schedule", removeSchedule);
+    window.addEventListener(
+      "alfred:schedule-delete-blocked",
+      scheduleDeleteBlocked,
+    );
     window.addEventListener("alfred:delete-workflow", openDelete);
     window.addEventListener("alfred:open-memories", openMemories);
     window.addEventListener("alfred:open-suggestions", openSuggestions);
@@ -540,6 +584,11 @@ export function WorkflowCanvas() {
     return () => {
       memoryNavigationGeneration.current += 1;
       window.removeEventListener("alfred:open-schedule", openSchedule);
+      window.removeEventListener("alfred:remove-schedule", removeSchedule);
+      window.removeEventListener(
+        "alfred:schedule-delete-blocked",
+        scheduleDeleteBlocked,
+      );
       window.removeEventListener("alfred:delete-workflow", openDelete);
       window.removeEventListener("alfred:open-memories", openMemories);
       window.removeEventListener("alfred:open-suggestions", openSuggestions);
@@ -759,12 +808,28 @@ export function WorkflowCanvas() {
           <SchedulesPage
             key={schedulesTick}
             onClose={() => setView("canvas")}
-            onOpenWorkflow={(id) => {
+            onOpenWorkflow={({ workflowId, scheduleId }) => {
               setView("canvas");
-              void selectWorkflowFromUi(id);
+              void selectWorkflowFromUi(workflowId).then(() => {
+                setScheduleFocus({
+                  scheduleId,
+                  openSettings: false,
+                  token: Date.now(),
+                });
+              });
             }}
-            onEditSchedule={(id, name) => {
-              setScheduleTarget({ id, name });
+            onEditSchedule={({ workflowId, workflowName, scheduleId }) => {
+              setView("canvas");
+              void selectWorkflowFromUi(workflowId).then(() => {
+                setScheduleFocus({
+                  scheduleId,
+                  openSettings: true,
+                  token: Date.now(),
+                });
+                // The node may not exist for this workflow (the schedule was
+                // already dealt with); the form still opens on the fallback.
+                setScheduleTarget({ id: workflowId, name: workflowName });
+              });
             }}
           />
         ) : (
@@ -810,6 +875,11 @@ export function WorkflowCanvas() {
                       </p>
                     </div>
                     {error ? <span className="error">{error}</span> : null}
+                    {canvasNotice ? (
+                      <span className="canvas-notice" role="status">
+                        {canvasNotice}
+                      </span>
+                    ) : null}
                   </div>
 
                   {activeWorkflowId ? (
@@ -862,6 +932,36 @@ export function WorkflowCanvas() {
                   )}
 
                   <div className="toolbar-right">
+                    {activeWorkflowId ? (
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={loading || workflowLoading}
+                        title={
+                          schedule
+                            ? "Show the schedule on the canvas and edit it"
+                            : "Run this workflow automatically on a cadence"
+                        }
+                        onClick={() => {
+                          const workflowId = activeWorkflowId;
+                          if (!workflowId) return;
+                          if (schedule) {
+                            setScheduleFocus({
+                              scheduleId: schedule.id,
+                              openSettings: true,
+                              token: Date.now(),
+                            });
+                            return;
+                          }
+                          setScheduleTarget({
+                            id: workflowId,
+                            name: activeWorkflow?.name ?? "Workflow",
+                          });
+                        }}
+                      >
+                        {schedule ? "Edit schedule" : "Add schedule"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="ghost"
@@ -930,7 +1030,10 @@ export function WorkflowCanvas() {
 
                 <div className="canvas">
                   <ReactFlowProvider>
-                    <FlowEditor displayNodes={displayNodes} />
+                    <FlowEditor
+                      displayNodes={displayNodes}
+                      focusScheduleRequest={scheduleFocus}
+                    />
                   </ReactFlowProvider>
                   <div className="canvas-usage-dock">
                     <AgentUsageBar
@@ -1087,6 +1190,21 @@ export function WorkflowCanvas() {
             if (view === "schedules") {
               setSchedulesTick((n) => n + 1);
             }
+          }}
+        />
+      ) : null}
+
+      {removeScheduleTarget ? (
+        <ConfirmDialog
+          title={`Remove the schedule for “${removeScheduleTarget.name}”?`}
+          message="This removes the schedule only. The workflow, its steps, and its manual runs stay exactly as they are."
+          confirmLabel="Remove schedule"
+          danger
+          onCancel={() => setRemoveScheduleTarget(null)}
+          onConfirm={() => {
+            const id = removeScheduleTarget.id;
+            setRemoveScheduleTarget(null);
+            void useWorkflowStore.getState().clearSchedule(id);
           }}
         />
       ) : null}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getName } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Icon } from "../../../../components/icon";
@@ -86,9 +87,13 @@ export function AppTitlebar({
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const [fullscreen, setFullscreen] = useState(false);
+  const [productName, setProductName] = useState("Alfred");
 
   useEffect(() => {
     if (!isTauri()) return;
+    void getName().then(setProductName).catch((error) => {
+      console.warn("Failed to resolve application name", error);
+    });
     const win = getCurrentWindow();
     const unsubs: Array<() => void> = [];
 
@@ -140,7 +145,7 @@ export function AppTitlebar({
       data-tauri-drag-region
     >
       <div className="titlebar-leading" data-tauri-drag-region>
-        <p className="titlebar-brand">Alfred</p>
+        <p className="titlebar-brand">{productName}</p>
         <button
           type="button"
           className="ghost titlebar-icon-btn"

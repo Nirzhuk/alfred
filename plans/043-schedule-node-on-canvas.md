@@ -2,12 +2,58 @@
 
 ## Status and scope
 
-- Status: TODO. Planning only; no feature implementation or UI verification has been performed.
+- Status: IN PROGRESS — steps 1–4 implemented; `bun run check`'s parts are green
+  separately (`bun test` 647 frontend, `cargo test --lib` 1139 Rust,
+  `bun run build:frontend`; `bun run check` itself was run once and flaked only
+  in live-process `agents::managed_runtime` tests, which also fail at HEAD under
+  the same load). Canvas behaviour was verified in a browser fixture that renders
+  the real canvas with mocked IPC (`tests/ui/schedule-canvas.html`): node state,
+  generated arrows, drag persistence, enabled-only switch, delete-key routing,
+  overview navigation, empty/invalid/disabled/locked states, both themes, and
+  zoom 1× / 0.5× / 0.25×. The packaged Tauri app was verified for the real
+  database migration, the real read path (node with UTC recurrence and
+  zone-labelled next run, `Edit schedule` toolbar, sidebar badge, persisted
+  layout applied) — but driving the packaged window's controls (switch, drag,
+  form) is still outstanding, and is required before this is DONE. Documentation:
+  [canvas scheduling](../docs/canvas-schedules.md).
 - Priority: P1. Effort: M.
 - Requested on: 2026-09-08.
 - Baseline: desktop commit `85f0d64` with unrelated uncommitted canvas, identity-node, runner, menu, and styling work. Preserve that work and recheck it before implementation.
 - Dependencies: the existing scheduler, schedule storage/commands, schedule form, workflow canvas, and capability resolver.
 - Independent of: [template sharing](042-share-workflows-by-link.md) and [follow-up tracking](044-follow-up-tracker.md). Integrate with sharing when that feature exists.
+
+## Deviations from this plan as written
+
+- **Start arrows are painted over the viewport, not modelled as React Flow
+  edges.** React Flow drops an edge whose target node has no target handle, and
+  an Input step deliberately has none (`prompt-node.tsx` renders a single
+  source handle), so a real edge could not point at the roots this plan exists
+  to explain. The arrows are an SVG layer inside the viewport
+  (`components/schedule-node/schedule-arrows.tsx`), positioned from the
+  measured nodes: they follow a dragged step, cannot be selected, connected,
+  deleted, or persisted, and therefore need no reserved edge ids, no edge
+  changes routing, and no copy/paste or template exclusions. The reserved
+  `schedule-edge:` namespace remains as a guard.
+- **Add/Edit lives in the workflow toolbar, not the step picker.** The plan
+  allowed either. A schedule is not a graph node, so the palette would have
+  needed a second dispatch path for a node that never enters the graph.
+- **No graph undo/redo or clipboard exists in this app**, so the plan's
+  undo/copy/paste protections are satisfied by construction: there is no history
+  to resurrect a timer from. The delete key routes a schedule-only selection to
+  Remove schedule and refuses a mixed selection whole.
+- **Stale-write detection uses the guard columns `cron` and `enabled`, not
+  `updated_at`.** The ticker advances `next_run_at` and bumps `updated_at` on
+  every fire, so a revision check would reject an honest toggle that happened to
+  overlap a run.
+- **No backend entitlement gate was added.** Licensing is contractually barred
+  from reaching schedules (`licensing/acceptance.rs` asserts it) and no Rust gate
+  exists today, so enable/edit are gated by the same client-side resolver every
+  other schedule surface uses, while disable and remove stay available in every
+  build.
+- **The Schedules overview and the node state the recurrence's UTC basis**
+  (`Weekdays at 07:00 UTC`) and show the next run with its zone. The previous
+  compact label paired a local clock time with a UTC weekday name.
+
 
 Show a workflow's schedule directly on its canvas, connected to its starting steps. Clicking the node opens schedule settings. Existing scheduled execution, manual runs, and the global Schedules overview remain available.
 

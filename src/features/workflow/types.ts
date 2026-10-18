@@ -1221,6 +1221,42 @@ export type ScheduleListItem = Schedule & {
 };
 
 /**
+ * Saved canvas position of a workflow's schedule node. Layout only: moving the
+ * node never changes when or what a schedule runs.
+ */
+export type ScheduleLayout = {
+  scheduleId: string;
+  x: number;
+  y: number;
+  updatedAt: string;
+};
+
+/**
+ * Render-only node data for the schedule node. Never part of
+ * `WorkflowNodeData` and never persisted into a workflow graph: the component
+ * reads the live `Schedule` record for everything it displays.
+ */
+export type ScheduleNodeData = {
+  kind: "schedule";
+  workflowId: string;
+  scheduleId: string;
+};
+
+/** React Flow node for the workflow's schedule. Not an executable step. */
+export type ScheduleCanvasNode = Node<ScheduleNodeData, "schedule">;
+
+/**
+ * What the backend parser answered for one cron expression. `error` means the
+ * expression itself is invalid; a null `nextRunAt` without an error means the
+ * schedule has not been armed yet.
+ */
+export type SchedulePreview = {
+  cron: string;
+  nextRunAt: string | null;
+  error: string | null;
+};
+
+/**
  * A scheduled run that was missed while Alfred was closed and waits on the
  * user's decision. `missedAt` is the scheduled time that passed.
  */

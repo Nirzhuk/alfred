@@ -17,6 +17,7 @@ import { MissedSchedulesModal } from "./features/workflow/components/missed-sche
 import {
   installOutputPersistenceEventBridge,
   installRunEventBridge,
+  installScheduleEventBridge,
   useWorkflowStore,
 } from "./features/workflow/store";
 import { installAppMenu } from "./menu";
@@ -118,6 +119,7 @@ function App() {
     void prepareNotifications();
     void installRunEventBridge();
     void installOutputPersistenceEventBridge();
+    void installScheduleEventBridge();
     void syncQuickAccessPreference();
     void syncShortcutPreferences();
   }, [loadWorkflows, loadMissedSchedules]);

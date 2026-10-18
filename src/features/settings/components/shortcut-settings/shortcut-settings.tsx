@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  DEFAULT_SHORTCUTS,
   SHORTCUT_DEFINITIONS,
   findReservedShortcutConflict,
   findShortcutConflict,
@@ -19,6 +18,7 @@ type Props = {
 
 export function ShortcutSettings({ headerActionsContainer }: Props) {
   const shortcuts = useShortcutPreferences((state) => state.shortcuts);
+  const defaults = useShortcutPreferences((state) => state.defaults);
   const busy = useShortcutPreferences((state) => state.busy);
   const setShortcut = useShortcutPreferences((state) => state.setShortcut);
   const resetShortcuts = useShortcutPreferences(
@@ -26,8 +26,8 @@ export function ShortcutSettings({ headerActionsContainer }: Props) {
   );
   const [recording, setRecording] = useState<ShortcutId | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const hasCustomShortcuts = SHORTCUT_DEFINITIONS.some(
-    ({ id }) => shortcuts[id] !== DEFAULT_SHORTCUTS[id],
+  const hasCustomShortcuts = defaults !== null && SHORTCUT_DEFINITIONS.some(
+    ({ id }) => shortcuts[id] !== defaults[id],
   );
 
   useEffect(() => {

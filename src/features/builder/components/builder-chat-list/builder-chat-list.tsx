@@ -30,7 +30,7 @@ type Props = {
 
 export function BuilderChatList({ chats, activeId, disabled, onOpen, onDelete }: Props) {
   if (chats.length === 0) {
-    return <p className="builder-setup-empty">Your conversations with the builder appear here.</p>;
+    return <p className="builder-setup-empty">Your conversations with Alfred appear here.</p>;
   }
   const now = Date.now();
   return (

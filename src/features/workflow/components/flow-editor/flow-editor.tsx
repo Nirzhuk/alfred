@@ -19,7 +19,13 @@ import {
   type FlowContextMenuState,
 } from "../flow-context-menu";
 import { nodeTypes } from "../node-types";
+import { ScheduleArrows } from "../schedule-node";
 import { useWorkflowStore } from "../../store";
+import {
+  composeScheduleCanvas,
+  isScheduleCanvasId,
+  scheduleCanvasNodeId,
+} from "../../schedule-canvas";
 import {
   defaultAgentNodeData,
   defaultOutputNodeData,
@@ -28,6 +34,7 @@ import {
   isPromptNodeData,
   titleForNodeType,
   type AgentProviderId,
+  type ScheduleCanvasNode,
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowNodeData,
@@ -42,8 +49,19 @@ function newId() {
   return crypto.randomUUID();
 }
 
-/** Cap zoom near 1× — scaling the viewport past this softens node text. */
-const MIN_ZOOM = 0.6;
+/** Everything the canvas renders: saved steps plus the schedule node. */
+type CanvasNode = WorkflowNode | ScheduleCanvasNode;
+
+/**
+ * Id of a node change. An "add" change carries its node under `item`, so the
+ * generic union cannot be read through `id` alone.
+ */
+function changeNodeId(change: NodeChange<CanvasNode>): string {
+  return "id" in change ? change.id : change.item.id;
+}
+
+// Leave room for large workflows while keeping zoom capped at 1× for sharp text.
+const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 1;
 
 function preventsNodeDoubleClick(target: EventTarget | null): boolean {
@@ -62,12 +80,28 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
 
 type Props = {
   displayNodes: WorkflowNode[];
+  /**
+   * Cross-surface navigation: select and centre the schedule node, optionally
+   * opening its settings. `token` changes on every request so a repeat focus of
+   * the same node still runs.
+   */
+  focusScheduleRequest?: ScheduleFocusRequest | null;
 };
 
-export function FlowEditor({ displayNodes }: Props) {
+/** A focus request raised by the Schedules overview or the workflow toolbar. */
+export type ScheduleFocusRequest = {
+  scheduleId: string;
+  openSettings: boolean;
+  token: number;
+};
+
+export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
   const {
     nodes: storeNodes,
     edges: storeEdges,
+    schedule,
+    scheduleLayout,
+    activeWorkflowId,
     onNodesChange,
     onEdgesChange,
     onConnect,
@@ -76,6 +110,8 @@ export function FlowEditor({ displayNodes }: Props) {
     duplicateNode,
     disconnectNode,
     updateNodeData,
+    moveScheduleNode,
+    saveScheduleLayout,
     setSelectedNodeId,
     providerModels,
   } = useWorkflowStore();
@@ -86,6 +122,37 @@ export function FlowEditor({ displayNodes }: Props) {
   const [menu, setMenu] = useState<FlowContextMenuState | null>(null);
   const [settingsNodeId, setSettingsNodeId] = useState<string | null>(null);
   const [conditionEdgeId, setConditionEdgeId] = useState<string | null>(null);
+  const [scheduleSelected, setScheduleSelected] = useState(false);
+  const [showScheduleHint, setShowScheduleHint] = useState(false);
+
+  const activeSchedule =
+    schedule && schedule.workflowId === activeWorkflowId ? schedule : null;
+  const schedulePiece = useMemo(
+    () =>
+      composeScheduleCanvas({
+        nodes: storeNodes,
+        edges: storeEdges,
+        schedule: activeSchedule,
+        layout: scheduleLayout,
+      }),
+    [storeNodes, storeEdges, activeSchedule, scheduleLayout],
+  );
+  const scheduleNode = useMemo(
+    () =>
+      schedulePiece.node
+        ? {
+            ...schedulePiece.node,
+            selected: scheduleSelected,
+            className: showScheduleHint ? "is-hinted" : undefined,
+          }
+        : null,
+    [schedulePiece, scheduleSelected, showScheduleHint],
+  );
+  const scheduleId = activeSchedule?.id ?? null;
+  const renderNodes = useMemo(
+    () => [...displayNodes, ...(scheduleNode ? [scheduleNode] : [])],
+    [displayNodes, scheduleNode],
+  );
 
   const edges = useMemo(
     () =>
@@ -162,14 +229,33 @@ export function FlowEditor({ displayNodes }: Props) {
     [openEdgeCondition],
   );
 
+  /** Open the schedule settings owned by the workflow canvas. */
+  const openScheduleSettings = useCallback(() => {
+    window.dispatchEvent(new Event("alfred:open-schedule"));
+  }, []);
+
   const onNodeDoubleClick = useCallback(
-    (event: React.MouseEvent, node: WorkflowNode) => {
+    (event: React.MouseEvent, node: CanvasNode) => {
+      if (isScheduleCanvasId(node.id)) {
+        openScheduleSettings();
+        return;
+      }
       // Only explicitly marked controls own their double-click sequence. The
       // rest of the card, including the prompt area, still opens the editor.
       if (preventsNodeDoubleClick(event.target)) return;
       openNodeSettings(node.id);
     },
-    [openNodeSettings],
+    [openNodeSettings, openScheduleSettings],
+  );
+
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: CanvasNode) => {
+      closeMenu();
+      // The schedule node has no settings modal of its own: its body opens the
+      // one schedule form the rest of the app uses.
+      if (isScheduleCanvasId(node.id)) openScheduleSettings();
+    },
+    [closeMenu, openScheduleSettings],
   );
 
   useEffect(() => {
@@ -190,6 +276,27 @@ export function FlowEditor({ displayNodes }: Props) {
     window.addEventListener("alfred:edit-node", editNode);
     return () => window.removeEventListener("alfred:edit-node", editNode);
   }, [fitView, openNodeSettings]);
+
+  // A focus request can arrive before the node is on screen (the workflow was
+  // still loading), so it is applied from an effect keyed on the node id.
+  useEffect(() => {
+    if (!focusScheduleRequest) return;
+    if (focusScheduleRequest.scheduleId !== scheduleId) return;
+    setScheduleSelected(true);
+    setShowScheduleHint(true);
+    const timeout = window.setTimeout(() => setShowScheduleHint(false), 2400);
+    void fitView({
+      nodes: [{ id: scheduleCanvasNodeId(focusScheduleRequest.scheduleId) }],
+      padding: 0.4,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : 180,
+    });
+    if (focusScheduleRequest.openSettings) openScheduleSettings();
+    return () => window.clearTimeout(timeout);
+  }, [focusScheduleRequest, scheduleId, fitView, openScheduleSettings]);
 
   useEffect(() => {
     if (!menu) return;
@@ -231,20 +338,24 @@ export function FlowEditor({ displayNodes }: Props) {
   );
 
   const onNodeContextMenu = useCallback(
-    (event: React.MouseEvent, node: WorkflowNode) => {
+    (event: React.MouseEvent, node: CanvasNode) => {
       event.preventDefault();
       event.stopPropagation();
-      setSelectedNodeId(node.id);
+      // The step menu (duplicate, disconnect, delete) has nothing to offer a
+      // schedule; its own controls carry edit and remove.
+      if (isScheduleCanvasId(node.id)) return;
+      const step = node as WorkflowNode;
+      setSelectedNodeId(step.id);
       const label =
-        (typeof node.data?.label === "string" && node.data.label) ||
-        titleForNodeType(node.type);
+        (typeof step.data?.label === "string" && step.data.label) ||
+        titleForNodeType(step.type);
       setMenu({
         kind: "node",
         screen: { x: event.clientX, y: event.clientY },
-        nodeId: node.id,
+        nodeId: step.id,
         label,
-        blockable: isPromptNodeData(node.data),
-        blocked: isPromptNodeData(node.data) && Boolean(node.data.blocked),
+        blockable: isPromptNodeData(step.data),
+        blocked: isPromptNodeData(step.data) && Boolean(step.data.blocked),
       });
     },
     [setSelectedNodeId],
@@ -252,10 +363,79 @@ export function FlowEditor({ displayNodes }: Props) {
 
   const onSelectionChange = useCallback(
     ({ nodes: selected }: OnSelectionChangeParams) => {
-      setSelectedNodeId(selected[0]?.id ?? null);
+      // Schedule selection stays in canvas UI state: it must not become the
+      // step selection the settings modal and activity panel follow.
+      const scheduleNodeSelected = selected.some((node) =>
+        isScheduleCanvasId(node.id),
+      );
+      setScheduleSelected(scheduleNodeSelected);
+      setSelectedNodeId(
+        scheduleNodeSelected ? null : (selected[0]?.id ?? null),
+      );
       closeMenu();
     },
     [setSelectedNodeId, closeMenu],
+  );
+
+  /**
+   * Canvas changes, split by what they belong to. Synthetic schedule elements
+   * never reach the graph handlers: a drag moves only the saved layout, a
+   * delete request routes to removing the schedule, and ordinary graph edits
+   * keep flowing through the same store actions as before.
+   */
+  const onFlowNodesChange = useCallback(
+    (changes: NodeChange<CanvasNode>[]) => {
+      const executable = changes.filter(
+        (change) => !isScheduleCanvasId(changeNodeId(change)),
+      );
+      const synthetic = changes.filter((change) =>
+        isScheduleCanvasId(changeNodeId(change)),
+      );
+
+      if (synthetic.length > 0) {
+        const scheduleRemoved = synthetic.some(
+          (change) => change.type === "remove",
+        );
+        const stepRemoved = executable.some(
+          (change) => change.type === "remove",
+        );
+        if (scheduleRemoved) {
+          window.dispatchEvent(
+            new Event(
+              stepRemoved
+                ? "alfred:schedule-delete-blocked"
+                : "alfred:remove-schedule",
+            ),
+          );
+          // A mixed selection is rejected whole: neither half is deleted.
+          if (stepRemoved) return;
+        }
+        // A drag only moves the saved layout; it never touches graph state.
+        if (scheduleId) {
+          for (const change of synthetic) {
+            if (change.type === "position" && change.position) {
+              moveScheduleNode(scheduleId, change.position);
+            }
+          }
+        }
+      }
+
+      // Synthetic ids are gone by now, so what is left is the executable graph.
+      if (executable.length > 0) {
+        onNodesChange(executable as NodeChange<WorkflowNode>[]);
+      }
+    },
+    [onNodesChange, moveScheduleNode, scheduleId],
+  );
+
+  const onNodeDragStop = useCallback(
+    (_event: MouseEvent | TouchEvent, node: CanvasNode) => {
+      if (!isScheduleCanvasId(node.id) || !scheduleId) return;
+      // Only an intentional drag persists a position; focusing or rendering
+      // the node never writes one.
+      void saveScheduleLayout(scheduleId, node.position);
+    },
+    [saveScheduleLayout, scheduleId],
   );
 
   const onAddPrompt = useCallback(
@@ -331,11 +511,9 @@ export function FlowEditor({ displayNodes }: Props) {
   return (
     <>
       <ReactFlow
-        nodes={displayNodes}
+        nodes={renderNodes}
         edges={edges}
-        onNodesChange={(changes) =>
-          onNodesChange(changes as NodeChange<WorkflowNode>[])
-        }
+        onNodesChange={onFlowNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgeClick={onEdgeClick}
@@ -345,8 +523,9 @@ export function FlowEditor({ displayNodes }: Props) {
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeClick={onNodeClick}
+        onNodeDragStop={onNodeDragStop}
         onPaneClick={closeMenu}
-        onNodeClick={closeMenu}
         onMoveStart={closeMenu}
         onMoveEnd={sharpenViewport}
         onInit={() => {
@@ -385,6 +564,11 @@ export function FlowEditor({ displayNodes }: Props) {
           size={1.5}
           color="var(--canvas-dot)"
           bgColor="transparent"
+        />
+        {/* One generated arrow per root the schedule starts. */}
+        <ScheduleArrows
+          sourceId={schedulePiece.node?.id ?? null}
+          rootIds={schedulePiece.rootIds}
         />
         <AddStepPanel
           onAddPrompt={onAddPrompt}

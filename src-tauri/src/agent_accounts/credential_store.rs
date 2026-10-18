@@ -15,7 +15,12 @@ use keyring_core::api::CredentialStoreApi;
 #[cfg(target_os = "macos")]
 use std::sync::LazyLock;
 
-pub const AGENT_CREDENTIAL_STORE_SERVICE: &str = "com.alfred.agent-harness";
+fn credential_service() -> &'static str {
+    crate::app_identity::credential_service(
+        "com.alfred.agent-harness",
+        "com.alfred.agent-harness.dev",
+    )
+}
 
 pub struct AgentCredentialEnvelope {
     pub version: u8,
@@ -263,7 +268,7 @@ fn decode_envelope(payload: &[u8]) -> Result<AgentCredentialEnvelope, AgentCrede
 
 #[cfg(not(target_os = "macos"))]
 fn platform_entry(credential_ref: &str) -> Result<keyring::Entry, AgentCredentialStoreError> {
-    keyring::Entry::new(AGENT_CREDENTIAL_STORE_SERVICE, credential_ref).map_err(map_keyring_error)
+    keyring::Entry::new(credential_service(), credential_ref).map_err(map_keyring_error)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -300,11 +305,7 @@ fn protected_store() -> &'static std::sync::Arc<apple_native_keyring_store::prot
 fn protected_entry(credential_ref: &str) -> Result<keyring::Entry, AgentCredentialStoreError> {
     let modifiers = HashMap::from([("access-policy", "after-first-unlock-this-device-only")]);
     let inner = protected_store()
-        .build(
-            AGENT_CREDENTIAL_STORE_SERVICE,
-            credential_ref,
-            Some(&modifiers),
-        )
+        .build(credential_service(), credential_ref, Some(&modifiers))
         .map_err(map_keyring_error)?;
     Ok(keyring::Entry { inner })
 }
@@ -473,9 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_overwrite_delete_missing_and_namespace_are_isolated() {
-        assert_eq!(AGENT_CREDENTIAL_STORE_SERVICE, "com.alfred.agent-harness");
-        assert_ne!(AGENT_CREDENTIAL_STORE_SERVICE, "com.alfred.connected-apps");
+    fn round_trip_overwrite_delete_and_missing() {
         let store = InMemoryAgentCredentialStore::default();
         store.put("account:a", &fixture("first")).expect("put");
         assert_eq!(

@@ -104,8 +104,8 @@ fn status_title(snap: &TraySnapshot) -> String {
     String::new()
 }
 
-fn status_tooltip(snap: &TraySnapshot) -> String {
-    let mut lines = vec!["Alfred".to_string()];
+fn status_tooltip(app: &AppHandle, snap: &TraySnapshot) -> String {
+    let mut lines = vec![app.config().product_name.as_deref().unwrap_or("Alfred").to_string()];
     if snap.active.is_empty() {
         lines.push("No active runs".into());
     } else {
@@ -138,7 +138,14 @@ fn status_icon() -> tauri::Result<Image<'static>> {
 }
 
 fn build_menu(app: &AppHandle, snap: &TraySnapshot) -> tauri::Result<Menu<Wry>> {
-    let open = MenuItem::with_id(app, "tray-open", "Open Alfred", true, None::<&str>)?;
+    let product_name = app.config().product_name.as_deref().unwrap_or("Alfred");
+    let open = MenuItem::with_id(
+        app,
+        "tray-open",
+        format!("Open {product_name}"),
+        true,
+        None::<&str>,
+    )?;
     let quick_access = MenuItem::with_id(
         app,
         "tray-quick-access",
@@ -269,7 +276,7 @@ fn apply_snapshot(app: &AppHandle, snap: &TraySnapshot) {
     if let Ok(menu) = build_menu(app, snap) {
         let _ = tray.set_menu(Some(menu));
     }
-    let _ = tray.set_tooltip(Some(status_tooltip(snap)));
+    let _ = tray.set_tooltip(Some(status_tooltip(app, snap)));
     let _ = tray.set_title(Some(status_title(snap)));
 
     if let Ok(icon) = status_icon() {
@@ -343,7 +350,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip(status_tooltip(&snap))
+        .tooltip(status_tooltip(app, &snap))
         .title(status_title(&snap))
         .menu(&menu)
         .show_menu_on_left_click(true)

@@ -5,9 +5,9 @@ import { activityLabel, BuilderPage } from "./builder-page";
 
 test("empty chat shows the starters and composer", () => {
   const html = renderToStaticMarkup(<BuilderPage onOpenWorkflow={() => {}} />);
-  expect(html).toContain("What should Alfred automate?");
+  expect(html).toContain("How can I help today?");
   expect(html).toContain("Agent debate");
-  expect(html).toContain('aria-label="Message the Workflow Builder"');
+  expect(html).toContain('aria-label="Message Alfred"');
   expect(html).toContain('aria-label="Chat history"');
   expect(html).toContain('aria-label="Agent"');
   expect(html).toContain("alfred-orb is-hero");

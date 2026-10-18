@@ -1,3 +1,4 @@
+import { getName } from "@tauri-apps/api/app";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import type { ShortcutMap } from "./features/settings/shortcuts";
 
@@ -23,14 +24,15 @@ export async function installAppMenu(
   actions: MenuActions,
   shortcuts: ShortcutMap,
 ): Promise<void> {
+  const productName = await getName();
   const about = await Submenu.new({
-    text: "Alfred",
+    text: productName,
     items: [
       await PredefinedMenuItem.new({
-        text: "About Alfred",
+        text: `About ${productName}`,
         item: {
           About: {
-            name: "Alfred",
+            name: productName,
             version: "0.5.0",
             copyright: "Local multi-agent workflow automations",
             comments:
@@ -47,11 +49,11 @@ export async function installAppMenu(
       await PredefinedMenuItem.new({ item: "Separator" }),
       await PredefinedMenuItem.new({ item: "Services" }),
       await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Hide", text: "Hide Alfred" }),
+      await PredefinedMenuItem.new({ item: "Hide", text: `Hide ${productName}` }),
       await PredefinedMenuItem.new({ item: "HideOthers" }),
       await PredefinedMenuItem.new({ item: "ShowAll" }),
       await PredefinedMenuItem.new({ item: "Separator" }),
-      await PredefinedMenuItem.new({ item: "Quit", text: "Quit Alfred" }),
+      await PredefinedMenuItem.new({ item: "Quit", text: `Quit ${productName}` }),
     ],
   });
 

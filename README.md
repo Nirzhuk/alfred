@@ -161,12 +161,31 @@ unofficial build is an official Alfred release. See
 
 ```bash
 bun install
-bun run dev      # desktop app (Tauri)
-bun run build    # desktop installers for the current OS
+bun run dev        # Alfred Dev (Tauri + Vite)
+bun run build      # production Alfred installers for the current OS
+bun run build:dev  # optimized Alfred Dev installers for the current OS
 bun run check    # frontend tests/build + Rust tests
 ```
 
 Frontend Vite is started automatically by Tauri (`dev:frontend` / `build:frontend`). Do not use Vite alone as a website.
+
+`bun run dev` automatically applies `src-tauri/tauri.dev.conf.json`.
+Alfred Dev uses `com.nirzhuk.alfred.dev`, separate local data and Alfred-owned
+credential namespaces, and starts without production workflows or connections.
+Production keeps its existing identity, data paths, and credentials.
+Restart any development command that was already running before this separation.
+
+On macOS, Quick Access defaults to `Cmd+Alt+Shift+Space` in dev and
+`Cmd+Shift+Space` in production. On other platforms, use `Ctrl` instead of `Cmd`.
+The webhook listener defaults to port `8788` in dev and `8787` in production;
+`ALFRED_HTTP_PORT` still overrides either. Dev does not register production
+import-link schemes.
+
+For a local macOS app bundle without a disk image, run
+`bun run build:dev --bundles app`; the result is
+`src-tauri/target/release/bundle/macos/Alfred Dev.app`.
+These variants do not isolate external CLI accounts or workspace files.
+Claude Code's managed subscription profile also shares the host Keychain.
 
 To inspect startup timing, run `ALFRED_STARTUP_TRACE=1 bun run dev`. The terminal
 reports native setup, window reveal, and background runtime verification times.

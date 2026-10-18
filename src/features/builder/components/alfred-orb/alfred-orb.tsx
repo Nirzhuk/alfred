@@ -6,7 +6,7 @@ type Props = {
   busy?: boolean;
 };
 
-/** Alfred's presence in the Workflow Builder: the app-icon mustache in a live ring. */
+/** Alfred's presence in Speak with Alfred: the app-icon mustache in a live ring. */
 export function AlfredOrb({ size = "sm", busy = false }: Props) {
   return (
     <span

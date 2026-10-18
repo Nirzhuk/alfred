@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS schedules (
   updated_at TEXT NOT NULL
 );
 
+-- Canvas position of a workflow's schedule node. Display-only: the schedule
+-- itself stays in `schedules`, and deleting that row removes this one.
+CREATE TABLE IF NOT EXISTS schedule_canvas_layout (
+  schedule_id TEXT PRIMARY KEY NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+  x REAL NOT NULL,
+  y REAL NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- Event triggers: one workflow can have many (unlike schedules, which are 1:1).
 -- `source` is free-form so new sources need no migration; `config_json` holds
 -- the source-specific shape (file: {path, pattern, debounceMs}).

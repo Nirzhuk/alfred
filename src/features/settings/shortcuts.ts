@@ -1,3 +1,4 @@
+import { getIdentifier } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { detectDesktopPlatform } from "../../platform";
@@ -46,8 +47,8 @@ export const SHORTCUT_DEFINITIONS = [
 export type ShortcutId = (typeof SHORTCUT_DEFINITIONS)[number]["id"];
 export type ShortcutMap = Record<ShortcutId, string>;
 
-export const DEFAULT_SHORTCUTS: ShortcutMap = {
-  quickAccess: "CmdOrCtrl+Shift+Space",
+const INITIAL_SHORTCUTS: ShortcutMap = {
+  quickAccess: "",
   newWorkflow: "CmdOrCtrl+N",
   saveWorkflow: "CmdOrCtrl+S",
   runWorkflow: "CmdOrCtrl+R",
@@ -55,8 +56,20 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   openSettings: "CmdOrCtrl+Comma",
 };
 
+async function resolveDefaultShortcuts(): Promise<ShortcutMap> {
+  const identifier = await getIdentifier();
+  return {
+    ...INITIAL_SHORTCUTS,
+    quickAccess:
+      identifier === "com.nirzhuk.alfred.dev"
+        ? "CmdOrCtrl+Alt+Shift+Space"
+        : "CmdOrCtrl+Shift+Space",
+  };
+}
+
 type ShortcutPreferences = {
   shortcuts: ShortcutMap;
+  defaults: ShortcutMap | null;
   busy: boolean;
   setShortcut: (id: ShortcutId, accelerator: string) => Promise<void>;
   resetShortcuts: () => Promise<void>;
@@ -66,12 +79,12 @@ function isMacPlatform(): boolean {
   return detectDesktopPlatform() === "macos";
 }
 
-function readShortcuts(): ShortcutMap {
+function readShortcuts(defaults: ShortcutMap): ShortcutMap {
   try {
     const saved = JSON.parse(localStorage.getItem(SHORTCUTS_KEY) ?? "{}") as
       | Partial<Record<ShortcutId, unknown>>
       | null;
-    const shortcuts = { ...DEFAULT_SHORTCUTS };
+    const shortcuts = { ...defaults };
     if (!saved || typeof saved !== "object") return shortcuts;
 
     for (const { id } of SHORTCUT_DEFINITIONS) {
@@ -81,7 +94,7 @@ function readShortcuts(): ShortcutMap {
     }
     return shortcuts;
   } catch {
-    return { ...DEFAULT_SHORTCUTS };
+    return { ...defaults };
   }
 }
 
@@ -267,22 +280,29 @@ export function getShortcutHelpLines(shortcuts: ShortcutMap): string[] {
 }
 
 export async function syncShortcutPreferences(): Promise<void> {
-  const shortcuts = readShortcuts();
-  useShortcutPreferences.setState({ shortcuts });
+  let defaults: ShortcutMap;
+  try {
+    defaults = await resolveDefaultShortcuts();
+  } catch (error) {
+    console.warn("Failed to resolve shortcut defaults", error);
+    return;
+  }
+  const shortcuts = readShortcuts(defaults);
+  useShortcutPreferences.setState({ shortcuts, defaults });
   try {
     await invoke("set_global_shortcut", {
       shortcut: shortcuts.quickAccess,
     });
   } catch (error) {
-    const fallback = { ...shortcuts, quickAccess: DEFAULT_SHORTCUTS.quickAccess };
+    const fallback = { ...shortcuts, quickAccess: defaults.quickAccess };
     useShortcutPreferences.setState({ shortcuts: fallback });
-    persistShortcuts(fallback);
     console.warn("Failed to restore the global shortcut", error);
   }
 }
 
 export const useShortcutPreferences = create<ShortcutPreferences>((set, get) => ({
-  shortcuts: readShortcuts(),
+  shortcuts: readShortcuts(INITIAL_SHORTCUTS),
+  defaults: null,
   busy: false,
   setShortcut: async (id, accelerator) => {
     const current = get().shortcuts;
@@ -308,14 +328,15 @@ export const useShortcutPreferences = create<ShortcutPreferences>((set, get) => 
   resetShortcuts: async () => {
     set({ busy: true });
     try {
-      if (get().shortcuts.quickAccess !== DEFAULT_SHORTCUTS.quickAccess) {
+      const defaults = await resolveDefaultShortcuts();
+      if (get().shortcuts.quickAccess !== defaults.quickAccess) {
         await invoke("set_global_shortcut", {
-          shortcut: DEFAULT_SHORTCUTS.quickAccess,
+          shortcut: defaults.quickAccess,
         });
       }
-      const shortcuts = { ...DEFAULT_SHORTCUTS };
+      const shortcuts = { ...defaults };
       persistShortcuts(shortcuts);
-      set({ shortcuts });
+      set({ shortcuts, defaults });
     } finally {
       set({ busy: false });
     }

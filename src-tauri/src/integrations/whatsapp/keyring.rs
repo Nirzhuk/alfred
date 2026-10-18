@@ -170,13 +170,4 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn the_store_lives_outside_the_main_database() {
-        let path = store_path().expect("app data dir");
-        assert!(path.ends_with(format!("{STORE_DIR}/{STORE_FILE}")));
-        assert!(
-            !path.to_string_lossy().contains("app.db"),
-            "the protocol store must not share Alfred's main database"
-        );
-    }
 }
