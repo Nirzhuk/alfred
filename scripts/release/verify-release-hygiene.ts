@@ -1,7 +1,7 @@
 /**
  * Plan 005 repeatable release-hygiene scans.
  *
- * Runs the architecture, secret, and updater scans the acceptance matrix
+ * Runs the architecture and secret scans the acceptance matrix
  * requires and exits non-zero on any violation. Every check is a pure function
  * over file contents so it can be unit tested without touching the repository.
  */
@@ -97,36 +97,6 @@ export function scanSecrets(files: SourceFile[]): Violation[] {
   return violations;
 }
 
-/**
- * v0.5.0 ships manual Polar downloads: no updater manifest, artifacts, or
- * plugin may be enabled anywhere.
- */
-export function scanUpdater(files: SourceFile[]): Violation[] {
-  const violations = findLines(
-    files,
-    /createUpdaterArtifacts|tauri-plugin-updater|"updater"\s*:\s*\{/,
-    (match) => `enabled updater configuration "${match}"`,
-  );
-  violations.push(
-    ...findLines(
-      files,
-      /uploadUpdaterJson\s*:(?!\s*false)/,
-      () => "uploadUpdaterJson must stay false",
-    ),
-  );
-  const declared = files.some((file) =>
-    /uploadUpdaterJson\s*:\s*false/.test(file.text),
-  );
-  if (files.length > 0 && !declared) {
-    violations.push({
-      file: ".github/workflows",
-      line: 1,
-      detail: "no `uploadUpdaterJson: false` declaration found",
-    });
-  }
-  return violations;
-}
-
 const IGNORED_DIRECTORIES = new Set(["node_modules", "target", "dist", ".git"]);
 const TEXT_EXTENSIONS = new Set([
   ".rs", ".ts", ".tsx", ".js", ".mjs", ".json", ".md",
@@ -176,11 +146,6 @@ const CHECKS = [
     name: "secret-scan",
     roots: ["src", "src-tauri/src"],
     scan: scanSecrets,
-  },
-  {
-    name: "updater-scan",
-    roots: [".github", "src-tauri"],
-    scan: scanUpdater,
   },
 ];
 

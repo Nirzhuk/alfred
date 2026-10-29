@@ -8,7 +8,7 @@ import { AppTitlebar } from "../app-title-bar";
 import { ConfirmDialog } from "../../../../components/confirm-dialog";
 import { Icon } from "../../../../components/icon";
 import { WorkflowResourcesPanel } from "../workflow-resources-panel/workflow-resources-panel";
-import { openLatestDownload } from "../../../licensing/download-latest";
+import { checkForUpdates } from "../../../licensing/download-latest";
 import { SettingsPage } from "../../../settings/components/settings-page";
 import {
   SettingsSidebar,
@@ -511,7 +511,7 @@ export function WorkflowCanvas() {
       }
     };
     const downloadLatest = () => {
-      void openLatestDownload();
+      void checkForUpdates();
     };
     const openWorkflow = (event: Event) => {
       const workflowId = (event as CustomEvent<{ workflowId?: string }>).detail

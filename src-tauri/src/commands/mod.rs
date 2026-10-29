@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 pub mod agent_accounts;
 pub mod github_cli;
 pub mod integrations;
@@ -394,8 +396,17 @@ pub fn run_workflow(
     app: AppHandle,
     db: State<'_, Db>,
     workflow_id: String,
+    answers: Option<HashMap<String, String>>,
 ) -> Result<RunSummary, String> {
-    runner::start_run(app, &db, &workflow_id, RunTrigger::Manual, None).map_err(|e| e.to_string())
+    runner::start_run_with_answers(
+        app,
+        &db,
+        &workflow_id,
+        RunTrigger::Manual,
+        None,
+        answers.unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Stop an in-flight run (kills the CLI child process).

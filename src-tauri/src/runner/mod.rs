@@ -3,6 +3,7 @@
 //! Emits `run://event` so the UI can show a live activity panel and highlight
 //! the active node.
 
+mod ask;
 mod conditions;
 pub use conditions::{
     compile_pattern as compile_condition_pattern, MAX_CONDITION_VALUE_BYTES,
@@ -164,13 +165,25 @@ pub fn start_run(
     trigger: RunTrigger,
     payload: Option<&str>,
 ) -> Result<RunSummary, RunnerError> {
+    start_run_with_answers(app, db, workflow_id, trigger, payload, HashMap::new())
+}
+
+/// Like `start_run`, with Run-dialog answers for `{{ask:…}}` placeholders.
+pub fn start_run_with_answers(
+    app: AppHandle,
+    db: &Db,
+    workflow_id: &str,
+    trigger: RunTrigger,
+    payload: Option<&str>,
+    answers: HashMap<String, String>,
+) -> Result<RunSummary, RunnerError> {
     if active::has_workflow(workflow_id) {
         return Err(RunnerError::Message(
             "This workflow is already running".into(),
         ));
     }
     let summary = enqueue_run(db, workflow_id, trigger, payload)?;
-    spawn_run_execution(app, db, &summary)?;
+    spawn_run_execution(app, db, &summary, answers)?;
     Ok(summary)
 }
 
@@ -210,11 +223,16 @@ pub fn start_pending_app_event_run(
         status: "pending".into(),
         created_at: pending.created_at.clone(),
     };
-    spawn_run_execution(app, db, &summary)?;
+    spawn_run_execution(app, db, &summary, HashMap::new())?;
     Ok(summary)
 }
 
-fn spawn_run_execution(app: AppHandle, db: &Db, summary: &RunSummary) -> Result<(), RunnerError> {
+fn spawn_run_execution(
+    app: AppHandle,
+    db: &Db,
+    summary: &RunSummary,
+    answers: HashMap<String, String>,
+) -> Result<(), RunnerError> {
     let run_id = summary.id.clone();
     let workflow_id = summary.workflow_id.clone();
     let workflow_name = db
@@ -233,7 +251,7 @@ fn spawn_run_execution(app: AppHandle, db: &Db, summary: &RunSummary) -> Result<
             crate::tray::refresh(&app);
             return;
         };
-        let result = execute_run(&app, db.inner(), &run_id, &workflow_id, &control);
+        let result = execute_run(&app, db.inner(), &run_id, &workflow_id, &control, &answers);
         active::unregister(&run_id);
         crate::tray::refresh(&app);
         if let Err(e) = result {
@@ -1278,6 +1296,7 @@ pub fn execute_run(
     run_id: &str,
     workflow_id: &str,
     control: &RunControl,
+    answers: &HashMap<String, String>,
 ) -> Result<(), RunnerError> {
     let workflow = db
         .get_workflow(workflow_id)
@@ -1321,12 +1340,13 @@ pub fn execute_run(
         },
     )?;
 
-    let nodes = workflow
+    let mut nodes = workflow
         .graph
         .get("nodes")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    ask::resolve_nodes(&mut nodes, answers);
     let edges = workflow
         .graph
         .get("edges")

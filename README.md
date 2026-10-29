@@ -16,10 +16,11 @@ Compose workflows as visual graphs: write prompts, route them through agents you
 | **Official builds** | **Free** | Maintainer-built, CI-tested installers from GitHub Releases. macOS builds are Developer ID signed, notarized, and stapled; the Windows installer is an unsigned beta |
 | [Build from source](docs/building-from-source.md) | **Free** | A local build you compile yourself, with every feature |
 
-Updates are **manual**. Alfred has no automatic updater: **Help → Download
-Latest Version…** opens the GitHub releases page in your browser, where you
-download the newer installer and install it over your existing copy. Your
-workflows, runs, schedules, and memories are local and survive an upgrade.
+Alfred updates itself from version 1.2.0 on. It checks at launch and from
+**Help → Check for Updates…** (also in the tray/menu-bar menu), asks before
+installing, then restarts. Linux `.deb`/`.rpm` installs and anything older than
+1.2.0 update manually from the GitHub releases page. Your workflows, runs,
+schedules, and memories are local and survive an upgrade.
 
 Fees charged by Claude, Cursor, OpenAI, or other agent providers for their own
 services are separate from Alfred in every case. See

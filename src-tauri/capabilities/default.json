@@ -41,6 +41,8 @@
     "window-state:default",
     "notification:default",
     "dialog:default",
-    "deep-link:default"
+    "deep-link:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

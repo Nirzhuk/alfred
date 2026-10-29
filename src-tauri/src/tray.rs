@@ -157,7 +157,7 @@ fn build_menu(app: &AppHandle, snap: &TraySnapshot) -> tauri::Result<Menu<Wry>> 
     let download_latest = MenuItem::with_id(
         app,
         "tray-download-latest",
-        "Download Latest Version…",
+        "Check for Updates…",
         true,
         None::<&str>,
     )?;

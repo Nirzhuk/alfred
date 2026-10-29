@@ -22,9 +22,9 @@ The operator runbook lives in [releasing.md](releasing.md).
 - [x] Windows NSIS EXE verified by CI: unsigned, silent install, two launches,
   uninstall.
 - [x] `SHA256SUMS.txt` + acceptance manifest (JSON/txt) produced per run.
-- [x] In-app **Help → Download Latest Version…** opens this repository's
-  GitHub releases page (`LATEST_RELEASES_URL` in
-  `src/features/licensing/download-latest.ts`); opener capability allows it.
+- [x] In-app **Help → Check for Updates…** installs from the signed
+  `latest.json` and falls back to the GitHub releases page
+  (`src/features/licensing/download-latest.ts`).
 - [x] All six Apple signing secrets present in GitHub; workflow permissions
   set to read/write (verified via API).
 
@@ -97,9 +97,8 @@ CI already proves silent install/launch/uninstall. On real hardware, check:
 
 ### Unlocked options (each needs its own decision)
 
-- [ ] Automatic updater: public signed release assets make a Tauri updater
-  feasible now. Requires updater keys/manifest plus relaxing
-  `verify-release-hygiene`'s `uploadUpdaterJson: false` guard deliberately.
+- [ ] Automatic updater: shipped in 1.2.0. Verify the first real update
+  (1.2.0 → 1.2.1) on macOS, Windows, and the AppImage.
 - [ ] Homebrew cask: blocked before only because public binaries would bypass
   the paywall; that reason is gone. Cask would need the repo layout it expects.
 - [ ] Promote Linux packages from informational artifacts to advertised

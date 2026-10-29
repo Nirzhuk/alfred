@@ -4367,6 +4367,12 @@ button.danger:hover:not(:disabled) {
   padding: var(--space-5);
 }
 
+.run-ask-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 .compact-form-modal-footer {
   display: flex;
   justify-content: flex-end;

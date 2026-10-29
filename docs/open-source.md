@@ -51,9 +51,9 @@ from the tagged source commit:
 
 Every release attaches `SHA256SUMS.txt`; verify your download against it.
 
-Updates are **manual**. Alfred has no automatic updater and never fetches an
-installer for you; the in-app **Download Latest Version…** action only opens
-the releases page in your browser.
+Official builds from 1.2.0 on update themselves from the signed `latest.json`
+on the newest GitHub release, after asking. Source builds and Linux
+`.deb`/`.rpm` installs update manually.
 
 Official binaries are a convenience, not a capability upgrade over source:
 they save you a Rust/Tauri toolchain and come from a CI pipeline that

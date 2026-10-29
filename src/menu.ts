@@ -175,7 +175,7 @@ export async function installAppMenu(
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         id: "help-download-latest",
-        text: "Download Latest Version…",
+        text: "Check for Updates…",
         action: () => actions.onDownloadLatest(),
       }),
     ],

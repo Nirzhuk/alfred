@@ -4,7 +4,6 @@ import {
   collect,
   scanArchitecture,
   scanSecrets,
-  scanUpdater,
 } from "./verify-release-hygiene";
 
 const file = (path: string, text: string) => ({ path, text });
@@ -48,58 +47,6 @@ describe("secret scan", () => {
         line: 1,
         detail:
           "handles a license key outside the reviewed ephemeral/keychain-only set",
-      },
-    ]);
-  });
-});
-
-describe("updater scan", () => {
-  test("accepts the shipped manual-download configuration", () => {
-    expect(
-      scanUpdater([file(".github/workflows/release.yml", "          uploadUpdaterJson: false\n")]),
-    ).toEqual([]);
-  });
-
-  test("ignores prose that only names the setting", () => {
-    expect(
-      scanUpdater([
-        file(
-          ".github/workflows/release.yml",
-          "# so `uploadUpdaterJson` stays false and no updater plugin exists\n          uploadUpdaterJson: false\n",
-        ),
-      ]),
-    ).toEqual([]);
-  });
-
-  test("rejects an enabled updater manifest, artifact, or plugin", () => {
-    expect(
-      scanUpdater([file(".github/workflows/release.yml", "uploadUpdaterJson: true\n")]),
-    ).toHaveLength(2);
-    expect(
-      scanUpdater([
-        file(".github/workflows/release.yml", "uploadUpdaterJson: false\ncreateUpdaterArtifacts: true\n"),
-      ]),
-    ).toHaveLength(1);
-    expect(
-      scanUpdater([
-        file(".github/workflows/release.yml", "uploadUpdaterJson: false\n"),
-        file("src-tauri/tauri.conf.json", '{ "plugins": { "updater": { "endpoints": [] } } }'),
-      ]),
-    ).toHaveLength(1);
-    expect(
-      scanUpdater([
-        file(".github/workflows/release.yml", "uploadUpdaterJson: false\n"),
-        file("src-tauri/Cargo.toml", 'tauri-plugin-updater = "2"\n'),
-      ]),
-    ).toHaveLength(1);
-  });
-
-  test("rejects a workflow that dropped the declaration entirely", () => {
-    expect(scanUpdater([file(".github/workflows/release.yml", "name: release\n")])).toEqual([
-      {
-        file: ".github/workflows",
-        line: 1,
-        detail: "no `uploadUpdaterJson: false` declaration found",
       },
     ]);
   });

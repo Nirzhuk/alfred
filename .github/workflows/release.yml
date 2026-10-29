@@ -22,10 +22,10 @@
 #   - verify-*-installers fail the run before publication if an installer
 #     cannot be installed, launched twice, and (Windows) uninstalled.
 #
-# There is no automatic updater. `uploadUpdaterJson` stays false and no
-# updater plugin, key, or manifest exists. Users update manually via
-# Help -> Download Latest Version..., which opens this repository's
-# releases page.
+# Automatic updates: src-tauri/tauri.release.conf.json turns on signed updater
+# artifacts and tauri-action uploads latest.json. Installed apps read
+# releases/latest/download/latest.json, so only published releases reach users.
+# Requires the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) secrets.
 #
 # Signing: macOS Developer ID signing and notarization are required. Windows
 # Authenticode signing is explicitly waived, so every Windows artifact is an
@@ -54,7 +54,7 @@ jobs:
       version: ${{ steps.versions.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Require one version across all three release files
         id: versions
@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -147,7 +147,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Node (Tauri action helper)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: lts/*
 
@@ -243,6 +243,9 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signature for every artifact listed in latest.json
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Required macOS code signing + notarization
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -275,11 +278,11 @@ jobs:
 
             Alfred shells out to local agent CLIs (Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini CLI, Grok Build). Install and authenticate those on the machine before running workflows.
 
-            Updates are manual: **Help -> Download Latest Version...** inside Alfred opens this releases page. Alfred never installs updates by itself.
+            Alfred 1.2.0 and later update themselves: **Help -> Check for Updates...** (also checked at launch). Older installs update by downloading from this page.
           releaseDraft: true
           prerelease: false
-          uploadUpdaterJson: false
-          args: ${{ matrix.args }} --bundles ${{ matrix.bundles }}
+          uploadUpdaterJson: true
+          args: ${{ matrix.args }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.conf.json
 
       - name: Notarize, staple, and replace macOS DMG
         if: matrix.platform == 'macos-latest'
@@ -330,7 +333,7 @@ jobs:
 
     steps:
       - name: Checkout release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download exact draft DMG
         env:
@@ -418,7 +421,7 @@ jobs:
 
     steps:
       - name: Checkout release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download, install, and launch twice
         shell: pwsh
@@ -514,7 +517,7 @@ jobs:
 
     steps:
       - name: Checkout release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Required artifacts gate publication: the release never goes public
       # without exactly one copy of each advertised installer. Linux packages
@@ -627,8 +630,8 @@ jobs:
               generatedAt: $generatedAt,
               workflowRun: $workflowRun,
               distribution: "public-github-releases",
-              automaticUpdates: false,
-              uploadUpdaterJson: false,
+              automaticUpdates: true,
+              uploadUpdaterJson: true,
               requiredArtifacts: $req[0],
               bestEffortArtifacts: $bestEffortArtifacts[0]
             }' > "$out/acceptance-manifest.json"
@@ -665,7 +668,7 @@ jobs:
           echo "MANIFEST_DIR=$out" >> "$GITHUB_ENV"
 
       - name: Upload the acceptance manifest artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: acceptance-manifest
           path: ${{ env.MANIFEST_DIR }}

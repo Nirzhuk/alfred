@@ -110,11 +110,11 @@ WebKitGTK is required for the UI (same family of libs other Tauri apps use).
 
 ### Updating
 
-Alfred has no automatic updater and does not download installers for you. In
-the app, **Help → Download Latest Version…** (also in the tray/menu-bar menu)
-opens the GitHub releases page in your browser; download the newer file and
-install it over your existing copy. Your workflows, runs, schedules, and
-memories are local and survive an upgrade install.
+Alfred updates itself from version 1.2.0 on. It checks at launch and from
+**Help → Check for Updates…** (also in the tray/menu-bar menu), asks before
+installing, then restarts. Linux `.deb`/`.rpm` installs and anything older than
+1.2.0 update manually from the GitHub releases page. Your workflows, runs,
+schedules, and memories are local and survive an upgrade.
 
 ## Build it yourself for free
 

@@ -71,8 +71,8 @@ gh release delete-asset vX.Y.Z <asset>     # pull a bad artifact
 gh release delete vX.Y.Z --yes && git push origin :refs/tags/vX.Y.Z
 ```
 
-Then fix, retag, and rerun. There is no auto-updater, so no installed copy is
-affected by pulling a bad asset — users only get what they download manually.
+Then fix, retag, and rerun. Installed copies that already updated keep the
+bad version until a higher fixed version is published.
 
 ## Signing
 
@@ -90,14 +90,25 @@ offered. Adding signing later means a certificate-store flow in Tauri
 (`certificateThumbprint`, SHA-256 digest, timestamp URL), matching CI secrets,
 and removing the unsigned-beta labeling everywhere in the same change.
 
-## No automatic updater
+## Automatic updater
 
-Updates are manual: **Help → Download Latest Version…** (also in the tray
-menu) opens this repository's releases page. There is no Tauri updater plugin,
-no updater key, no update manifest, and `uploadUpdaterJson: false` stays set —
-`bun run verify:release-hygiene` fails if that guard regresses. An in-app
-updater over public signed assets is a possible future feature and needs its
-own decision plus a hygiene-guard change; do not enable one quietly.
+Installed apps check
+`releases/latest/download/latest.json` at launch and from **Help → Check for
+Updates…** (also in the tray menu). Drafts are invisible to it, so an update
+only reaches users once the release is published.
+
+- `src-tauri/tauri.release.conf.json` turns on `createUpdaterArtifacts` for
+  release builds only, so source builds need no key.
+- `tauri-action` signs each updater artifact with the
+  `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets
+  and uploads `latest.json` (`uploadUpdaterJson: true`).
+- The matching public key is `plugins.updater.pubkey` in
+  `src-tauri/tauri.conf.json`.
+- **Never lose the private key.** Without it no installed copy can accept a
+  new update; changing keys means every user reinstalls by hand once.
+- Linux updates cover the AppImage only; `.deb`/`.rpm` stay manual.
+- Rollback: unpublish or un-latest the bad release (see Rollback) and publish
+  a fixed higher version; the updater never downgrades.
 
 `ALFRED_RELEASE_DATE` is intentionally left unset in release builds: an unset
 value means the update-window logic never locks anything, which matches the

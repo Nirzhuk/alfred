@@ -14,6 +14,7 @@ import { WorkflowCanvas } from "./features/workflow/components/workflow-canvas";
 import { ImportLinkDialog } from "./features/sharing";
 import { NativeHostApproval } from "./features/agent-accounts/components/native-host-approval";
 import { MissedSchedulesModal } from "./features/workflow/components/missed-schedules-modal";
+import { RunAskModal } from "./features/workflow/components/run-ask-modal";
 import {
   installOutputPersistenceEventBridge,
   installRunEventBridge,
@@ -21,6 +22,7 @@ import {
   useWorkflowStore,
 } from "./features/workflow/store";
 import { installAppMenu } from "./menu";
+import { checkForUpdates } from "./features/licensing/download-latest";
 import { prepareNotifications } from "./native";
 import "./App.css";
 
@@ -31,6 +33,8 @@ function App() {
   const createWorkflow = useWorkflowStore((s) => s.createWorkflow);
   const saveActiveWorkflow = useWorkflowStore((s) => s.saveActiveWorkflow);
   const runActiveWorkflow = useWorkflowStore((s) => s.runActiveWorkflow);
+  const askRun = useWorkflowStore((s) => s.askRun);
+  const closeAskRun = useWorkflowStore((s) => s.closeAskRun);
   const shortcuts = useShortcutPreferences((s) => s.shortcuts);
   const [sharingLink, setSharingLink] = useState<string | null>(null);
   const [manualImportOpen, setManualImportOpen] = useState(false);
@@ -117,6 +121,7 @@ function App() {
     void loadWorkflows();
     void loadMissedSchedules();
     void prepareNotifications();
+    if (!import.meta.env.DEV) void checkForUpdates({ silent: true });
     void installRunEventBridge();
     void installOutputPersistenceEventBridge();
     void installScheduleEventBridge();
@@ -305,6 +310,14 @@ function App() {
             );
           }}
           onClose={() => setMissedDismissed(true)}
+        />
+      ) : null}
+      {askRun ? (
+        <RunAskModal
+          key={askRun.workflowId}
+          fields={askRun.fields}
+          onRun={(answers) => void runActiveWorkflow(askRun.workflowId, answers)}
+          onClose={closeAskRun}
         />
       ) : null}
       <NativeHostApproval />

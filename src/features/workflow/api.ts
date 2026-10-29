@@ -175,8 +175,11 @@ export async function listSkills(projectRoot?: string): Promise<Skill[]> {
 }
 
 /** Always available — manually trigger a workflow automation. */
-export async function runWorkflow(workflowId: string): Promise<RunSummary> {
-  return invoke("run_workflow", { workflowId });
+export async function runWorkflow(
+  workflowId: string,
+  answers?: Record<string, string>,
+): Promise<RunSummary> {
+  return invoke("run_workflow", { workflowId, answers: answers ?? null });
 }
 
 /** Kill the active CLI child for an in-flight run. */

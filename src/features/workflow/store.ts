@@ -9,6 +9,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import * as api from "./api";
+import { askFields, type AskField } from "./ask-fields";
 import { FALLBACK_PROVIDER_MODELS, type ProviderModels } from "./models";
 import type { AgentCapabilityManifest } from "./agent-capabilities";
 import {
@@ -313,6 +314,8 @@ type WorkflowStore = {
   workflowLoading: boolean;
   error: string | null;
   runPanelOpen: boolean;
+  /** Run dialog waiting for `{{ask:…}}` answers before a manual run starts. */
+  askRun: { workflowId: string; fields: AskField[] } | null;
   /** Run activity is isolated per workflow so several workflows can run together. */
   workflowRunStates: Record<string, WorkflowRunState>;
   activeRun: RunSummary | null;
@@ -414,7 +417,11 @@ type WorkflowStore = {
   reorderWorkflows: (orderedIds: string[]) => Promise<void>;
   deleteWorkflow: (id: string, selectFallback?: boolean) => Promise<void>;
   saveActiveWorkflow: () => Promise<boolean>;
-  runActiveWorkflow: (workflowId?: string) => Promise<void>;
+  runActiveWorkflow: (
+    workflowId?: string,
+    answers?: Record<string, string>,
+  ) => Promise<void>;
+  closeAskRun: () => void;
   cancelActiveRun: (workflowId?: string) => Promise<void>;
   openRunPanel: (nodeId?: string | null) => void;
   closeRunPanel: () => void;
@@ -725,6 +732,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflowLoading: false,
   error: null,
   runPanelOpen: false,
+  askRun: null,
   workflowRunStates: {},
   activeRun: null,
   activeNodeId: null,
@@ -1632,7 +1640,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
   },
 
-  runActiveWorkflow: async (workflowId) => {
+  runActiveWorkflow: async (workflowId, answers) => {
     const {
       activeWorkflowId,
       dirty,
@@ -1653,12 +1661,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
     if (targetIsVisible && dirty && !(await saveActiveWorkflow())) return;
 
-    await installRunEventBridge();
-
     const targetNodes = targetIsVisible
       ? nodes
       : workflows.find((workflow) => workflow.id === targetWorkflowId)?.graph
           ?.nodes ?? [];
+    if (!answers) {
+      const fields = askFields(targetNodes);
+      if (fields.length > 0) {
+        set({ askRun: { workflowId: targetWorkflowId, fields } });
+        return;
+      }
+    }
+    set({ askRun: null });
+
+    await installRunEventBridge();
     const nextRunState = emptyWorkflowRunState(
       targetNodes,
       workflowRunStates[targetWorkflowId]?.inspectedNodeId ?? null,
@@ -1679,7 +1695,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }));
 
     try {
-      const summary = await api.runWorkflow(targetWorkflowId);
+      const summary = await api.runWorkflow(targetWorkflowId, answers);
       set((state) => {
         const current =
           state.workflowRunStates[targetWorkflowId] ?? nextRunState;
@@ -1713,6 +1729,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }));
     }
   },
+
+  closeAskRun: () => set({ askRun: null }),
 
   cancelActiveRun: async (workflowId) => {
     const { activeWorkflowId, workflowRunStates } = get();

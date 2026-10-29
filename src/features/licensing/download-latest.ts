@@ -1,9 +1,12 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 
 /**
- * Official Alfred builds are published as public GitHub Release assets.
- * This action sends the user to the releases page; it never resolves or
- * downloads an installer itself, and Alfred has no automatic updater.
+ * Official Alfred builds are published as public GitHub Release assets with a
+ * signed `latest.json`. `checkForUpdates` installs from that manifest; the
+ * releases page stays the fallback when the check or install cannot run
+ * (offline, dev build, or an install that predates the updater).
  */
 export const LATEST_RELEASES_URL =
   "https://github.com/Nirzhuk/alfred-workflows/releases/latest";
@@ -11,7 +14,7 @@ export const LATEST_RELEASES_URL =
 export const DOWNLOAD_LATEST_RELEASES_MESSAGE = [
   "Download the latest Alfred",
   "",
-  "Official builds update manually. Alfred does not install updates for you.",
+  "Alfred could not update itself right now.",
   "",
   "Your browser will open the GitHub releases page, where you can grab the",
   "latest installer for your platform.",
@@ -38,6 +41,16 @@ export const DOWNLOAD_LATEST_FAILED_MESSAGE = [
   "See docs/building-from-source.md for the platform prerequisites.",
 ].join("\n");
 
+export const UP_TO_DATE_MESSAGE = "You're on the latest version of Alfred.";
+
+export function updateAvailableMessage(next: string, current: string): string {
+  return [
+    `Alfred ${next} is available (you have ${current}).`,
+    "",
+    "Install it and restart Alfred now?",
+  ].join("\n");
+}
+
 type ExternalOpener = (url: string) => Promise<void>;
 
 export type DownloadLatestDeps = {
@@ -54,5 +67,50 @@ export async function openLatestDownload({
     await open(LATEST_RELEASES_URL);
   } catch {
     notify(DOWNLOAD_LATEST_FAILED_MESSAGE);
+  }
+}
+
+type AvailableUpdate = {
+  version: string;
+  currentVersion: string;
+  downloadAndInstall: () => Promise<void>;
+};
+
+export type CheckForUpdatesDeps = DownloadLatestDeps & {
+  /** Startup check: stay quiet unless an update is actually available. */
+  silent?: boolean;
+  confirm?: (message: string) => boolean;
+  checkUpdate?: () => Promise<AvailableUpdate | null>;
+  restart?: () => Promise<void>;
+};
+
+export async function checkForUpdates({
+  silent = false,
+  confirm = (message) => window.confirm(message),
+  checkUpdate = check,
+  restart = relaunch,
+  ...download
+}: CheckForUpdatesDeps = {}): Promise<void> {
+  const notify = download.notify ?? ((message) => window.alert(message));
+  let update: AvailableUpdate | null;
+  try {
+    update = await checkUpdate();
+  } catch {
+    if (!silent) await openLatestDownload(download);
+    return;
+  }
+  if (!update) {
+    if (!silent) notify(UP_TO_DATE_MESSAGE);
+    return;
+  }
+  if (!confirm(updateAvailableMessage(update.version, update.currentVersion))) {
+    return;
+  }
+  try {
+    // Windows quits into the installer here; macOS and Linux need the restart.
+    await update.downloadAndInstall();
+    await restart();
+  } catch {
+    await openLatestDownload(download);
   }
 }
