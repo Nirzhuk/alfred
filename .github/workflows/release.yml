@@ -178,6 +178,12 @@ jobs:
           # Source validation is offline and proves the release cannot drift to
           # latest/fallback semantics before any artifact is fetched.
           bun run verify:managed-runtimes -- --sources-only
+          # ponytail: no bundled runtimes until the release inputs exist; the
+          # app then ships like a source build. Set the four vars to re-enable.
+          if [ -z "${ALFRED_CODEX_SIDECAR_EXECUTABLE}${ALFRED_CODEX_LEGAL_DIR}${ALFRED_CODEX_TARGET_SBOM}${ALFRED_RUNTIME_PUBLISHER_VERIFY}" ]; then
+            echo "::warning::Managed runtime inputs unset; shipping without bundled runtimes."
+            exit 0
+          fi
           # Strict preparation requires every exact artifact, legal input,
           # publisher signature/attestation, and a target Codex sidecar. The
           # release is intentionally blocked when any one is absent.

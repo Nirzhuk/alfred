@@ -1,7 +1,7 @@
 {
   "name": "alfred",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Alfred — local multi-agent workflow automations",
   "license": "GPL-3.0-or-later",
   "author": "nirzhuk",
