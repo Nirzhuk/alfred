@@ -1,4 +1,4 @@
-import { getName } from "@tauri-apps/api/app";
+import { getName, getVersion } from "@tauri-apps/api/app";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import type { ShortcutMap } from "./features/settings/shortcuts";
 
@@ -33,7 +33,7 @@ export async function installAppMenu(
         item: {
           About: {
             name: productName,
-            version: "0.5.0",
+            version: await getVersion(),
             copyright: "Local multi-agent workflow automations",
             comments:
               "Build automations across Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini, Grok, Pi, and OMP.",

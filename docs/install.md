@@ -88,7 +88,7 @@ Settings → Privacy & Security.
 
 ### Windows — unsigned beta
 
-1. Download the **NSIS** `.exe` installer from the release assets.
+1. Download `Alfred_<version>_Windows-setup.exe` from the release assets.
 2. Run the installer and follow the prompts.
 3. Launch **Alfred** from the Start menu.
 
@@ -100,11 +100,8 @@ Windows release. Continue after comparing the SHA-256 checksum with
 
 ### Linux
 
-Linux packages ship with every release. Pick one:
-
-- **AppImage** — mark executable (`chmod +x …AppImage`) and run
-- **`.deb`** — `sudo dpkg -i …deb` (Debian/Ubuntu)
-- **`.rpm`** — install with your distro’s package tool
+Download `Alfred_<version>_Linux.AppImage`, mark it executable
+(`chmod +x Alfred_*_Linux.AppImage`), and run it. The AppImage updates itself.
 
 WebKitGTK is required for the UI (same family of libs other Tauri apps use).
 
@@ -112,8 +109,8 @@ WebKitGTK is required for the UI (same family of libs other Tauri apps use).
 
 Alfred updates itself from version 1.2.0 on. It checks at launch and from
 **Help → Check for Updates…** (also in the tray/menu-bar menu), asks before
-installing, then restarts. Linux `.deb`/`.rpm` installs and anything older than
-1.2.0 update manually from the GitHub releases page. Your workflows, runs,
+installing, then restarts. Installs older than 1.2.0, and 1.2.0 `.deb`/`.rpm`
+installs, update manually once from the GitHub releases page. Your workflows, runs,
 schedules, and memories are local and survive an upgrade.
 
 ## Build it yourself for free

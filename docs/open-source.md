@@ -42,18 +42,17 @@ Official installers are published as public assets on this repository's
 and built by [`.github/workflows/release.yml`](../.github/workflows/release.yml)
 from the tagged source commit:
 
-- **macOS** — `.dmg` for Apple Silicon and Intel, Developer ID signed,
-  notarized, and stapled.
-- **Windows** — `.exe` (NSIS) installer and `.msi`. These are an **unsigned
-  beta**: Windows reports an unknown publisher and SmartScreen may warn. They
-  are never advertised as signed or warning-free.
-- **Linux** — `.AppImage`, `.deb`, and `.rpm`.
+- **macOS** — `…_macOS-Apple-Silicon.dmg` and `…_macOS-Intel.dmg`, Developer
+  ID signed, notarized, and stapled.
+- **Windows** — `…_Windows-setup.exe` (NSIS). This is an **unsigned beta**:
+  Windows reports an unknown publisher and SmartScreen may warn. It is never
+  advertised as signed or warning-free.
+- **Linux** — `…_Linux.AppImage`.
 
 Every release attaches `SHA256SUMS.txt`; verify your download against it.
 
 Official builds from 1.2.0 on update themselves from the signed `latest.json`
-on the newest GitHub release, after asking. Source builds and Linux
-`.deb`/`.rpm` installs update manually.
+on the newest GitHub release, after asking. Source builds update manually.
 
 Official binaries are a convenience, not a capability upgrade over source:
 they save you a Rust/Tauri toolchain and come from a CI pipeline that

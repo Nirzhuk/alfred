@@ -841,7 +841,7 @@ fn query_codex_app_server(bin: &Path) -> Result<(bool, Vec<AgentUsageWindow>), S
             "method": "initialize",
             "id": 1,
             "params": {
-                "clientInfo": { "name": "alfred", "title": "Alfred", "version": "0.5.0" }
+                "clientInfo": { "name": "alfred", "title": "Alfred", "version": env!("CARGO_PKG_VERSION") }
             }
         })
     )

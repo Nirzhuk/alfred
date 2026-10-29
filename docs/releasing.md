@@ -14,7 +14,8 @@ The launch-gate and follow-up checklist lives in
 work:
 
 1. Builds all four platform legs: macOS Apple Silicon, macOS Intel,
-   Windows x64 (NSIS + MSI), and Linux (`deb`, `rpm`, `AppImage`).
+   Windows x64 (NSIS), and Linux (`AppImage`), one installer each, named
+   by `releaseAssetNamePattern` with the matrix `label`.
 2. Stages every artifact on a **draft** release tagged `v<version>`.
 3. Runs clean-runner gates before publication:
    - Both DMGs are downloaded from the draft, verified (`hdiutil`,
@@ -56,8 +57,10 @@ public by accident.
 4. Wait for the workflow. Watch the gates; a red gate means the release did
    **not** publish. Fix, bump or retag, rerun.
 5. After publication, spot-check `https://github.com/Nirzhuk/alfred-workflows/releases/tag/v<version>`:
-   - `Alfred_<VERSION>_aarch64.dmg` and `Alfred_<VERSION>_x64.dmg`
-   - `Alfred_<VERSION>_x64-setup.exe` (and `.msi`, `.deb`, `.rpm`, `.AppImage`)
+   - `Alfred_<VERSION>_macOS-Apple-Silicon.dmg` and `Alfred_<VERSION>_macOS-Intel.dmg`
+   - `Alfred_<VERSION>_Windows-setup.exe` and `Alfred_<VERSION>_Linux.AppImage`
+   - `latest.json` plus the two `.app.tar.gz` updater bundles (no `.sig`
+     files: the signatures are inside `latest.json`)
    - `SHA256SUMS.txt` matching the acceptance manifest in the run artifacts.
 6. Write the release notes body (or edit what tauri-action pre-filled).
 
@@ -106,7 +109,6 @@ only reaches users once the release is published.
   `src-tauri/tauri.conf.json`.
 - **Never lose the private key.** Without it no installed copy can accept a
   new update; changing keys means every user reinstalls by hand once.
-- Linux updates cover the AppImage only; `.deb`/`.rpm` stay manual.
 - Rollback: unpublish or un-latest the bad release (see Rollback) and publish
   a fixed higher version; the updater never downgrades.
 

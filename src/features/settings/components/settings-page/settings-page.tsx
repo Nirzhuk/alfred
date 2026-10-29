@@ -47,6 +47,7 @@ import {
   useThemeStore,
   type ThemePreference,
 } from "../../theme";
+import { version as appVersion } from "../../../../../package.json";
 
 type Props = {
   activeSection: SettingsSectionId;
@@ -472,7 +473,7 @@ export function SettingsPage({ activeSection }: Props) {
                   <p className="settings-label">App</p>
                   <p className="settings-value">Alfred</p>
                 </div>
-                <span className="settings-meta">v0.5.0</span>
+                <span className="settings-meta">v{appVersion}</span>
               </div>
               <div className="settings-row">
                 <div>

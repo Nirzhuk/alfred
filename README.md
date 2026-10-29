@@ -18,8 +18,8 @@ Compose workflows as visual graphs: write prompts, route them through agents you
 
 Alfred updates itself from version 1.2.0 on. It checks at launch and from
 **Help → Check for Updates…** (also in the tray/menu-bar menu), asks before
-installing, then restarts. Linux `.deb`/`.rpm` installs and anything older than
-1.2.0 update manually from the GitHub releases page. Your workflows, runs,
+installing, then restarts. Installs older than 1.2.0, and 1.2.0 `.deb`/`.rpm`
+installs, update manually once from the GitHub releases page. Your workflows, runs,
 schedules, and memories are local and survive an upgrade.
 
 Fees charged by Claude, Cursor, OpenAI, or other agent providers for their own
@@ -139,8 +139,8 @@ Desktop only: **macOS 11+**, **Windows 10/11**, and **Linux**. Android, iOS, and
 
 Official binaries are published on the
 [GitHub releases page](https://github.com/Nirzhuk/alfred-workflows/releases/latest):
-macOS `.dmg` (Apple Silicon and Intel), Windows `.exe`/`.msi`, and Linux
-`.deb`/`.rpm`/`.AppImage`. The Windows installer is an **unsigned beta**:
+one file per platform: `…_macOS-Apple-Silicon.dmg`, `…_macOS-Intel.dmg` (older
+Macs), `…_Windows-setup.exe`, and `…_Linux.AppImage`. The Windows installer is an **unsigned beta**:
 Windows reports an unknown publisher and may show a SmartScreen warning. See
 [installing](docs/install.md), [building from source](docs/building-from-source.md),
 and the [maintainer release runbook](docs/releasing.md).
