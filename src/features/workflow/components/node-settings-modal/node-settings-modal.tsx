@@ -70,6 +70,7 @@ import { SkillPicker } from "../skill-picker";
 import { IdentitySettings } from "./identity-settings";
 import { MemoryNodeSettings } from "./memory-node-settings";
 import {
+  AskPreview,
   CustomAgentSettings,
   FileInjectSettings,
   GitHostSettings,
@@ -371,6 +372,12 @@ function InputSettings({
           onChange={(e) => onUpdate({ prompt: e.target.value })}
         />
       </label>
+      <p className="hint">
+        Write <code>{"{{ask:Topic}}"}</code> to be asked for a value each time
+        you press Run. Add a default after <code>|</code>, like{" "}
+        <code>{"{{ask:Topic|today's news}}"}</code>; scheduled runs use it.
+      </p>
+      <AskPreview text={prompt} />
       <div className="field wf-attach-field">
         <div className="wf-attach-field-header">
           <span>Files &amp; folders</span>

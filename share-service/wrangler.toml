@@ -8,8 +8,8 @@ compatibility_date = "2026-09-08"
 # publishing from an unconfigured source checkout.
 SHARE_ORIGIN = "https://alfred.nirzhuk.dev"
 PUBLISHING_ENABLED = "false"
-SUPPORT_URL = "https://github.com/Nirzhuk/alfred-workflows/issues"
-DOWNLOAD_URL = "https://github.com/Nirzhuk/alfred-workflows/releases/latest"
+SUPPORT_URL = "https://github.com/Nirzhuk/alfred/issues"
+DOWNLOAD_URL = "https://github.com/Nirzhuk/alfred/releases/latest"
 # Set these per environment; production also requires a distributed
 # RATE_LIMITER binding (the Worker fails closed without it).
 # MAX_PUBLICATIONS = "10000"

@@ -8,7 +8,7 @@ There are two ways to get it, both free:
 
 | Option | Cost | Intended for |
 | --- | --- | --- |
-| **[Official builds](https://github.com/Nirzhuk/alfred-workflows/releases/latest)** | **Free** | Most people — maintainer-built, CI-tested installers for macOS, Windows, and Linux |
+| **[Official builds](https://github.com/Nirzhuk/alfred/releases/latest)** | **Free** | Most people — maintainer-built, CI-tested installers for macOS, Windows, and Linux |
 | [Build from source](building-from-source.md) | **Free** | People comfortable installing Bun, Rust, and Tauri's platform prerequisites |
 
 Neither route requires payment, and nobody is ever required to pay for
@@ -69,7 +69,7 @@ above works, then fully quit and reopen Alfred so it picks up an updated
 ## Install an official build
 
 Official installers are published as public assets on the
-[GitHub releases page](https://github.com/Nirzhuk/alfred-workflows/releases/latest).
+[GitHub releases page](https://github.com/Nirzhuk/alfred/releases/latest).
 
 1. Open the releases page and download the file for your platform.
 2. Compare its SHA-256 checksum against `SHA256SUMS.txt` attached to the same

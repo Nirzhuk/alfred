@@ -5,6 +5,11 @@ const ASK = /\{\{\s*ask:([^}|]+?)\s*(?:\|([^}]*))?\}\}/g;
 
 export type AskField = { name: string; defaultValue: string };
 
+/** Placeholder names in one text, deduped, for the settings preview. */
+export function askNames(text: string): string[] {
+  return [...new Set([...text.matchAll(ASK)].map(([, name]) => name.trim()))];
+}
+
 /** Placeholders the Run dialog asks for, deduped by name in canvas order. */
 export function askFields(nodes: WorkflowNode[]): AskField[] {
   const fields = new Map<string, AskField>();

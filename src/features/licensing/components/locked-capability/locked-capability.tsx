@@ -36,7 +36,7 @@ export const LOCKED_CAPABILITY_EXPLANATION =
 export const LOCKED_CAPABILITY_SOURCE_INSTRUCTIONS = [
   "No purchase page is configured in this build. To use this capability:",
   "",
-  "    git clone https://github.com/Nirzhuk/alfred-workflows",
+  "    git clone https://github.com/Nirzhuk/alfred",
   "    bun install --frozen-lockfile",
   "    bun run build",
   "",

@@ -56,7 +56,7 @@ public by accident.
    three versions to agree. Prefer a real tag for anything you intend to keep.
 4. Wait for the workflow. Watch the gates; a red gate means the release did
    **not** publish. Fix, bump or retag, rerun.
-5. After publication, spot-check `https://github.com/Nirzhuk/alfred-workflows/releases/tag/v<version>`:
+5. After publication, spot-check `https://github.com/Nirzhuk/alfred/releases/tag/v<version>`:
    - `Alfred_<VERSION>_macOS-Apple-Silicon.dmg` and `Alfred_<VERSION>_macOS-Intel.dmg`
    - `Alfred_<VERSION>_Windows-setup.exe` and `Alfred_<VERSION>_Linux.AppImage`
    - `latest.json` plus the two `.app.tar.gz` updater bundles (no `.sig`

@@ -9,7 +9,7 @@ import { check } from "@tauri-apps/plugin-updater";
  * (offline, dev build, or an install that predates the updater).
  */
 export const LATEST_RELEASES_URL =
-  "https://github.com/Nirzhuk/alfred-workflows/releases/latest";
+  "https://github.com/Nirzhuk/alfred/releases/latest";
 
 export const DOWNLOAD_LATEST_RELEASES_MESSAGE = [
   "Download the latest Alfred",

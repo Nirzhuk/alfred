@@ -41,7 +41,7 @@ describe("download latest version action", () => {
 
   test("the releases URL is a GitHub releases page allowed by the opener capability", () => {
     expect(LATEST_RELEASES_URL).toMatch(
-      /^https:\/\/github\.com\/Nirzhuk\/alfred-workflows\/releases/,
+      /^https:\/\/github\.com\/Nirzhuk\/alfred\/releases/,
     );
   });
   test("a browser failure explains the manual path and the source rebuild", async () => {

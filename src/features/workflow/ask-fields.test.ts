@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { askFields } from "./ask-fields";
+import { askFields, askNames } from "./ask-fields";
 import type { WorkflowNode } from "./types";
 
 const node = (type: string, data: Record<string, unknown>) =>
@@ -23,4 +23,9 @@ describe("askFields", () => {
   test("returns nothing for plain workflows", () => {
     expect(askFields([node("input", { prompt: "Hello {{context}}" })])).toEqual([]);
   });
+});
+
+test("askNames lists each placeholder once", () => {
+  expect(askNames("{{ask:Topic}} {{ ask: Tone | calm }} {{ask:Topic|x}} {{ask Topic}}")).toEqual(["Topic", "Tone"]);
+  expect(askNames("Hello")).toEqual([]);
 });

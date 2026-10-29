@@ -8,8 +8,8 @@ const app = createApp(new MemoryRepository());
 const origin = "http://127.0.0.1:1423";
 const env = {
   SHARE_ORIGIN: origin,
-  SUPPORT_URL: "https://github.com/Nirzhuk/alfred-workflows/issues",
-  DOWNLOAD_URL: "https://github.com/Nirzhuk/alfred-workflows/releases/latest",
+  SUPPORT_URL: "https://github.com/Nirzhuk/alfred/issues",
+  DOWNLOAD_URL: "https://github.com/Nirzhuk/alfred/releases/latest",
 };
 const owner = "synthetic-local-preview-owner".padEnd(48, "a");
 const probes: string[] = [];

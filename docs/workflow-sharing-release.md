@@ -2,7 +2,7 @@
 
 This is a prepared runbook, not deployment evidence. The user selected
 `https://alfred.nirzhuk.dev` as the sharing origin. The proposed support/report
-destination is `https://github.com/Nirzhuk/alfred-workflows/issues`; the repository
+destination is `https://github.com/Nirzhuk/alfred/issues`; the repository
 reports that issues are enabled. No public service or D1 database has been
 created by this execution.
 

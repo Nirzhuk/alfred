@@ -38,7 +38,7 @@ providers may require their own subscriptions, accounts, or usage payments.
 ## Official builds
 
 Official installers are published as public assets on this repository's
-[GitHub releases page](https://github.com/Nirzhuk/alfred-workflows/releases/latest)
+[GitHub releases page](https://github.com/Nirzhuk/alfred/releases/latest)
 and built by [`.github/workflows/release.yml`](../.github/workflows/release.yml)
 from the tagged source commit:
 

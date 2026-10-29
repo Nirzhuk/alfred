@@ -7,7 +7,7 @@ Compose workflows as visual graphs: write prompts, route them through agents you
 > **Free and open source.** The complete source is available under
 > [GPL-3.0-or-later](LICENSE). Official maintainer-built installers are
 > published as public
-> [GitHub Release assets](https://github.com/Nirzhuk/alfred-workflows/releases/latest)
+> [GitHub Release assets](https://github.com/Nirzhuk/alfred/releases/latest)
 > — free for everyone. An optional one-time supporter licence exists (see
 > [Support Alfred](#support-alfred)); nobody is ever required to pay.
 
@@ -46,7 +46,7 @@ source builds, OS requirements, and agent CLI setup.
 Short version:
 
 1. Download an official installer from
-   [GitHub Releases](https://github.com/Nirzhuk/alfred-workflows/releases/latest)
+   [GitHub Releases](https://github.com/Nirzhuk/alfred/releases/latest)
    or [compile from source](docs/building-from-source.md) — both free, both
    fully featured.
 2. Install and sign in to at least one agent CLI you plan to use:
@@ -138,7 +138,7 @@ body-free source, version, page, and delivery metadata.
 Desktop only: **macOS 11+**, **Windows 10/11**, and **Linux**. Android, iOS, and standalone website builds are not supported.
 
 Official binaries are published on the
-[GitHub releases page](https://github.com/Nirzhuk/alfred-workflows/releases/latest):
+[GitHub releases page](https://github.com/Nirzhuk/alfred/releases/latest):
 one file per platform: `…_macOS-Apple-Silicon.dmg`, `…_macOS-Intel.dmg` (older
 Macs), `…_Windows-setup.exe`, and `…_Linux.AppImage`. The Windows installer is an **unsigned beta**:
 Windows reports an unknown publisher and may show a SmartScreen warning. See

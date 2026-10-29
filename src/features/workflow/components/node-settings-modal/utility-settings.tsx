@@ -16,6 +16,7 @@ import type {
   WriteFileNodeData,
 } from "../../types";
 import { defaultInterpreter } from "../../types";
+import { askNames } from "../../ask-fields";
 
 function LabelField({
   value,
@@ -99,7 +100,8 @@ export function TemplateSettings({
       />
       <p className="hint">
         Placeholders: <code>{"{{context}}"}</code>, <code>{"{{output}}"}</code>,{" "}
-        <code>{"{{cwd}}"}</code>
+        <code>{"{{cwd}}"}</code>. Use <code>{"{{ask:Name}}"}</code> or{" "}
+        <code>{"{{ask:Name|default}}"}</code> to be asked when you press Run.
       </p>
       <label className="field">
         <span>Template</span>
@@ -109,6 +111,7 @@ export function TemplateSettings({
           onChange={(e) => onUpdate({ template: e.target.value })}
         />
       </label>
+      <AskPreview text={data.template} />
       <label className="field">
         <span>Mode</span>
         <select
@@ -746,4 +749,11 @@ export function GitHostSettings({
       </p>
     </>
   );
+}
+
+/** Live confirmation that `{{ask:…}}` placeholders were typed correctly. */
+export function AskPreview({ text }: { text: string }) {
+  const names = askNames(text);
+  if (names.length === 0) return null;
+  return <p className="hint">Asks on run: {names.join(", ")}</p>;
 }

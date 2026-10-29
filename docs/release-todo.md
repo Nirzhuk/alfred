@@ -30,9 +30,10 @@ The operator runbook lives in [releasing.md](releasing.md).
 
 ## Before pushing the first public tag
 
-- [ ] Confirm the repository stays `Nirzhuk/alfred-workflows`. The releases
-  URL is baked into released binaries; renaming the repo breaks the in-app
-  Download Latest link for every shipped copy.
+- [x] Repository renamed `Nirzhuk/alfred-workflows` → `Nirzhuk/alfred` on
+  2026-10-29. Apps up to 1.2.0 have the old name baked into their updater and
+  releases URLs and rely on GitHub's rename redirect: **never create a new repo
+  named `alfred-workflows`**, or those copies stop updating.
 - [x] First version number: **`1.0.0`** (bumped from `0.5.0` across
   `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`).
 - [ ] Optional dry run: **Actions → release → Run workflow** from `main`,
