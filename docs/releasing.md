@@ -13,11 +13,13 @@ The launch-gate and follow-up checklist lives in
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) does the
 work:
 
-1. Builds all four platform legs: macOS Apple Silicon, macOS Intel,
+1. Creates one **draft** release tagged `v<version>` with the notes in
+   `.github/release-notes.md`, before any build starts.
+2. Builds all four platform legs: macOS Apple Silicon, macOS Intel,
    Windows x64 (NSIS), and Linux (`AppImage`), one installer each, named
    by `releaseAssetNamePattern` with the matrix `label`.
-2. Stages every artifact on a **draft** release tagged `v<version>`.
-3. Runs clean-runner gates before publication:
+3. Stages every artifact on that draft.
+4. Runs clean-runner gates before publication:
    - Both DMGs are downloaded from the draft, verified (`hdiutil`,
      `codesign --verify --deep --strict`, `spctl`, `stapler validate`),
      installed on native runners, launched twice, and removed.
@@ -26,7 +28,7 @@ work:
    - `verify-version` fails the run if `package.json`,
      `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` disagree, or if a
      pushed tag does not equal `v<version>`.
-4. The `publish-release` job attaches `SHA256SUMS.txt` to the release, uploads
+5. The `publish-release` job attaches `SHA256SUMS.txt` to the release, uploads
    an acceptance manifest artifact (version, source commit, filenames, sizes,
    architectures, signing status, SHA-256 — no secrets), and only then flips
    the draft public and marks it latest.
