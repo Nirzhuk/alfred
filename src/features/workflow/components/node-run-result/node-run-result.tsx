@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../../../../components/icon";
 import { useWorkflowStore } from "../../store";
+import { FixWithAlfredButton } from "../run-failure";
 
 export function previewText(text: string, max = 140) {
   const [firstParagraph = ""] = text.trim().split(/\n\s*\n/, 1);
@@ -54,6 +56,44 @@ export function NodeRunResult({ nodeId, title }: Props) {
     if (hasInput && !hasOutput) setTab("input");
   }, [hasInput, hasOutput]);
 
+  if (status === "failed") {
+    return (
+      <div
+        className="wf-node-error nodrag nopan"
+        role="group"
+        aria-label={`${title} failed`}
+        data-prevent-node-double-click
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <p className="wf-node-error-title">
+          <Icon name="warning-circle" size={14} />
+          Failed
+        </p>
+        <button
+          type="button"
+          className="wf-node-error-message"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!hasInput && !hasOutput) {
+              openRunPanel(nodeId);
+              return;
+            }
+            openStepData({
+              title,
+              nodeId,
+              input,
+              output,
+              initialTab: hasOutput ? "output" : "input",
+            });
+          }}
+        >
+          {previewText(output ?? "") || "Failed before producing output"}
+        </button>
+        <FixWithAlfredButton nodeId={nodeId} />
+      </div>
+    );
+  }
+
   if (status === "skipped" || (!running && !hasInput && !hasOutput)) return null;
 
   if (!hasInput && !hasOutput) {
@@ -86,9 +126,7 @@ export function NodeRunResult({ nodeId, title }: Props) {
         ? previewText(output)
         : running
           ? "Working…"
-          : status === "failed"
-            ? "Failed before producing output"
-            : "No output";
+          : "No output";
 
   const openDetail = () => {
     if (activeTab === "input" && !input) return;

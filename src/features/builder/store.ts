@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { useWorkflowStore } from "../workflow/store";
 import * as api from "./api";
+import { readDraft, writeDraft } from "./drafts";
 import {
   applyStreamEvent,
   isWorking,
@@ -57,10 +58,10 @@ export function chatTitle(messages: ChatMessage[]): string {
   return text.length > TITLE_CHARS ? `${text.slice(0, TITLE_CHARS - 1)}…` : text;
 }
 
-function emptyChat(agent: api.BuilderAgentId, model: string): BuilderChat {
+function emptyChat(agent: api.BuilderAgentId, model: string, id: string = crypto.randomUUID()): BuilderChat {
   const now = Date.now();
   return {
-    id: crypto.randomUUID(),
+    id,
     title: "New chat",
     agent,
     model,
@@ -89,7 +90,17 @@ type BuilderStore = {
   configError: string | null;
   saveError: string | null;
   working: boolean;
+  /** Chats whose last reply arrived while the Builder was not showing them. */
+  unseenChatIds: string[];
+  /** The chat on screen; null whenever the Builder view is closed. */
+  viewingChatId: string | null;
+  setViewingChat: (id: string | null) => void;
+  markChatSeen: (id: string) => void;
+  /** Text for the composer when it could not be sent on arrival. */
+  composerDraft: string | null;
   init: () => Promise<void>;
+  /** Start a new chat with this text, or leave it in the composer if the agent can't take it. */
+  ask: (text: string) => Promise<void>;
   send: (text: string, images?: SendImage[]) => Promise<void>;
   stop: () => Promise<void>;
   newChat: () => void;
@@ -108,7 +119,7 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
   const rememberPrefs = () => {
     const { chat } = get();
     writePrefs({
-      lastChatId: chat.messages.length ? chat.id : null,
+      lastChatId: chat.id,
       agent: chat.agent,
       model: chat.model,
     });
@@ -141,6 +152,16 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
     }));
   };
 
+  /** A finished turn the reader did not have on screen becomes an unseen reply. */
+  const markUnseen = (id: string) => {
+    if (get().viewingChatId === id) return;
+    set((state) =>
+      state.unseenChatIds.includes(id)
+        ? {}
+        : { unseenChatIds: [...state.unseenChatIds, id] },
+    );
+  };
+
   return {
     chat: emptyChat(prefs.agent, prefs.model),
     chats: [],
@@ -149,6 +170,32 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
     configError: null,
     saveError: null,
     working: false,
+    unseenChatIds: [],
+    viewingChatId: null,
+    composerDraft: null,
+
+    setViewingChat: (id) => {
+      if (get().viewingChatId !== id) set({ viewingChatId: id });
+    },
+
+    markChatSeen: (id) => {
+      set((state) =>
+        state.unseenChatIds.includes(id)
+          ? { unseenChatIds: state.unseenChatIds.filter((chatId) => chatId !== id) }
+          : {},
+      );
+    },
+
+    ask: async (text) => {
+      await get().init();
+      if (!get().working) get().newChat();
+      const agent = get().info?.agents.find((a) => a.id === get().chat.agent);
+      if (get().working || agent?.installed === false) {
+        set({ composerDraft: text });
+        return;
+      }
+      await get().send(text);
+    },
 
     init: async () => {
       await installBridges();
@@ -160,9 +207,15 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
       set({ config, info, chats });
       if (initialized) return;
       initialized = true;
-      // Reopen where the user left off, once per launch.
-      if (prefs.lastChatId && get().chat.messages.length === 0) {
-        await get().openChat(prefs.lastChatId);
+      // Reopen where the user left off, once per launch. A chat that was never
+      // saved has no file, but its id and unsent draft are kept locally.
+      const start = get().chat;
+      if (prefs.lastChatId && start.messages.length === 0 && !readDraft(start.id)) {
+        if (chats.some((c) => c.id === prefs.lastChatId)) {
+          await get().openChat(prefs.lastChatId);
+        } else {
+          set({ chat: emptyChat(start.agent, start.model, prefs.lastChatId) });
+        }
       }
       // Fall back to an installed agent when the remembered one is missing.
       const agents = info?.agents ?? [];
@@ -180,6 +233,7 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
       const now = Date.now();
       set((state) => ({
         working: true,
+        unseenChatIds: state.unseenChatIds.filter((id) => id !== state.chat.id),
         chat: {
           ...state.chat,
           messages: [
@@ -224,6 +278,7 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
       } finally {
         activeAssistantId = null;
         set({ working: false });
+        markUnseen(chat.id);
         await persist();
       }
     },
@@ -254,8 +309,12 @@ export const useBuilderStore = create<BuilderStore>((set, get) => {
     deleteChat: async (id) => {
       if (get().working && get().chat.id === id) return;
       await api.deleteBuilderChat(id).catch(() => undefined);
+      writeDraft(id, "");
       if (get().chat.id === id) get().newChat();
-      set({ chats: get().chats.filter((c) => c.id !== id) });
+      set((state) => ({
+        chats: state.chats.filter((c) => c.id !== id),
+        unseenChatIds: state.unseenChatIds.filter((chatId) => chatId !== id),
+      }));
     },
 
     // The agent belongs to a chat's session, so it is chosen before the

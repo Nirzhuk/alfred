@@ -6,13 +6,22 @@ type Props = {
   id: string;
   className: string;
   title: string;
-  body: string;
+  body?: string;
   meta?: string;
   icon?: ReactNode;
+  children?: ReactNode;
 };
 
 /** Compact display-only step card used by Context / Action / Sink utilities. */
-export function SimpleStepNode({ id, className, title, body, meta, icon }: Props) {
+export function SimpleStepNode({
+  id,
+  className,
+  title,
+  body,
+  meta,
+  icon,
+  children,
+}: Props) {
   return (
     <div className={`wf-node ${className}`}>
       <Handle
@@ -26,8 +35,9 @@ export function SimpleStepNode({ id, className, title, body, meta, icon }: Props
         <div className="wf-node-title">{title}</div>
       </div>
       <div className="wf-node-content">
-        <p className="wf-node-body">{body}</p>
+        {body ? <p className="wf-node-body">{body}</p> : null}
         {meta ? <p className="wf-node-skill muted">{meta}</p> : null}
+        {children}
         <NodeRunResult nodeId={id} title={title} />
       </div>
       <Handle

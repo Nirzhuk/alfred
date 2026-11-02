@@ -9,12 +9,14 @@ import { useRef } from "react";
 import { Icon } from "../../../../components/icon";
 import {
   mergeAttachments,
+  attachmentsFromDroppedPaths,
   pickFileAttachments,
   pickFolderAttachments,
   shortAttachmentPath,
 } from "../../attachments";
 import { useWorkflowStore } from "../../store";
 import type { PromptNodeData } from "../../types";
+import { useFileDrop } from "../../use-file-drop";
 import { InputAttachmentList } from "../input-attachment-list";
 import { NodeRunResult } from "../node-run-result";
 
@@ -112,6 +114,12 @@ export function PromptNode({ id, data, selected }: NodeProps<InputFlowNode>) {
     });
   };
 
+  const { ref: dropRef, over } = useFileDrop<HTMLDivElement>((paths) => {
+    void attachmentsFromDroppedPaths(paths).then((dropped) =>
+      updateNodeData(id, { attachments: mergeAttachments(attachments, dropped) }),
+    );
+  }, blocked);
+
   return (
     <div className="wf-node wf-node-prompt">
       <NodeResizeControl
@@ -168,7 +176,9 @@ export function PromptNode({ id, data, selected }: NodeProps<InputFlowNode>) {
       />
 
       <div
-        className="wf-input-attachments nodrag nopan"
+        ref={dropRef}
+        className={`wf-input-attachments nodrag nopan${over ? " is-drop-target" : ""}`}
+        data-prevent-node-double-click
         onPointerDown={(e) => e.stopPropagation()}
       >
         {blocked ? (

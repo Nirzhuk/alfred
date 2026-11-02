@@ -26,7 +26,9 @@ import {
   type AgentCapabilityManifest,
 } from "../../agent-capabilities";
 import { useWorkflowStore } from "../../store";
+import { useFileDrop } from "../../use-file-drop";
 import {
+  attachmentsFromDroppedPaths,
   mergeAttachments,
   pickFileAttachments,
   pickFolderAttachments,
@@ -328,6 +330,12 @@ function InputSettings({
     }
   };
 
+  const { ref: dropRef, over } = useFileDrop<HTMLDivElement>((paths) => {
+    void attachmentsFromDroppedPaths(paths).then((dropped) =>
+      onUpdate({ attachments: mergeAttachments(attachments, dropped) }),
+    );
+  }, blocked);
+
   const removeAttachment = (attachmentId: string) => {
     onUpdate({
       attachments: attachments.filter((a) => a.id !== attachmentId),
@@ -378,7 +386,10 @@ function InputSettings({
         <code>{"{{ask:Topic|today's news}}"}</code>; scheduled runs use it.
       </p>
       <AskPreview text={prompt} />
-      <div className="field wf-attach-field">
+      <div
+        ref={dropRef}
+        className={`field wf-attach-field${over ? " is-drop-target" : ""}`}
+      >
         <div className="wf-attach-field-header">
           <span>Files &amp; folders</span>
           <div className="wf-input-attach-actions">

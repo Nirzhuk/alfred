@@ -1,4 +1,4 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { InputAttachment } from "./types";
 
@@ -69,6 +69,17 @@ export async function pickFolderAttachments(): Promise<InputAttachment[]> {
     id: newAttachmentId(),
     path,
     kind: "folder" as const,
+  }));
+}
+
+export async function attachmentsFromDroppedPaths(
+  paths: string[],
+): Promise<InputAttachment[]> {
+  const folders = await invoke<boolean[]>("paths_are_folders", { paths });
+  return paths.map((path, index) => ({
+    id: newAttachmentId(),
+    path,
+    kind: folders[index] ? ("folder" as const) : ("file" as const),
   }));
 }
 

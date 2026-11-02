@@ -17,6 +17,7 @@ import { SelectControl } from "../../../../components/select-control";
 import { nodeAccentColor } from "../../../workflow/node-colors";
 import { useWorkflowStore } from "../../../workflow/store";
 import { readBuilderImage, type BuilderAgentId } from "../../api";
+import { readDraft, writeDraft } from "../../drafts";
 import {
   base64ToBlob,
   IMAGE_EXTENSIONS,
@@ -392,10 +393,12 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
   const info = useBuilderStore((s) => s.info);
   const configError = useBuilderStore((s) => s.configError);
   const saveError = useBuilderStore((s) => s.saveError);
+  const composerDraft = useBuilderStore((s) => s.composerDraft);
+  const unseenChatIds = useBuilderStore((s) => s.unseenChatIds);
   const providerModels = useWorkflowStore((s) => s.providerModels);
-  const { init, send, stop, newChat, openChat, deleteChat, setAgent, setModel, saveConfig } =
+  const { init, send, stop, newChat, openChat, deleteChat, setAgent, setModel, saveConfig, markChatSeen } =
     useBuilderStore.getState();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => readDraft(chat.id));
   const [pending, setPending] = useState<PendingImage[]>([]);
   const [dragging, setDragging] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -415,17 +418,35 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
     inputRef.current?.focus();
   }, [init]);
 
+  // A turn can outlive this view. The store marks its reply unseen when it
+  // finishes while no chat is on screen; the sidebar and chat list surface it.
+  useEffect(() => {
+    const store = useBuilderStore.getState();
+    store.setViewingChat(chat.id);
+    return () => store.setViewingChat(null);
+  }, [chat.id]);
+
+  useEffect(() => {
+    if (composerDraft === null) return;
+    setDraft(composerDraft);
+    writeDraft(chat.id, composerDraft);
+    useBuilderStore.setState({ composerDraft: null });
+    inputRef.current?.focus();
+  }, [composerDraft, chat.id]);
+
   // Follow the stream while the reader is at the bottom; let them scroll up.
   useLayoutEffect(() => {
     const thread = threadRef.current;
     if (thread && pinned.current) thread.scrollTop = thread.scrollHeight;
   }, [messages, now]);
 
-  // A different chat starts at its latest message.
+  // A different chat starts at its latest message and with its own unsent
+  // draft, so several drafts can be kept side by side.
   useLayoutEffect(() => {
     pinned.current = true;
     const thread = threadRef.current;
     if (thread) thread.scrollTop = thread.scrollHeight;
+    setDraft(readDraft(chat.id));
   }, [chat.id]);
 
   useLayoutEffect(() => {
@@ -532,6 +553,7 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
     pinned.current = true;
     const images = readyImages.map((p) => ({ mediaType: p.mediaType!, data: p.data!, thumb: p.thumb! }));
     setDraft("");
+    writeDraft(chat.id, "");
     setPending([]);
     setAttachError(null);
     void send(draft, images);
@@ -695,7 +717,11 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
               value={draft}
               placeholder={working ? "Alfred is working…" : "Ask Alfred, or describe a workflow…"}
               aria-label="Message Alfred"
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                const text = event.target.value;
+                setDraft(text);
+                writeDraft(chat.id, text);
+              }}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
             />
@@ -769,8 +795,12 @@ export function BuilderPage({ onOpenWorkflow }: Props) {
                 <BuilderChatList
                   chats={chats}
                   activeId={chat.id}
+                  unseenIds={unseenChatIds}
                   disabled={working}
-                  onOpen={(id) => void openChat(id)}
+                  onOpen={(id) => {
+                    markChatSeen(id);
+                    void openChat(id);
+                  }}
                   onDelete={(id) => void deleteChat(id)}
                 />
               </section>

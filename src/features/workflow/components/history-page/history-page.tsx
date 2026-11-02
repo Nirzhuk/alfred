@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "../../../../components/icon";
 import { SearchInput } from "../../../../components/search-input";
 import * as api from "../../api";
 import { memoryReviewFailureCopy } from "../../../settings/memory-review";
+import { fixPrompt, requestFixWithAlfred } from "../../run-failure";
 import {
   reviewStatusLabel,
 } from "../memories-inspector/suggestions-model";
@@ -608,6 +610,35 @@ function RunDetail({
       </header>
       {detail.run.error ? (
         <pre className="history-error-text">{detail.run.error}</pre>
+      ) : null}
+      {detail.run.status === "failed" ? (
+        <button
+          type="button"
+          className="primary run-failure-fix history-fix-with-alfred"
+          onClick={() => {
+            const step = detail.steps.find((item) => item.status === "failed");
+            requestFixWithAlfred(
+              fixPrompt({
+                workflowName: detail.run.workflowName,
+                workflowId: detail.run.workflowId,
+                runId: detail.run.id,
+                failure: {
+                  nodeId: step?.nodeId ?? null,
+                  label: step
+                    ? step.skillName || step.agentProvider || step.nodeId
+                    : null,
+                  message:
+                    step?.error ||
+                    detail.run.error ||
+                    "The run failed without an error message.",
+                },
+              }),
+            );
+          }}
+        >
+          <Icon name="chat-text" size={14} />
+          Fix with Alfred
+        </button>
       ) : null}
       {reviewJob ? (
         <section className="history-memory-context" aria-labelledby="history-review-title">

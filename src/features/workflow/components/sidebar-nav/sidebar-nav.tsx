@@ -9,6 +9,8 @@ type Props = {
   activityEnabled: boolean;
   memoriesOpen: boolean;
   memoriesEnabled: boolean;
+  /** A chat reply finished while the user was outside the Builder. */
+  unseenReplies: boolean;
   onChange: (view: SidebarView) => void;
   onNewWorkflow: () => void;
   onToggleActivity: () => void;
@@ -143,6 +145,7 @@ function NavButton({
   icon,
   active = false,
   disabled = false,
+  unread = false,
   title,
   onClick,
 }: {
@@ -150,6 +153,7 @@ function NavButton({
   icon: ReactNode;
   active?: boolean;
   disabled?: boolean;
+  unread?: boolean;
   title?: string;
   onClick: () => void;
 }) {
@@ -167,6 +171,12 @@ function NavButton({
     >
       <span className="sidebar-nav-icon">{icon}</span>
       <span>{label}</span>
+      {unread ? (
+        <>
+          <span className="unread-dot" aria-hidden="true" />
+          <span className="sr-only">New reply</span>
+        </>
+      ) : null}
     </button>
   );
 }
@@ -177,6 +187,7 @@ export function SidebarNav({
   activityEnabled,
   memoriesOpen,
   memoriesEnabled,
+  unseenReplies,
   onChange,
   onNewWorkflow,
   onToggleActivity,
@@ -195,6 +206,7 @@ export function SidebarNav({
         label="Speak with Alfred"
         icon={<Icon name="sparkle" size={18} />}
         active={view === "builder"}
+        unread={unseenReplies}
         onClick={() => onChange("builder")}
       />
       <NavButton

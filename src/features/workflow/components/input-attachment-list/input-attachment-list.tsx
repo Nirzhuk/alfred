@@ -1,4 +1,6 @@
+import { openPath } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
+import { Icon } from "../../../../components/icon";
 import {
   attachmentAssetUrl,
   attachmentExtension,
@@ -7,6 +9,7 @@ import {
   shortAttachmentPath,
 } from "../../attachments";
 import type { InputAttachment } from "../../types";
+import { openFileEditor } from "../file-editor-modal";
 
 type Props = {
   attachments: InputAttachment[];
@@ -15,7 +18,13 @@ type Props = {
   readOnly?: boolean;
   /** Compact list for canvas nodes; richer cards for the settings modal. */
   variant?: "compact" | "modal";
+  emptyLabel?: string;
 };
+
+function openAttachment(item: InputAttachment) {
+  if (item.kind === "file") openFileEditor(item.path);
+  else void openPath(item.path).catch((e) => console.error("openPath failed", e));
+}
 
 function FolderGlyph() {
   return (
@@ -79,13 +88,12 @@ export function InputAttachmentList({
   onRemove,
   readOnly = false,
   variant = "compact",
+  emptyLabel = "Drop files or folders here",
 }: Props) {
   if (attachments.length === 0) {
     return (
       <p className={variant === "modal" ? "muted" : "wf-input-attach-empty"}>
-        {variant === "modal"
-          ? "No files or folders attached yet."
-          : "No files or folders attached"}
+        {emptyLabel}
       </p>
     );
   }
@@ -102,9 +110,17 @@ export function InputAttachmentList({
             <span className="wf-input-attach-kind">
               {item.kind === "folder" ? "Folder" : "File"}
             </span>
-            <span className="wf-input-attach-path">
-              {shortAttachmentPath(item.path)}
-            </span>
+            <button
+              type="button"
+              className="wf-input-attach-open"
+              aria-label={`${item.kind === "folder" ? "Open" : "Edit"} ${item.path}`}
+              onClick={() => openAttachment(item)}
+            >
+              <span className="wf-input-attach-path">
+                {shortAttachmentPath(item.path)}
+              </span>
+              {item.kind === "file" ? <Icon name="pencil-simple" size={12} /> : null}
+            </button>
             {readOnly ? null : (
               <button
                 type="button"
@@ -138,16 +154,26 @@ export function InputAttachmentList({
                 </span>
               </span>
             </div>
-            {readOnly ? null : (
+            <div className="wf-attach-card-actions">
               <button
                 type="button"
                 className="ghost wf-attach-card-remove"
-                aria-label={`Remove ${name}`}
-                onClick={() => onRemove(item.id)}
+                aria-label={`${item.kind === "folder" ? "Open" : "Edit"} ${name}`}
+                onClick={() => openAttachment(item)}
               >
-                Remove
+                {item.kind === "folder" ? "Open" : "Edit"}
               </button>
-            )}
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  className="ghost wf-attach-card-remove"
+                  aria-label={`Remove ${name}`}
+                  onClick={() => onRemove(item.id)}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
           </li>
         );
       })}

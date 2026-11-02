@@ -3536,6 +3536,40 @@ html[data-platform="macos"]
   color: var(--icon);
 }
 
+/* One notification mark for an unseen Alfred reply, shared by the sidebar row
+   and the chat history list. Emerald is the completion signal; it stops
+   pulsing once the reply is acknowledged. */
+.unread-dot {
+  flex-shrink: 0;
+  /* geometry: notification dot */
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  animation: unread-dot-ping 2.4s var(--ease-standard) infinite;
+}
+
+.sidebar-nav-item .unread-dot {
+  margin-left: auto;
+}
+
+@keyframes unread-dot-ping {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-border-loud);
+  }
+
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unread-dot {
+    animation: none;
+  }
+}
+
 .sidebar-header {
   flex-shrink: 0;
   display: flex;
@@ -6575,6 +6609,41 @@ button.primary.danger-solid:hover:not(:disabled) {
   min-width: 0;
 }
 
+.wf-input-attach-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wf-input-attach-open svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.wf-input-attach-open:hover svg {
+  color: var(--ink);
+}
+
+.wf-node:has(.is-drop-target),
+.modal:has(.is-drop-target) {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.wf-attach-card-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
 .wf-input-attach-remove {
   border: none;
   background: transparent;
@@ -6826,22 +6895,6 @@ button.primary.danger-solid:hover:not(:disabled) {
   min-width: 180px;
 }
 
-.wf-path-list li {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-1-5) var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--surface-card);
-  border: 1px solid var(--line);
-}
-
-.wf-path-list code {
-  font-size: var(--text-sm);
-  word-break: break-all;
-}
-
 .wf-node-title {
   font-size: var(--text-sm);
   font-weight: var(--font-weight-bold);
@@ -6890,8 +6943,139 @@ button.primary.danger-solid:hover:not(:disabled) {
 }
 
 .react-flow__node.rf-node-failed .wf-node {
-  border-color: #b44747;
-  box-shadow: 0 0 0 3px rgba(180, 71, 71, 0.15);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-border);
+}
+
+.wf-node-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  width: 100%;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+}
+
+.wf-node-error-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+button.wf-node-error-message {
+  display: -webkit-box;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+button.wf-node-error-message:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+.run-failure-fix {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.history-fix-with-alfred {
+  align-self: flex-start;
+}
+
+.run-failure-banner {
+  position: absolute;
+  top: var(--space-3);
+  /* geometry: keeps clear of the canvas Add step button, centered. */
+  right: 120px;
+  /* geometry: mirrors the right clearance so the banner stays centered. */
+  left: 120px;
+  z-index: var(--layer-raised);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2-5);
+  max-width: 720px;
+  margin-inline: auto;
+  padding: var(--space-2-5) var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+/* The Activity rail overlays the canvas and opens with every run. */
+.run-failure-banner.is-panel-open {
+  right: calc(var(--run-w) + var(--space-3));
+  left: var(--space-3);
+}
+
+.run-failure-icon {
+  flex: none;
+  color: var(--danger);
+}
+
+.run-failure-copy {
+  /* geometry: below this the actions wrap under the message. */
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.run-failure-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.run-failure-message {
+  display: -webkit-box;
+  margin: var(--space-0-5) 0 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.run-failure-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.run-console-row.is-failed {
+  border-left: 2px solid var(--danger);
+  background: var(--danger-soft);
+}
+
+.run-console-row.is-failed .run-console-kind,
+.run-console-row.is-failed .run-console-summary {
+  color: var(--danger);
 }
 
 /* A step no firing connection reached. Dimmed and dashed so the state reads
@@ -7866,6 +8050,33 @@ button.primary.danger-solid:hover:not(:disabled) {
   background: var(--surface-card);
 }
 
+.file-editor-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  padding: var(--space-6);
+  border: none;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  background: var(--surface-card);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  line-height: var(--leading-default);
+}
+
+.file-editor-conflict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.file-editor-conflict > span {
+  flex: 1;
+}
+
 .output-modal-summary {
   flex: 0 0 auto;
   margin: 0;
@@ -8087,6 +8298,10 @@ button.primary.danger-solid:hover:not(:disabled) {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+.output-file-failure {
+  color: var(--danger);
 }
 
 .output-file-actions {

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page not found | Alfred</title>
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/png" href="/assets/brand/icon.png" />
+    <script>
+      (function () {
+        var pref = "system";
+        try { pref = localStorage.getItem("alfred:theme") || "system"; } catch (e) {}
+        var dark = pref === "dark" || (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <link rel="stylesheet" href="/styles/landing.css" />
+    <style>
+      .lost { display: grid; place-items: center; align-content: center; gap: var(--space-4); min-height: 100vh; min-height: 100svh; padding: var(--space-6); text-align: center; }
+      .lost img { width: 96px; height: auto; transform-origin: 50% 55%; animation: tie-wiggle 1100ms var(--ease) 2; }
+    </style>
+  </head>
+  <body>
+    <main class="lost">
+      <img src="/assets/brand/alfred-bow-tie.svg" alt="The Alfred bow tie" />
+      <h1 class="heading-3">Alfred could not find that page</h1>
+      <p class="body-3 muted">The address may be old or mistyped. The home page is still where you left it.</p>
+      <a class="btn btn-primary button-md" href="/">Back to the home page</a>
+    </main>
+  </body>
+</html>

@@ -1,14 +1,32 @@
-# Alfred
+<p align="center">
+  <img src="assets/branding/icon.svg" alt="Alfred logo: a butler's shirtfront with an emerald bow tie" width="140">
+</p>
 
-**Alfred** is a local desktop app for building automations across your AI coding agents.
+<h1 align="center">Alfred</h1>
 
-Compose workflows as visual graphs: write prompts, route them through agents you already use on your machine, optionally pin a **skill** and a **model**, then run the sequence and choose which outputs to keep.
+<p align="center">
+  <strong>Automate your AI coding agents from one desktop app.</strong><br>
+  Draw a workflow, choose which agent runs each step, and keep the results on your machine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Nirzhuk/alfred/releases/latest">Download</a> ·
+  <a href="docs/install.md">Install guide</a> ·
+  <a href="docs/workflows-and-memory.md">How it works</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/canvas-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/canvas-light.png">
+  <img alt="The Alfred canvas: a brief, an identity, and a memory feed a Claude Code draft step, then a Codex review step, then a release notes output" src="docs/images/canvas-light.png">
+</picture>
 
 > **Free and open source.** The complete source is available under
 > [GPL-3.0-or-later](LICENSE). Official maintainer-built installers are
 > published as public
 > [GitHub Release assets](https://github.com/Nirzhuk/alfred/releases/latest)
-> — free for everyone. An optional one-time supporter licence exists (see
+> and are free for everyone. An optional one-time supporter licence exists (see
 > [Support Alfred](#support-alfred)); nobody is ever required to pay.
 
 | Get Alfred | Cost | What you get |
@@ -26,17 +44,38 @@ Fees charged by Claude, Cursor, OpenAI, or other agent providers for their own
 services are separate from Alfred in every case. See
 [Open-source and distribution policy](docs/open-source.md) for details.
 
-## Support Alfred
+## What it does
 
-Official binaries and source builds are both completely free, and nobody is
-ever required to pay for Alfred. If you want to support its development, a
-one-time **Alfred Supporter** licence permanently unlocks two automation
-perks — cron **schedules** and file-watch/webhook **triggers** — in official
-builds. The licence never expires, and nothing you bought is ever taken away
-later. A build you compile from source includes those features unlocked by
-design, and manual workflow runs stay free in every build.
+- **Workflows as automations:** sequences of inputs → agent steps → outputs. Every workflow can be run manually; scheduling is an optional later trigger for the same automation.
+- **Multi-agent:** Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini, Grok, Pi, and OMP via local CLIs.
+- **Skills:** pin a `SKILL.md` skill on an agent step (invoked as `/skill-name …`).
+- **Models:** pick the model/alias each agent should use (`sonnet`, `gpt-5`, `provider/model`, etc.).
+- **Triggers:** optional cron schedules, file watchers, and loopback webhooks.
+- **Connected apps:** connect services such as Slack, GitHub, Linear, Sentry, Gmail, and Microsoft 365. Credentials stay in your operating system's credential store. See [Connected Apps](docs/connected-apps.md).
+- **Local persistence:** workflows, runs, memories, and schedules in SQLite on disk.
 
-<!-- TODO: supporter checkout link (`VITE_POLAR_DESKTOP_CHECKOUT_URL`) once configured -->
+### Describe a workflow instead of drawing it
+
+**Speak with Alfred** is a chat that designs, builds, runs, and schedules
+workflows for you, using Claude Code or Codex.
+
+![Speak with Alfred: a chat page with suggested requests such as a morning repo digest and a ship review](docs/images/speak-with-alfred.png)
+
+### Give agents context they can reuse
+
+The **Memory library** keeps notes, preferences, decisions, lessons, and
+constraints. Each one belongs to a workflow, a workspace, or all your workflows.
+
+![The Memory library: a list of saved memories beside the selected style guide memory](docs/images/memories.png)
+
+### See what every run did
+
+**History** lists past runs with their trigger, steps, and result, and lets you
+search prompts, outputs, and memories.
+
+![The History page: four past runs, three completed and one failed](docs/images/history.png)
+
+<sub>Screenshots show Alfred's real interface with demo data.</sub>
 
 ## Install
 
@@ -57,6 +96,8 @@ Short version:
    - GitHub Copilot → `copilot`
    - Gemini CLI → `gemini`
    - Grok Build → `grok`
+   - Pi → `pi`
+   - OMP → `omp`
 3. Confirm the CLI works in a normal terminal, then open Alfred and run a workflow.
 
 Alfred does **not** replace those subscriptions or store their API keys. The
@@ -66,15 +107,6 @@ currently reports native execution as unavailable. Alfred never silently falls
 back between harnesses. See [Agent harnesses](docs/agent-harnesses.md).
 
 Schedules, file triggers, and webhooks only run while the app is open (including tray / menu bar). A scheduled time that passes while Alfred is closed follows that schedule's own choice: catch up on open, skip the missed run, or ask you per schedule.
-
-## What it does
-
-- **Workflows as automations** — sequences of inputs → agent steps → outputs. Every workflow can be run manually; scheduling is an optional later trigger for the same automation.
-- **Multi-agent** — Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini, and Grok via local CLIs.
-- **Skills** — pin a `SKILL.md` skill on an agent step (invoked as `/skill-name …`).
-- **Models** — pick the model/alias each agent should use (`sonnet`, `gpt-5`, `provider/model`, etc.).
-- **Triggers** — optional cron schedules, file watchers, and loopback webhooks.
-- **Local persistence** — workflows, runs, memories, and schedules in SQLite on disk.
 
 ## Core ideas
 
@@ -88,50 +120,20 @@ Schedules, file triggers, and webhooks only run while the app is open (including
 | Run | Manually enqueue/execute the automation |
 | Schedule | Optional cron that fires the same runner while the app is open, plus what to do about a time missed while Alfred was closed |
 
-Use **Add step** or right-click the canvas to search for a node. Browse Essentials,
-Agents, Tools, and Outputs, or type a name such as “Identity” or “Script”.
+The rules behind these (identity, memory settings, saving outputs, and lookup)
+are in [How workflows and memory behave](docs/workflows-and-memory.md).
 
-A new, untouched workflow is removed when you switch workflows, create another
-one, close its tab, or navigate to another app section. Rename, edit, configure,
-or explicitly save it to keep it. Existing empty workflows are not automatically
-deleted.
+## Support Alfred
 
-Connect an Identity node to an agent, directly or through other steps, then
-double-click it to edit its role, personality, and standing instructions. Those
-instructions apply on every run to each connected downstream agent, including
-custom agents. Input and Template steps can change the task text without clearing
-the identity. Unconnected agents do not receive it.
+Official binaries and source builds are both completely free, and nobody is
+ever required to pay for Alfred. If you want to support its development, a
+one-time **Alfred Supporter** licence permanently unlocks two automation
+perks — cron **schedules** and file-watch/webhook **triggers** — in official
+builds. The licence never expires, and nothing you bought is ever taken away
+later. A build you compile from source includes those features unlocked by
+design, and manual workflow runs stay free in every build.
 
-Connections blend from the source node's color to the destination node's color.
-Each connection handle uses its own node's color.
-
-The **Memory library** combines search, scope filters, sorting, and an editor.
-Start with a note, preference, decision, lesson, or constraint, then choose whether
-it belongs to this workflow, its workspace, or all your workflows. Pin memories
-for recurring context or select them in a Memories node. Expired and inactive
-entries stay visible in the library and are excluded from agent context.
-
-Open **Memory settings** in the library to control automatic recall, agent
-lookup, and review suggestions. **Allow agents to look up memory** is a separate
-default-off permission from Automatic recall. The current release has no
-release-enabled native runtime for lookup and never falls back to Provider CLI.
-Suggestions require review before becoming saved memories; the restricted
-reviewer remains unavailable until its exact runtime, managed-policy, and
-authorized live-activation gate passes. Linked memories keep their source, and
-clearing a workflow preserves shared and linked entries.
-
-Output save decisions belong to backend execution and use the settings captured
-when the Output node runs. History shows durable receipts, including `Saved`,
-`Failed`, and `Deleted`; **Retry save** retries persistence of the completed
-output only and never reruns the agent. Alfred recovers pending or interrupted
-saves immediately at startup in bounded batches, so a backlog drains without
-an unbounded startup pass. A user/workspace memory promoted from an output
-survives clearing its origin workflow.
-
-When a verified runtime is available, on-demand lookup is read-only and exposes
-exactly four bounded operations: `memory.search`, `memory.get`, `history.search`,
-and `history.get`. Accepted lookup evidence is scoped to the run and records
-body-free source, version, page, and delivery metadata.
+<!-- TODO: supporter checkout link (`VITE_POLAR_DESKTOP_CHECKOUT_URL`) once configured -->
 
 ## Platforms
 
@@ -144,19 +146,6 @@ Macs), `…_Windows-setup.exe`, and `…_Linux.AppImage`. The Windows installer 
 Windows reports an unknown publisher and may show a SmartScreen warning. See
 [installing](docs/install.md), [building from source](docs/building-from-source.md),
 and the [maintainer release runbook](docs/releasing.md).
-
-## License
-
-Alfred is free software licensed under
-[GPL-3.0-or-later](LICENSE), Copyright © 2026 nirzhuk. You may use, modify,
-compile, and redistribute it, including commercially, provided you follow the
-GPL. Distributed binaries must be accompanied by access to their corresponding
-source under the same license.
-
-The GPL does not grant trademark rights or permission to imply that an
-unofficial build is an official Alfred release. See
-[BRANDING.md](BRANDING.md) and the
-[open-source and distribution policy](docs/open-source.md).
 
 ## Develop
 
@@ -212,3 +201,16 @@ described in [SECURITY.md](SECURITY.md).
 Official binaries publish automatically when a `vX.Y.Z` tag is pushed; the
 runbook is [docs/releasing.md](docs/releasing.md) and the current checklist is
 [docs/release-todo.md](docs/release-todo.md).
+
+## License
+
+Alfred is free software licensed under
+[GPL-3.0-or-later](LICENSE), Copyright © 2026 nirzhuk. You may use, modify,
+compile, and redistribute it, including commercially, provided you follow the
+GPL. Distributed binaries must be accompanied by access to their corresponding
+source under the same license.
+
+The GPL does not grant trademark rights or permission to imply that an
+unofficial build is an official Alfred release. See
+[BRANDING.md](BRANDING.md) and the
+[open-source and distribution policy](docs/open-source.md).

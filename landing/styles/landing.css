@@ -34,6 +34,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
   scroll-padding-top: var(--space-20);
@@ -79,6 +83,10 @@ p a {
   text-underline-offset: 2px;
 }
 
+i {
+  font-style: normal;
+}
+
 img, svg {
   display: block;
 }
@@ -89,6 +97,7 @@ svg {
 
 code, .cron {
   font-family: var(--font-mono);
+  font-variant-ligatures: none;
 }
 
 ::selection {
@@ -454,7 +463,7 @@ code, .cron {
 
 .hero-cta p {
   flex: 1 1 240px;
-  max-width: 420px;
+  max-width: 480px;
 }
 
 .agent-strip {
@@ -1026,9 +1035,9 @@ code, .cron {
 }
 
 .tagline-text {
-  max-width: 900px;
-  font-size: 60px;
-  line-height: 60px;
+  max-width: 960px;
+  font-size: 48px;
+  line-height: 48px;
   font-weight: 600;
   letter-spacing: -0.025em;
   text-wrap: balance;
@@ -1098,6 +1107,7 @@ code, .cron {
 
 /* Agent lab */
 .agent-lab {
+  flex: 1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-4);
@@ -2227,7 +2237,7 @@ code, .cron {
     border-width: 1px 0 0;
   }
 
-  .nav-links .nav-link:nth-child(2) {
+  .nav-links .nav-link:nth-child(3) {
     display: none;
   }
 }
@@ -2293,8 +2303,12 @@ code, .cron {
   }
 
   .tagline-text {
-    font-size: 48px;
-    line-height: 48px;
+    font-size: 36px;
+    line-height: 40px;
+  }
+
+  .tagline-text > span {
+    display: inline;
   }
 }
 
@@ -2369,15 +2383,6 @@ code, .cron {
     padding-block: var(--space-16);
   }
 
-  .tagline-text {
-    font-size: 36px;
-    line-height: 40px;
-  }
-
-  .tagline-text > span {
-    display: inline;
-  }
-
   .scrub-copy {
     min-height: 168px;
   }
@@ -2441,6 +2446,12 @@ code, .cron {
   }
 }
 
+@media (max-width: 480px) {
+  .app-tab {
+    display: none;
+  }
+}
+
 @media (max-width: 400px) {
   .hero-title {
     font-size: 30px;
@@ -2500,4 +2511,38 @@ code, .cron {
   .js .tagline-text .word {
     opacity: 1;
   }
+}
+
+/* Later additions kept outside the reduced-motion block's specificity concerns */
+.wf-node-skill {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: 16px;
+  color: var(--node-accent, var(--accent));
+  font-weight: var(--font-weight-semibold);
+}
+
+.app-logo {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: var(--space-0-5);
+  border-radius: var(--radius-sm);
+  /* theme-exempt: provider marks always sit on a white tile, as in the app. */
+  background: #ffffff;
+}
+
+.app-logo img {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.final-copy:focus-within {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.graph.graph-mini {
+  height: 340px;
 }

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { homeDir, join } from "@tauri-apps/api/path";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Icon } from "../../../../components/icon";
 import { Modal, ModalHeader } from "../../../../components/modal";
 import { useWorkflowStore } from "../../store";
 import { formatStatsWithSource } from "../../format-stats";
 import { createHtmlReportPreview } from "../../html-report";
+import { InputAttachmentList } from "../input-attachment-list";
+import { isSafeToOpen, outputFilePaths } from "../../output-files";
 import type {
   ChangedFile,
   ChangedFileStatus,
@@ -14,6 +17,14 @@ import type {
 export function formatStepInput(snapshot: StepInputSnapshot): string {
   if (typeof snapshot.body === "string") return snapshot.body;
   return JSON.stringify(snapshot.body, null, 2);
+}
+
+/** The files a File inject step read, or null for any other kind of input. */
+export function injectedFilePaths(snapshot: StepInputSnapshot): string[] | null {
+  if (snapshot.kind !== "file") return null;
+  const paths = (snapshot.body as { paths?: unknown } | null)?.paths;
+  if (!Array.isArray(paths)) return null;
+  return paths.filter((path): path is string => typeof path === "string");
 }
 
 function basename(path: string) {
@@ -52,23 +63,53 @@ const STATUS_LABEL: Record<ChangedFileStatus, string> = {
   renamed: "Renamed",
 };
 
-function FileRow({ file }: { file: ChangedFile }) {
+async function absolutePath(path: string) {
+  return path.startsWith("~/") ? join(await homeDir(), path.slice(2)) : path;
+}
+
+function FileRow({
+  file,
+  canOpen = file.status !== "deleted",
+}: {
+  file: { path: string; status?: ChangedFileStatus };
+  canOpen?: boolean;
+}) {
+  const [failure, setFailure] = useState<string | null>(null);
+  const act = (action: (path: string) => Promise<void>, message: string) => {
+    setFailure(null);
+    void absolutePath(file.path)
+      .then(action)
+      .catch((error) => {
+        console.error(message, error);
+        setFailure(message);
+      });
+  };
+
   return (
-    <li className={`output-file-row output-file-${file.status}`}>
+    <li className={`output-file-row${file.status ? ` output-file-${file.status}` : ""}`}>
       <span className="output-file-badge" aria-hidden />
       <span className="output-file-name" title={file.path}>
         {basename(file.path)}
       </span>
-      <span className="output-file-status">{STATUS_LABEL[file.status]}</span>
-      <span className="output-file-dir" title={file.path}>
-        {dirname(file.path)}
+      <span className="output-file-status">
+        {file.status ? STATUS_LABEL[file.status] : null}
       </span>
+      {failure ? (
+        <span className="output-file-dir output-file-failure" role="alert" title={file.path}>
+          {failure}
+        </span>
+      ) : (
+        <span className="output-file-dir" title={file.path}>
+          {dirname(file.path)}
+        </span>
+      )}
       <span className="output-file-actions">
-        {file.status !== "deleted" ? (
+        {canOpen ? (
           <button
             type="button"
             className="ghost"
-            onClick={() => void openPath(file.path).catch((e) => console.error("openPath failed", e))}
+            aria-label={`Open ${basename(file.path)}`}
+            onClick={() => act(openPath, "Couldn't open this file.")}
           >
             Open
           </button>
@@ -76,13 +117,10 @@ function FileRow({ file }: { file: ChangedFile }) {
         <button
           type="button"
           className="ghost"
-          onClick={() =>
-            void revealItemInDir(file.path).catch((e) =>
-              console.error("revealItemInDir failed", e),
-            )
-          }
+          aria-label={`Open folder of ${basename(file.path)}`}
+          onClick={() => act(revealItemInDir, "Couldn't find this file.")}
         >
-          Reveal
+          Open folder
         </button>
       </span>
     </li>
@@ -162,7 +200,17 @@ export function OutputModal() {
       ? stepStats[selectedOutput.nodeId]
       : undefined;
   const statsLine = stats ? formatStatsWithSource(stats) : null;
+  const injectedFiles =
+    activeTab === "input" && selectedOutput.input
+      ? injectedFilePaths(selectedOutput.input)
+      : null;
   const filesChanged = stats?.filesChanged ?? [];
+  const mentionedFiles =
+    activeTab === "output" && !htmlPreview
+      ? outputFilePaths(visibleBody).filter(
+          (path) => !filesChanged.some((file) => file.path === path),
+        )
+      : [];
 
   const copySelected = async () => {
     try {
@@ -267,7 +315,29 @@ export function OutputModal() {
         </p>
       ) : null}
       {filesChanged.length > 0 ? <FilesChangedSection files={filesChanged} /> : null}
-      {htmlPreview && !viewSource ? (
+      {mentionedFiles.length > 0 ? (
+        <div className="output-files-section">
+          <ul className="output-files-list" aria-label="Files in this output">
+            {mentionedFiles.map((path) => (
+              <FileRow key={path} file={{ path }} canOpen={isSafeToOpen(path)} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {injectedFiles ? (
+        <div className="output-modal-body">
+          <InputAttachmentList
+            attachments={injectedFiles.map((path) => ({
+              id: path,
+              path,
+              kind: "file" as const,
+            }))}
+            onRemove={() => undefined}
+            readOnly
+            variant="modal"
+          />
+        </div>
+      ) : htmlPreview && !viewSource ? (
         <iframe
           className="output-modal-html-preview"
           title={`${selectedOutput.title} preview`}

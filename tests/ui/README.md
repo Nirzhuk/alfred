@@ -59,3 +59,18 @@ IPC-mocked, and neither reads a user database:
   distribution build whose only free schedule slot is taken. Inspect through
   `window.scheduleCanvasFixture` (`node()`, `arrows()`, `calls`, `layouts`,
   `store`, `errors`). Nothing runs and no workflow leaves the browser.
+
+# README screenshots
+
+`readme-screens.html` runs the real app shell on mocked IPC and demo data, so the
+images in `docs/images/` never contain a user's workflows. To retake them, start
+the Vite development server and capture each screen at 1360×850 with a device
+scale of 2:
+
+| Image | URL query |
+| --- | --- |
+| `canvas-dark.png` | `?theme=dark` |
+| `canvas-light.png` | `?theme=light` |
+| `speak-with-alfred.png` | `?theme=dark&screen=Speak%20with%20Alfred` |
+| `history.png` | `?theme=dark&screen=History` |
+| `memories.png` | `?theme=dark&screen=Memories` |

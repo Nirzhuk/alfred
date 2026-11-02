@@ -12,6 +12,8 @@ import type {
   TemplateNodeData,
   WriteFileNodeData,
 } from "../../types";
+import { useWorkflowStore } from "../../store";
+import { FileInjectPaths } from "../file-inject-paths";
 import { previewLine, SimpleStepNode } from "../simple-step-node/simple-step-node";
 
 export function CustomAgentNode({
@@ -50,16 +52,21 @@ export function FileInjectNode({
   id,
   data,
 }: NodeProps<Node<FileInjectNodeData, "fileInject">>) {
-  const n = data.paths?.length ?? 0;
+  const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   return (
     <SimpleStepNode
       id={id}
       className="wf-node-file-inject"
       icon={<Icon name="file" size={16} />}
       title={data.label || "File inject"}
-      body={n > 0 ? `${n} path${n === 1 ? "" : "s"}` : "No paths"}
       meta="Inject into context"
-    />
+    >
+      <FileInjectPaths
+        paths={data.paths ?? []}
+        onChange={(paths) => updateNodeData(id, { paths })}
+        variant="compact"
+      />
+    </SimpleStepNode>
   );
 }
 

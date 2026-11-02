@@ -1195,6 +1195,17 @@
   background: var(--surface-selected);
 }
 
+/* The dot sits in the row's leading gutter so gaining an unseen reply never
+   reflows the title. */
+.builder-chat-unseen {
+  position: absolute;
+  /* geometry: unread mark in the row's leading gutter */
+  left: var(--space-0-5);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 .builder-chat-item {
   flex: 1;
   min-width: 0;

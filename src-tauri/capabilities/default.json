@@ -11,7 +11,15 @@
     "core:window:allow-set-theme",
     "core:window:allow-start-dragging",
     "core:app:default",
-    "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$TEMP/**" },
+        { "path": "/tmp/**" },
+        { "path": "/private/tmp/**" }
+      ]
+    },
     "opener:allow-reveal-item-in-dir",
     {
       "identifier": "opener:allow-open-url",

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 pub mod agent_accounts;
+pub mod files;
 pub mod github_cli;
 pub mod integrations;
 pub mod managed_runtime;

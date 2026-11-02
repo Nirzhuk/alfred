@@ -16,6 +16,7 @@ import type {
   WriteFileNodeData,
 } from "../../types";
 import { defaultInterpreter } from "../../types";
+import { FileInjectPaths } from "../file-inject-paths";
 import { askNames } from "../../ask-fields";
 
 function LabelField({
@@ -135,25 +136,6 @@ export function FileInjectSettings({
   data: FileInjectNodeData;
   onUpdate: (patch: Partial<FileInjectNodeData>) => void;
 }) {
-  const addPaths = async () => {
-    try {
-      const picked = await open({
-        multiple: true,
-        directory: false,
-        title: "Inject files into context",
-      });
-      if (!picked) return;
-      const list = Array.isArray(picked) ? picked : [picked];
-      const next = [...data.paths];
-      for (const path of list) {
-        if (path && !next.includes(path)) next.push(path);
-      }
-      onUpdate({ paths: next });
-    } catch (e) {
-      console.warn("File picker unavailable", e);
-    }
-  };
-
   return (
     <>
       <LabelField
@@ -161,39 +143,12 @@ export function FileInjectSettings({
         onChange={(label) => onUpdate({ label })}
       />
       <div className="field">
-        <div className="wf-attach-field-header">
-          <span>Paths</span>
-          <button
-            type="button"
-            className="ghost wf-input-attach-btn"
-            onClick={() => void addPaths()}
-          >
-            + File
-          </button>
-        </div>
+        <FileInjectPaths
+          paths={data.paths}
+          onChange={(paths) => onUpdate({ paths })}
+          variant="modal"
+        />
         <p className="hint">File contents are appended to the run context.</p>
-        {data.paths.length === 0 ? (
-          <p className="muted">No paths selected.</p>
-        ) : (
-          <ul className="wf-path-list">
-            {data.paths.map((path) => (
-              <li key={path}>
-                <code>{path}</code>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() =>
-                    onUpdate({
-                      paths: data.paths.filter((p) => p !== path),
-                    })
-                  }
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </>
   );

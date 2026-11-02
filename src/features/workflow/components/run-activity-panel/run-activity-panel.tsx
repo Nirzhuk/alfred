@@ -382,7 +382,14 @@ export function RunActivityPanel() {
                       const summary = line.activity?.label || line.message;
                       const detail = line.activity?.detail?.trim();
                       return (
-                        <article key={line.id} className="run-console-row">
+                        <article
+                          key={line.id}
+                          className={`run-console-row${
+                            kind === "step_failed" || kind === "failed" || kind === "error"
+                              ? " is-failed"
+                              : ""
+                          }`}
+                        >
                           <div className="run-console-row-main">
                             <time dateTime={line.at}>
                               {formatConsoleTime(line.at)}

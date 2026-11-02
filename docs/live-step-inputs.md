@@ -24,5 +24,19 @@ Alfred removes credential-bearing HTTP headers and sensitive URL query values
 from displayed input. A notice appears when values were redacted or when a
 large input was truncated for the live desktop event.
 
+## Files on input steps
+
+Add files by dropping them on an Input or File inject card, or on the step's
+settings. The **+ File** buttons still work. An Input accepts folders; a File
+inject step takes files only.
+
+Select a file on the card, or **Edit** in settings and in the viewer, to edit it
+in Alfred. **Save** (Cmd/Ctrl+S) writes to the original file, so the next run
+uses the new contents. If the file changed on disk after you opened it, Alfred
+asks whether to reload or overwrite. Binary, non-UTF-8, and over-2 MB files open
+with **Open in default app** instead.
+
+## Skipped steps
+
 Skipped conditional branches have no Input or Output card because those steps
 were not executed.

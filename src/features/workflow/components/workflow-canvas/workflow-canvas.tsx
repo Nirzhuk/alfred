@@ -18,6 +18,9 @@ import { SchedulesPage } from "../schedules-page";
 import { SidebarFolderContext } from "../sidebar-folder-context";
 import { HistoryPage } from "../history-page";
 import { BuilderPage } from "../../../builder/components/builder-page";
+import { useBuilderStore } from "../../../builder/store";
+import { FIX_WITH_ALFRED_EVENT } from "../../run-failure";
+import { RunFailureBanner } from "../run-failure";
 import {
   historyNavigation,
   navigateWorkflowMemory,
@@ -35,6 +38,7 @@ import {
   MemoriesInspector,
   type MemoriesInspectorMode,
 } from "../memories-inspector";
+import { FileEditorModal } from "../file-editor-modal";
 import { OutputModal } from "../output-modal";
 import { RunActivityPanel } from "../run-activity-panel";
 import { RenameWorkflowModal } from "../rename-workflow-modal";
@@ -136,6 +140,7 @@ export function WorkflowCanvas() {
 
   const canOpenActivity =
     Boolean(activeRun) || memories.length > 0 || runLogs.length > 0;
+  const unseenReplies = useBuilderStore((s) => s.unseenChatIds.length > 0);
   const activityRunning = activeRun?.status === "running";
   const activityEventCount = useMemo(
     () => runLogs.filter((line) => Boolean(line.activity)).length,
@@ -520,6 +525,12 @@ export function WorkflowCanvas() {
       setView("canvas");
       void selectWorkflowFromUi(workflowId);
     };
+    const fixWithAlfred = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: string }>).detail?.prompt;
+      if (!prompt) return;
+      setView("builder");
+      void useBuilderStore.getState().ask(prompt);
+    };
     const openActivity = () => {
       cancelPendingMemoryNavigation();
       setView("canvas");
@@ -570,6 +581,7 @@ export function WorkflowCanvas() {
     );
     window.addEventListener("alfred:delete-workflow", openDelete);
     window.addEventListener("alfred:open-memories", openMemories);
+    window.addEventListener(FIX_WITH_ALFRED_EVENT, fixWithAlfred);
     window.addEventListener("alfred:open-suggestions", openSuggestions);
     window.addEventListener("alfred:open-settings", openSettings);
     window.addEventListener("alfred:open-schedules", openSchedules);
@@ -591,6 +603,7 @@ export function WorkflowCanvas() {
       );
       window.removeEventListener("alfred:delete-workflow", openDelete);
       window.removeEventListener("alfred:open-memories", openMemories);
+      window.removeEventListener(FIX_WITH_ALFRED_EVENT, fixWithAlfred);
       window.removeEventListener("alfred:open-suggestions", openSuggestions);
       window.removeEventListener("alfred:open-settings", openSettings);
       window.removeEventListener("alfred:open-schedules", openSchedules);
@@ -703,6 +716,7 @@ export function WorkflowCanvas() {
                   activityEnabled={canOpenActivity}
                   memoriesOpen={memoriesOpen}
                   memoriesEnabled={Boolean(activeWorkflowId)}
+                  unseenReplies={unseenReplies}
                   onChange={(nextView) => {
                     if (nextView === "history") {
                       navigateHistory({ type: "open-history" });
@@ -1035,6 +1049,7 @@ export function WorkflowCanvas() {
                       focusScheduleRequest={scheduleFocus}
                     />
                   </ReactFlowProvider>
+                  <RunFailureBanner />
                   <div className="canvas-usage-dock">
                     <AgentUsageBar
                       workflowKey={activeWorkflowId ?? "no-workflow"}
@@ -1055,6 +1070,7 @@ export function WorkflowCanvas() {
       </div>
 
       <OutputModal />
+      <FileEditorModal />
       <MemoriesInspector
         open={memoriesOpen}
         initialMemoryId={memoriesFocusId}

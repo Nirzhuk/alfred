@@ -17,6 +17,7 @@ test("marks the open chat and names delete buttons", () => {
         { id: "b", title: "PR review", agent: "codex", updatedAt: Date.now() - 86_400_000 },
       ]}
       activeId="a"
+      unseenIds={[]}
       disabled={false}
       onOpen={() => {}}
       onDelete={() => {}}
@@ -28,9 +29,35 @@ test("marks the open chat and names delete buttons", () => {
   expect(html).toContain("agent-mark-codex");
 });
 
+test("marks a chat whose reply arrived while it was closed", () => {
+  const html = renderToStaticMarkup(
+    <BuilderChatList
+      chats={[
+        { id: "a", title: "Morning digest", agent: "claude_code", updatedAt: Date.now() },
+        { id: "b", title: "PR review", agent: "codex", updatedAt: Date.now() },
+      ]}
+      activeId="a"
+      unseenIds={["b"]}
+      disabled={false}
+      onOpen={() => {}}
+      onDelete={() => {}}
+    />,
+  );
+  expect(html).toContain("builder-chat-unseen");
+  expect(html).toContain("New reply");
+  expect(html.match(/New reply/g)).toHaveLength(1);
+});
+
 test("explains the empty history", () => {
   const html = renderToStaticMarkup(
-    <BuilderChatList chats={[]} activeId="" disabled={false} onOpen={() => {}} onDelete={() => {}} />,
+    <BuilderChatList
+      chats={[]}
+      activeId=""
+      unseenIds={[]}
+      disabled={false}
+      onOpen={() => {}}
+      onDelete={() => {}}
+    />,
   );
   expect(html).toContain("appear here");
 });
