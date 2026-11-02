@@ -3,7 +3,7 @@
 //! Emits `run://event` so the UI can show a live activity panel and highlight
 //! the active node.
 
-mod ask;
+pub(crate) mod ask;
 mod conditions;
 pub use conditions::{
     compile_pattern as compile_condition_pattern, MAX_CONDITION_VALUE_BYTES,

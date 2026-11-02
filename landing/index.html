@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alfred: visual workflows for your AI coding agents</title>
+    <meta
+      name="description"
+      content="Alfred is a free, open source desktop app that connects Claude Code, Codex, Cursor and four more CLIs into visual workflows. It runs on your machine, with the subscriptions you already have."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Alfred" />
+    <meta property="og:title" content="Stop pasting between your coding agents" />
+    <meta
+      property="og:description"
+      content="A free, open source desktop app that connects your AI coding agents into visual workflows."
+    />
+    <meta property="og:image" content="assets/brand/og.png" />
+    <meta property="og:image:alt" content="The Alfred workflow canvas with two coding agents connected in sequence." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" href="assets/brand/icon.png" />
+    <link rel="apple-touch-icon" href="assets/brand/icon.png" />
+    <link rel="preload" href="assets/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      /* Same pre-paint theme stamp and storage key as the desktop app. */
+      (function () {
+        document.documentElement.classList.add("js");
+        var pref = "system";
+        try {
+          pref = localStorage.getItem("alfred:theme") || "system";
+        } catch (e) {}
+        var dark =
+          pref === "dark" ||
+          (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        var theme = dark ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+    <link rel="stylesheet" href="styles/tokens.css" />
+    <link rel="stylesheet" href="styles/landing.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "Is Alfred really free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Official builds and source builds are free, and nobody is ever required to pay. In official builds, schedules and triggers unlock with an optional one time supporter licence. A build you compile yourself has them on from the start. Manual runs are free in every build." } },
+          { "@type": "Question", "name": "Do I need another AI subscription?", "acceptedAnswer": { "@type": "Answer", "text": "No. Alfred launches the CLIs you have already signed in to. Whatever Claude, Cursor, OpenAI or another provider charges for its own service stays between you and that provider." } },
+          { "@type": "Question", "name": "Which agents does it work with?", "acceptedAnswer": { "@type": "Answer", "text": "Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini CLI and Grok Build. A custom agent step can also run your own agent command." } },
+          { "@type": "Question", "name": "Does my code leave my machine?", "acceptedAnswer": { "@type": "Answer", "text": "Local workflows stay on your machine unless you choose to publish a template through the optional sharing service. A running step still sends its prompt and data to the CLI or connected service you configured for it." } },
+          { "@type": "Question", "name": "Does Alfred store my API keys?", "acceptedAnswer": { "@type": "Answer", "text": "Not for your agents. The Provider CLI harness shells out to CLIs already authenticated on your machine, so their credentials stay with them." } },
+          { "@type": "Question", "name": "Which platforms are supported?", "acceptedAnswer": { "@type": "Answer", "text": "macOS 11 or later, Windows 10 and 11, and Linux. macOS builds are Developer ID signed, notarized and stapled. The Windows installer is an unsigned beta, so Windows reports an unknown publisher and SmartScreen may warn you." } },
+          { "@type": "Question", "name": "What happens when Alfred is closed?", "acceptedAnswer": { "@type": "Answer", "text": "Schedules, file triggers and webhooks only run while the app is open, including in the tray or menu bar. For a scheduled time missed while Alfred was closed, each schedule follows its own choice: catch up on open, skip the run, or ask you." } },
+          { "@type": "Question", "name": "Can I build it from source?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The full source is on GitHub under the GPL. You need Bun, Rust and the platform prerequisites for Tauri, and the result has every feature enabled." } },
+          { "@type": "Question", "name": "How do updates work?", "acceptedAnswer": { "@type": "Answer", "text": "From version 1.2.0 on, Alfred checks at launch and from the Help menu, asks before installing, then restarts. Your workflows, runs, schedules and memories are local and survive an upgrade." } }
+        ]
+      }
+    </script>
+  </head>
+
+  <body>
+    <!-- sprite:start --><!-- sprite:end -->
+    <a class="skip-link button-sm" href="#main">Skip to content</a>
+
+    <header class="nav-wrap">
+      <nav class="nav" aria-label="Main">
+        <a class="brand" href="#top" aria-label="Alfred, back to top">
+          <img class="brand-tie" src="assets/brand/alfred-bow-tie.svg" alt="" width="28" height="12" draggable="false" />
+          <span class="title-3">Alfred</span>
+        </a>
+        <div class="nav-links">
+          <a class="nav-link title-4" href="#how">How it works</a>
+          <a class="nav-link title-4" href="#speak">Speak with Alfred</a>
+          <a class="nav-link title-4" href="#triggers">Triggers</a>
+          <a class="nav-link title-4" href="#faq">FAQ</a>
+        </div>
+        <button class="icon-btn theme-btn" type="button" aria-label="Switch colour theme" title="Switch colour theme">
+          <svg class="theme-sun" width="18" height="18" aria-hidden="true"><use href="#i-sun" /></svg>
+          <svg class="theme-moon" width="18" height="18" aria-hidden="true"><use href="#i-moon" /></svg>
+        </button>
+        <a class="btn btn-primary btn-small button-sm" data-download href="https://github.com/Nirzhuk/alfred/releases/latest">Download</a>
+        <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span class="menu-lines" aria-hidden="true"><i></i><i></i></span>
+        </button>
+      </nav>
+    </header>
+
+    <div id="mobile-menu" class="mobile-menu" hidden>
+      <a class="heading-4" href="#how">How it works</a>
+      <a class="heading-4" href="#speak">Speak with Alfred</a>
+      <a class="heading-4" href="#triggers">Triggers</a>
+      <a class="heading-4" href="#faq">FAQ</a>
+      <a class="heading-4" href="https://github.com/Nirzhuk/alfred">Source on GitHub</a>
+    </div>
+
+    <main id="main">
+      <!-- 1. Hero -->
+      <section id="top" class="hero container">
+        <h1 class="hero-title">
+          <span class="hero-line">Stop pasting between</span>
+          <span class="hero-line">your coding agents</span>
+        </h1>
+        <p class="hero-sub body-3">
+          Alfred is a free desktop app that connects Claude Code, Codex, Cursor and four more CLIs into visual workflows.
+          It runs on your machine, with the subscriptions you already have.
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary button-md" data-download data-os-label href="https://github.com/Nirzhuk/alfred/releases/latest">
+            <svg width="18" height="18" aria-hidden="true"><use href="#i-download-simple" /></svg>
+            <span data-os-text>Download Alfred free</span>
+          </a>
+          <p class="caption-2 muted" data-os-note>Open source under the GPL. Signed and notarized on macOS. The Windows installer is an unsigned beta.</p>
+        </div>
+        <ul class="agent-strip" aria-label="Works with these agent CLIs" data-agent-strip></ul>
+      </section>
+
+      <section class="container hero-demo reveal" aria-label="Interactive preview of the Alfred workflow canvas">
+        <div class="app-window">
+          <div class="app-title">
+            <span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="app-tab">Release notes</span>
+            <span class="app-spacer"></span>
+            <button class="kbd-chip" type="button" data-quick-open title="Open Quick Access">
+              <span data-quick-keys>⌘⇧Space</span>
+            </button>
+            <button class="ctl" type="button" data-add-step>
+              <svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg>
+              Add step
+            </button>
+            <button class="ctl ctl-primary" type="button" data-hero-run>
+              <svg width="16" height="16" aria-hidden="true"><use href="#i-play" /></svg>
+              <span data-run-label>Run</span>
+            </button>
+          </div>
+          <div class="app-body">
+            <div class="app-side" aria-label="Preview sidebar">
+              <a class="side-row is-selected" href="#top"><svg width="16" height="16" aria-hidden="true"><use href="#i-flow-arrow" /></svg>Workflows</a>
+              <a class="side-row" href="#speak"><svg width="16" height="16" aria-hidden="true"><use href="#i-chat-text" /></svg>Speak with Alfred</a>
+              <a class="side-row" href="#triggers"><svg width="16" height="16" aria-hidden="true"><use href="#i-clock" /></svg>Schedules</a>
+              <a class="side-row" href="#memory"><svg width="16" height="16" aria-hidden="true"><use href="#i-brain" /></svg>Memories</a>
+              <a class="side-row" href="#output"><svg width="16" height="16" aria-hidden="true"><use href="#i-chart-bar" /></svg>History</a>
+            </div>
+            <div class="app-main">
+              <div class="graph" id="hero-graph" tabindex="-1">
+                <p class="graph-hint caption-5" data-hero-hint>Drag a node. Pull from a handle to connect. Right click to add a step.</p>
+              </div>
+              <div class="run-log" aria-live="polite">
+                <div class="run-log-head">
+                  <span class="title-5">Run activity</span>
+                  <span class="caption-5 muted" data-log-status>Idle</span>
+                </div>
+                <div class="run-log-body" data-log>
+                  <p class="log-empty">Press Run to watch each step hand its result to the next.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Problem to solution, scrubbed by scroll -->
+      <section id="problem" class="scrub" aria-label="From copying between terminals to one workflow">
+        <div class="scrub-sticky">
+          <div class="container scrub-copy">
+            <div class="scrub-text" data-scrub-a>
+              <h2 class="heading-3">Right now, you are the message bus</h2>
+              <p class="body-3 muted">Copy from one terminal. Paste into the next. Explain again what you were doing. Repeat until lunch.</p>
+            </div>
+            <div class="scrub-text" data-scrub-b>
+              <h2 class="heading-3">In Alfred, the output moves itself</h2>
+              <p class="body-3 muted">Each step receives the result of the one before it, along with the context you pinned to the workflow.</p>
+            </div>
+          </div>
+          <div class="container scrub-stage" data-scrub-stage aria-hidden="true">
+            <svg class="scrub-edges" data-scrub-edges></svg>
+            <span class="paste-chip" data-paste-chip>⌘V</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Tagline reveal -->
+      <section class="tagline container" aria-label="What Alfred does">
+        <p class="tagline-text" data-tagline>
+          <span>Your agents already know how to work.</span>
+          <span>Alfred tells them when, in what order,</span>
+          <span>and which result to keep.</span>
+        </p>
+      </section>
+
+      <!-- 4. Benefits, each one a small working toy -->
+      <section id="benefits" class="section container" aria-labelledby="benefits-title">
+        <h2 id="benefits-title" class="heading-2 section-title reveal">Everything your agents need, and no more</h2>
+        <div class="bento">
+          <article class="card card-7 reveal" id="agents">
+            <h3 class="heading-6">Use a different agent for each step</h3>
+            <p class="body-6 muted">Claude Code drafts, Codex checks, Gemini summarises. Swap one with a click and the wiring stays put.</p>
+            <div class="agent-lab">
+              <div class="agent-rail" role="group" aria-label="Choose an agent" data-agent-rail></div>
+              <div class="agent-stage">
+                <div class="wf-node agent-node" data-agent-node style="--node-accent: var(--node-accent-agent)">
+                  <i class="wf-handle in"></i>
+                  <div class="wf-node-header">
+                    <span class="wf-node-title-icon" data-agent-mark></span>
+                    <div class="wf-node-title">Review the diff</div>
+                  </div>
+                  <div class="wf-node-content">
+                    <p class="wf-node-body" data-agent-body></p>
+                    <p class="wf-node-model" data-agent-model></p>
+                  </div>
+                  <i class="wf-handle out"></i>
+                </div>
+                <code class="agent-cli" aria-live="polite"><span class="muted">runs through</span> <span data-agent-cli></span></code>
+              </div>
+            </div>
+          </article>
+
+          <article class="card card-5 reveal" id="memory">
+            <h3 class="heading-6">Give context once</h3>
+            <p class="body-6 muted">Save notes, preferences, decisions, lessons and constraints. Tap a few to pin them to this agent.</p>
+            <div class="memory-lab">
+              <div class="memory-chips" role="group" aria-label="Memories" data-memory-chips></div>
+              <div class="memory-target" data-memory-target>
+                <div class="wf-node-title-icon" style="--node-accent: var(--node-accent-memory)"><svg width="16" height="16" aria-hidden="true"><use href="#i-brain" /></svg></div>
+                <span class="body-5" data-memory-count>0 memories pinned</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card card-5 reveal" id="output">
+            <h3 class="heading-6">Keep only the result you want</h3>
+            <p class="body-6 muted">Choose what gets saved, pinned and marked final. If a save fails, retry the save. The agent does not run again.</p>
+            <div class="output-lab">
+              <div class="output-toggles" role="group" aria-label="Output preferences">
+                <button class="toggle-pill caption-1" type="button" aria-pressed="true" data-out="Saved">Save</button>
+                <button class="toggle-pill caption-1" type="button" aria-pressed="false" data-out="Pinned">Pin</button>
+                <button class="toggle-pill caption-1" type="button" aria-pressed="true" data-out="Final">Final result</button>
+              </div>
+              <div class="receipt" data-receipt>
+                <div class="receipt-row">
+                  <span class="body-5">Release notes draft</span>
+                  <span class="status-tags" data-receipt-tags></span>
+                </div>
+                <p class="caption-5 muted" data-receipt-note>Output from Codex, step 3 of 4.</p>
+              </div>
+              <button class="ctl" type="button" data-fail-save>Simulate a failed save</button>
+            </div>
+          </article>
+
+          <article class="card card-7 reveal" id="local">
+            <h3 class="heading-6">Run it on your machine</h3>
+            <p class="body-6 muted">Alfred has no account or billing backend. Workflows stay local unless you publish a template, and a running step sends its prompt only to the CLI or service you configured for it.</p>
+            <div class="local-lab" data-local>
+              <div class="local-box">
+                <span class="caption-4 muted">Your machine</span>
+                <div class="local-row">
+                  <span class="local-node"><img src="assets/brand/alfred-bow-tie.svg" alt="" width="20" height="9" />Alfred</span>
+                  <span class="local-wire"><i></i></span>
+                  <span class="local-node"><svg width="16" height="16" aria-hidden="true"><use href="#i-terminal-window" /></svg><code>claude</code></span>
+                </div>
+              </div>
+              <span class="local-wire local-wire-out"><i></i></span>
+              <span class="local-node"><svg width="16" height="16" aria-hidden="true"><use href="#i-globe" /></svg>Your provider</span>
+              <span class="local-ghost caption-4">Alfred servers: none</span>
+            </div>
+            <button class="ctl" type="button" data-trace>Trace a run</button>
+          </article>
+        </div>
+      </section>
+
+      <!-- 5. Speak with Alfred -->
+      <section id="speak" class="section container" aria-labelledby="speak-title">
+        <div class="speak-head reveal">
+          <span class="alfred-orb" data-speak-orb aria-hidden="true">
+            <span class="alfred-orb-face"><img class="alfred-orb-bow-tie" src="assets/brand/alfred-bow-tie.svg" alt="" draggable="false" /></span>
+          </span>
+          <div>
+            <h2 id="speak-title" class="heading-2">Or just ask Alfred to build it</h2>
+            <p class="body-3 muted">Speak with Alfred is a chat tab in the app. Your own Claude Code or Codex CLI reads the request and lays out the workflow. Try it here.</p>
+          </div>
+        </div>
+        <form class="composer reveal" data-speak-form novalidate>
+          <label class="sr-only" for="speak-input">Describe a workflow</label>
+          <input id="speak-input" class="composer-input" type="text" autocomplete="off" maxlength="200" placeholder="Every morning, summarise my Gmail and post it to Slack" aria-describedby="speak-error" />
+          <button class="btn btn-primary button-sm" type="submit">Build it</button>
+        </form>
+        <p id="speak-error" class="field-error caption-2" data-speak-error hidden></p>
+        <div class="speak-chips reveal" data-speak-chips></div>
+        <div class="speak-canvas reveal">
+          <p class="speak-reply body-5" aria-live="polite" data-speak-reply></p>
+          <div class="graph graph-speak" id="speak-graph">
+            <div class="graph-empty" data-speak-empty>
+              <span class="body-5">Your workflow appears here</span>
+              <span class="caption-5 muted">Pick a suggestion above, or describe your own.</span>
+            </div>
+          </div>
+          <div class="speak-foot">
+            <p class="caption-5 muted">This preview runs in your browser and only matches keywords. Nothing you type leaves the page.</p>
+            <button class="ctl ctl-primary" type="button" data-speak-run hidden>
+              <svg width="16" height="16" aria-hidden="true"><use href="#i-play" /></svg>
+              <span data-run-label>Run</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. Trigger lab -->
+      <section id="triggers" class="section container" aria-labelledby="triggers-title">
+        <h2 id="triggers-title" class="heading-2 section-title reveal">Have it run without you</h2>
+        <p class="body-3 muted section-sub reveal">A workflow can start on a cron schedule, when a file changes, or from a local webhook. These three controls work, so go ahead.</p>
+        <div class="trigger-lab card reveal">
+          <div class="segmented" role="tablist" aria-label="Trigger type" data-trigger-tabs>
+            <button role="tab" id="tab-schedule" aria-controls="panel-schedule" aria-selected="true" type="button" class="title-4">Schedule</button>
+            <button role="tab" id="tab-file" aria-controls="panel-file" aria-selected="false" tabindex="-1" type="button" class="title-4">File change</button>
+            <button role="tab" id="tab-webhook" aria-controls="panel-webhook" aria-selected="false" tabindex="-1" type="button" class="title-4">Webhook</button>
+          </div>
+          <div class="trigger-grid">
+            <div class="trigger-panels">
+              <div role="tabpanel" id="panel-schedule" aria-labelledby="tab-schedule" class="trigger-panel">
+                <div class="schedule-row">
+                  <div class="dial" data-dial role="slider" tabindex="0" aria-label="Run time" aria-valuemin="0" aria-valuemax="1425">
+                    <svg viewBox="0 0 200 200" aria-hidden="true">
+                      <g data-dial-ticks></g>
+                      <g class="dial-hand" data-dial-hand>
+                        <line x1="100" y1="100" x2="100" y2="34" />
+                        <circle cx="100" cy="28" r="7" />
+                      </g>
+                    </svg>
+                    <span class="dial-time heading-5" data-dial-time>08:30</span>
+                  </div>
+                  <div class="schedule-side">
+                    <div class="day-row" role="group" aria-label="Days" data-days></div>
+                    <code class="cron" data-cron>30 8 * * 1-5</code>
+                    <p class="body-6 muted" data-next-run aria-live="polite"></p>
+                    <p class="field-error caption-2" data-day-error hidden>Pick at least one day. This schedule would never run.</p>
+                    <button class="ctl" type="button" data-fast-forward>Skip ahead to the next run</button>
+                  </div>
+                </div>
+              </div>
+              <div role="tabpanel" id="panel-file" aria-labelledby="tab-file" class="trigger-panel" hidden>
+                <label class="dropzone" data-drop>
+                  <input class="sr-only" type="file" data-file-input />
+                  <svg width="24" height="24" aria-hidden="true"><use href="#i-file-plus" /></svg>
+                  <span class="body-5" data-drop-title>Drop any file here to fire the trigger</span>
+                  <span class="caption-5 muted">Or click to choose one. The page only reads the name, and nothing is uploaded.</span>
+                </label>
+              </div>
+              <div role="tabpanel" id="panel-webhook" aria-labelledby="tab-webhook" class="trigger-panel" hidden>
+                <div class="code-block">
+                  <button class="icon-btn code-copy" type="button" data-copy="curl -X POST http://127.0.0.1:8787/hooks/&lt;triggerId&gt; -H &quot;Authorization: Bearer &lt;token&gt;&quot; -d '{&quot;branch&quot;:&quot;main&quot;}'" aria-label="Copy command" title="Copy command">
+                    <svg width="16" height="16" aria-hidden="true"><use href="#i-copy" /></svg>
+                  </button>
+                  <code>curl -X POST http://127.0.0.1:8787/hooks/&lt;triggerId&gt; \<br />&nbsp;&nbsp;-H "Authorization: Bearer &lt;token&gt;" \<br />&nbsp;&nbsp;-d '{"branch":"main"}'</code>
+                </div>
+                <button class="ctl" type="button" data-send-hook>Send a simulated request</button>
+                <code class="hook-response" data-hook-response aria-live="polite">Waiting for a request</code>
+                <p class="caption-5 muted">The real listener binds to 127.0.0.1 only and rejects a missing or wrong token.</p>
+              </div>
+            </div>
+            <div class="graph graph-mini" id="trigger-graph" aria-label="Workflow started by the trigger"></div>
+          </div>
+          <p class="caption-2 muted trigger-note">Triggers run while Alfred is open, including in the tray or menu bar. Official builds unlock schedules and triggers with an optional one time supporter licence. Source builds have them on from the start. Manual runs are free everywhere.</p>
+        </div>
+      </section>
+
+      <!-- 7. How it works -->
+      <section id="how" class="section container" aria-labelledby="how-title">
+        <h2 id="how-title" class="heading-2 section-title reveal">Running in three steps</h2>
+        <ol class="steps">
+          <li class="step wf-node reveal" style="--node-accent: var(--node-accent-input)">
+            <i class="wf-handle out"></i>
+            <div class="wf-node-header"><span class="wf-node-title-icon"><svg width="16" height="16" aria-hidden="true"><use href="#i-download-simple" /></svg></span><span class="wf-node-title">Step 1</span></div>
+            <div class="step-body">
+              <h3 class="heading-6">Install Alfred</h3>
+              <p class="body-6 muted">Grab the installer for macOS, Windows or Linux from GitHub Releases, or compile it yourself. Both are free and have no sign up.</p>
+            </div>
+          </li>
+          <li class="step wf-node reveal" style="--node-accent: var(--node-accent-agent)">
+            <i class="wf-handle in"></i><i class="wf-handle out"></i>
+            <div class="wf-node-header"><span class="wf-node-title-icon"><svg width="16" height="16" aria-hidden="true"><use href="#i-terminal-window" /></svg></span><span class="wf-node-title">Step 2</span></div>
+            <div class="step-body">
+              <h3 class="heading-6">Check one agent CLI</h3>
+              <p class="body-6 muted">Make sure an agent you use already works in a normal terminal. Alfred uses that same sign in.</p>
+              <div class="code-line">
+                <code>claude --version</code>
+                <button class="icon-btn" type="button" data-copy="claude --version" aria-label="Copy command" title="Copy command"><svg width="16" height="16" aria-hidden="true"><use href="#i-copy" /></svg></button>
+              </div>
+            </div>
+          </li>
+          <li class="step wf-node reveal" style="--node-accent: var(--node-accent-output)">
+            <i class="wf-handle in"></i>
+            <div class="wf-node-header"><span class="wf-node-title-icon"><svg width="16" height="16" aria-hidden="true"><use href="#i-play" /></svg></span><span class="wf-node-title">Step 3</span></div>
+            <div class="step-body">
+              <h3 class="heading-6">Draw a workflow, press Run</h3>
+              <p class="body-6 muted">Right click the canvas to add a step, connect it, and run. It behaves just like the preview at the top of this page.</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <!-- 8. Proof. Facts a reader can check, because no testimonials exist yet. -->
+      <!-- {{testimonial}}: add real quotes here once users have given them. -->
+      <section class="section container" aria-labelledby="proof-title">
+        <h2 id="proof-title" class="heading-2 section-title reveal">Check the work yourself</h2>
+        <div class="proof-grid">
+          <a class="proof card reveal" href="https://github.com/Nirzhuk/alfred">
+            <svg width="24" height="24" aria-hidden="true"><use href="#i-github-logo" /></svg>
+            <h3 class="title-2">Every line is public</h3>
+            <p class="body-6 muted">Licensed under GPL 3.0 or later. Read it, build it, fork it.</p>
+          </a>
+          <a class="proof card reveal" href="https://github.com/Nirzhuk/alfred/releases/latest" data-release>
+            <svg width="24" height="24" aria-hidden="true"><use href="#i-download-simple" /></svg>
+            <h3 class="title-2">Latest release</h3>
+            <p class="body-6 muted" data-release-text aria-busy="true"><span class="skeleton"></span></p>
+          </a>
+          <a class="proof card reveal" href="https://github.com/Nirzhuk/alfred/blob/main/docs/install.md">
+            <svg width="24" height="24" aria-hidden="true"><use href="#i-lock" /></svg>
+            <h3 class="title-2">Plain about signing</h3>
+            <p class="body-6 muted">macOS builds are signed, notarized and stapled. The Windows installer is an unsigned beta, and SmartScreen may warn you.</p>
+          </a>
+        </div>
+      </section>
+
+      <!-- 9. FAQ -->
+      <section id="faq" class="section container faq" aria-labelledby="faq-title">
+        <h2 id="faq-title" class="heading-2 section-title reveal">Questions you may have</h2>
+        <div class="faq-list reveal">
+          <details>
+            <summary class="title-3">Is Alfred really free?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">Yes. Official builds and source builds are free, and nobody is ever required to pay. In official builds, schedules and triggers unlock with an optional one time supporter licence. A build you compile yourself has them on from the start. Manual runs are free in every build.</p>
+          </details>
+          <details>
+            <summary class="title-3">Do I need another AI subscription?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">No. Alfred launches the CLIs you have already signed in to. Whatever Claude, Cursor, OpenAI or another provider charges for its own service stays between you and that provider.</p>
+          </details>
+          <details>
+            <summary class="title-3">Which agents does it work with?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini CLI and Grok Build. A custom agent step can also run your own agent command.</p>
+          </details>
+          <details>
+            <summary class="title-3">Does my code leave my machine?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">Local workflows stay on your machine unless you choose to publish a template through the optional sharing service. A running step still sends its prompt and data to the CLI or connected service you configured for it.</p>
+          </details>
+          <details>
+            <summary class="title-3">Does Alfred store my API keys?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">Not for your agents. The Provider CLI harness shells out to CLIs already authenticated on your machine, so their credentials stay with them.</p>
+          </details>
+          <details>
+            <summary class="title-3">Which platforms are supported?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">macOS 11 or later, Windows 10 and 11, and Linux. macOS builds are Developer ID signed, notarized and stapled. The Windows installer is an unsigned beta, so Windows reports an unknown publisher and SmartScreen may warn you.</p>
+          </details>
+          <details>
+            <summary class="title-3">What happens when Alfred is closed?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">Schedules, file triggers and webhooks only run while the app is open, including in the tray or menu bar. For a scheduled time missed while Alfred was closed, each schedule follows its own choice: catch up on open, skip the run, or ask you.</p>
+          </details>
+          <details>
+            <summary class="title-3">Can I build it from source?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">Yes. The <a href="https://github.com/Nirzhuk/alfred/blob/main/docs/building-from-source.md">build guide</a> covers it. You need Bun, Rust and the platform prerequisites for Tauri, and the result has every feature enabled.</p>
+          </details>
+          <details>
+            <summary class="title-3">How do updates work?<svg width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+            <p class="body-6 muted">From version 1.2.0 on, Alfred checks at launch and from the Help menu, asks before installing, then restarts. Your workflows, runs, schedules and memories are local and survive an upgrade.</p>
+          </details>
+        </div>
+      </section>
+
+      <!-- 10. Final CTA: Alfred gets dressed as you scroll -->
+      <section class="final" id="final" aria-labelledby="final-title">
+        <div class="final-sticky">
+          <button class="butler" type="button" data-butler aria-label="Twirl the bow tie">
+            <svg viewBox="82 89 860 860" role="img" aria-label="The Alfred app icon: a dark jacket, white shirt and emerald bow tie">
+              <defs>
+                <linearGradient id="bl-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c2c30" /><stop offset="1" stop-color="#141416" /></linearGradient>
+                <linearGradient id="bl-face" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" /><stop offset="1" stop-color="#e6e6ea" /></linearGradient>
+                <linearGradient id="bl-lap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#505056" /><stop offset="1" stop-color="#3a3a3f" /></linearGradient>
+                <linearGradient id="bl-wing" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="472" y2="0"><stop offset="0" stop-color="#46dcab" /><stop offset=".6" stop-color="#22a981" /><stop offset="1" stop-color="#127a5e" /></linearGradient>
+                <linearGradient id="bl-knot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2cba8d" /><stop offset="1" stop-color="#0e6a52" /></linearGradient>
+                <clipPath id="bl-sq"><rect x="100" y="100" width="824" height="824" rx="185" /></clipPath>
+                <g id="bl-wing-shape">
+                  <path d="M472 282C430 264 382 234 340 224C316 218 300 232 300 254C306 288 306 326 300 360C300 382 316 396 340 390C382 380 430 350 472 332Z" transform="translate(0 9)" fill="#0a4a3a" />
+                  <path d="M472 282C430 264 382 234 340 224C316 218 300 232 300 254C306 288 306 326 300 360C300 382 316 396 340 390C382 380 430 350 472 332Z" fill="url(#bl-wing)" />
+                  <path d="M472 294C436 284 392 264 346 256C388 272 432 294 472 308Z" fill="#0a4a3a" opacity=".5" />
+                  <path d="M472 320C436 330 392 350 346 358C388 342 432 320 472 306Z" fill="#0a4a3a" opacity=".5" />
+                  <g fill="none" stroke-linecap="round">
+                    <path d="M352 268C392 282 432 300 466 310" stroke="#fff" stroke-width="4" opacity=".3" />
+                    <path d="M340 236C380 246 426 272 462 288" stroke="#aef3da" stroke-width="6" opacity=".55" />
+                    <path d="M312 262C317 290 317 324 312 352" stroke="#aef3da" stroke-width="5" opacity=".25" />
+                    <path d="M340 380C380 370 426 342 462 326" stroke="#0a4a3a" stroke-width="6" opacity=".4" />
+                  </g>
+                </g>
+              </defs>
+              <g data-layer="jacket">
+                <rect x="100" y="114" width="824" height="824" rx="185" fill="#0a0a0c" />
+                <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bl-bg)" />
+              </g>
+              <g clip-path="url(#bl-sq)">
+                <g data-layer="lapels"><path d="M196 100L425 786Q440 830 454 812L494 762Q512 740 530 762L570 812Q584 830 599 786L828 100Z" fill="url(#bl-lap)" /></g>
+                <g data-layer="shirt"><path d="M296 100H728L527 695Q512 740 497 695Z" fill="url(#bl-face)" /></g>
+                <g data-layer="button1"><circle cx="512" cy="478" r="19" fill="#26262a" /></g>
+                <g data-layer="button2"><circle cx="512" cy="572" r="19" fill="#26262a" /></g>
+              </g>
+              <g class="butler-tie" data-tie>
+                <g data-layer="wingL"><g class="wing-l"><use href="#bl-wing-shape" /></g></g>
+                <g data-layer="wingR"><g class="wing-r"><g transform="matrix(-1 0 0 1 1024 0)"><use href="#bl-wing-shape" /></g></g></g>
+                <g data-layer="knot">
+                  <path d="M472 276C490 268 534 268 552 276C558 300 558 314 552 338C534 346 490 346 472 338C466 314 466 300 472 276Z" transform="translate(0 6)" fill="#0a4a3a" />
+                  <path d="M472 276C490 268 534 268 552 276C558 300 558 314 552 338C534 346 490 346 472 338C466 314 466 300 472 276Z" fill="url(#bl-knot)" />
+                  <g fill="none" stroke-linecap="round">
+                    <path d="M494 288C490 302 490 314 494 328" stroke="#0a4a3a" stroke-width="5" opacity=".35" />
+                    <path d="M530 288C534 302 534 314 530 328" stroke="#0a4a3a" stroke-width="5" opacity=".35" />
+                    <path d="M486 280C502 275 522 275 538 280" stroke="#8fedcd" stroke-width="6" opacity=".65" />
+                  </g>
+                </g>
+              </g>
+            </svg>
+          </button>
+          <div class="final-copy">
+            <h2 id="final-title" class="heading-2">Alfred is dressed and ready</h2>
+            <p class="body-3 muted">Free and open source. No account and no card. You can delete it whenever you like, and your agents will carry on as before.</p>
+            <div class="hero-cta">
+              <a class="btn btn-primary button-md" data-download data-os-label href="https://github.com/Nirzhuk/alfred/releases/latest">
+                <svg width="18" height="18" aria-hidden="true"><use href="#i-download-simple" /></svg>
+                <span data-os-text>Download Alfred free</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer container">
+      <div class="footer-brand">
+        <img src="assets/brand/alfred-bow-tie.svg" alt="" width="28" height="12" />
+        <span class="caption-2 muted">Copyright 2026 nirzhuk. GPL 3.0 or later. Provider fees are separate.</span>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a class="caption-2" href="https://github.com/Nirzhuk/alfred">Source</a>
+        <a class="caption-2" href="https://github.com/Nirzhuk/alfred/releases">Releases</a>
+        <a class="caption-2" href="https://github.com/Nirzhuk/alfred/blob/main/docs/install.md">Docs</a>
+        <a class="caption-2" href="https://github.com/Nirzhuk/alfred/blob/main/LICENSE">Licence</a>
+        <a class="caption-2" href="https://github.com/Nirzhuk/alfred/blob/main/SECURITY.md">Security</a>
+        <a class="caption-2" href="https://github.com/Nirzhuk/alfred/blob/main/BRANDING.md">Branding</a>
+      </nav>
+    </footer>
+
+    <!-- Add step menu, same groups and wording as the desktop app -->
+    <div class="ui-menu add-menu" data-add-menu role="dialog" aria-label="Add step" hidden>
+      <div class="menu-search">
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-magnifying-glass" /></svg>
+        <input type="text" placeholder="Search steps" aria-label="Search steps" data-add-search autocomplete="off" />
+      </div>
+      <div class="menu-list" role="listbox" aria-label="Steps" data-add-list></div>
+    </div>
+
+    <!-- Quick Access, on the same shortcut as the production app -->
+    <div class="quick-backdrop" data-quick hidden>
+      <div class="quick" role="dialog" aria-modal="true" aria-label="Quick Access">
+        <div class="menu-search">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-magnifying-glass" /></svg>
+          <input type="text" placeholder="Run a workflow" aria-label="Search workflows" data-quick-search autocomplete="off" />
+        </div>
+        <div class="menu-list" data-quick-list></div>
+        <p class="caption-5 muted quick-foot">Same shortcut as the real app. Pick one and the preview runs it.</p>
+      </div>
+    </div>
+
+    <div class="toast body-5" data-toast role="status" hidden></div>
+
+    <script src="landing.js"></script>
+  </body>
+</html>

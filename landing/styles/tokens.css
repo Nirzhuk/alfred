@@ -1,0 +1,357 @@
+/* Design tokens: the single source of truth for Alfred's palette, type,
+   spacing, shape, elevation, motion, and layer scales.
+
+   Split out of App.css so a second window can adopt the design system without
+   parsing the main window's component rules. Every consumer imports this file
+   first; nothing here paints, so importing it twice would be harmless anyway.
+
+   Both themes live here: `:root` is light, `[data-theme="dark"]` is dark, and
+   the resolved value is stamped onto <html> before first paint (index.html)
+   rather than read from a media query. */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/geist-variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/geist-mono-variable.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light;
+  --bg: #ededec;
+  --bg-glow: linear-gradient(180deg, #f4f4f3 0%, #e9e9e7 100%);
+  /* Surface fills, named by stacking role, not by intensity. Each step is a
+     container for the one below it, so a fill is chosen by what an element
+     sits ON, never by how white it looks. Do not add a fourth fill or a raw
+     rgba: a control brighter than its own card is the bug this scale prevents.
+       inset  - recessed well: segmented-control track, list well
+       card   - container resting on the panel
+       raised - control or row lifted above a card
+       surface- opaque; occludes what is beneath it (menus, popovers) */
+  --surface-panel: rgba(247, 247, 246, 0.84);
+  --surface-panel-opaque: #f7f7f6;
+  --surface-inset: #e8e8e6;
+  --surface-card: #f6f6f5;
+  --surface-raised: #fbfbfa;
+  --surface: #ffffff;
+  --bg-wash: rgba(255, 255, 255, 0.24);
+  --ink: #171717;
+  --muted: #666664;
+  --icon: #1f1f1f;
+  --icon-disabled: #777775;
+  --line: color-mix(in srgb, var(--ink) 12%, transparent);
+  --ink-faint: color-mix(in srgb, var(--ink) 6%, transparent);
+  --ink-soft: color-mix(in srgb, var(--ink) 8%, transparent);
+  --ink-mid: color-mix(in srgb, var(--ink) 22%, transparent);
+  --ink-ghost: color-mix(in srgb, var(--ink) 42%, transparent);
+  --ink-strong: color-mix(in srgb, var(--ink) 70%, transparent);
+  --shadow: 0 10px 30px color-mix(in srgb, var(--ink) 6%, transparent);
+  --shadow-soft: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
+  --shadow-node:
+    0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent),
+    0 6px 14px color-mix(in srgb, var(--ink) 6%, transparent);
+  --shadow-modal: 0 24px 60px rgba(16, 16, 16, 0.22);
+  --shadow-menu: 0 16px 40px rgba(16, 16, 16, 0.16);
+  --backdrop: rgba(16, 16, 16, 0.42);
+  --accent: #08795b;
+  --accent-strong: #056047;
+  --accent-ink: #f3fffb;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-mid: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 35%, transparent);
+  --accent-border-strong: color-mix(in srgb, var(--accent) 40%, transparent);
+  --accent-border-loud: color-mix(in srgb, var(--accent) 50%, transparent);
+  --accent-edge: color-mix(in srgb, var(--accent) 42%, transparent);
+  --accent-edge-strong: color-mix(in srgb, var(--accent) 55%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 8%, transparent);
+  --btn-primary: var(--accent);
+  --btn-primary-hover: var(--accent-strong);
+  --handle-fill: var(--accent);
+  --handle-ring: rgba(255, 255, 255, 0.95);
+  --handle-glow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+  /* Canvas node identity hues: header gradient tint + icon color. */
+  --node-accent-input: #2563eb;
+  --node-accent-identity: #9333ea;
+  --node-accent-agent: #7c3aed;
+  --node-accent-custom-agent: #4f46e5;
+  --node-accent-app-action: #0891b2;
+  --node-accent-output: #d97706;
+  --node-accent-memory: #db2777;
+  --node-accent-template: #0d9488;
+  --node-accent-file-inject: #ea580c;
+  --node-accent-git-status: #e11d48;
+  --node-accent-shell: #64748b;
+  --node-accent-script: #a21caf;
+  --node-accent-http: #0284c7;
+  --node-accent-notify: #ca8a04;
+  --node-accent-write-file: #16a34a;
+  --node-accent-git-host: #059669;
+  --canvas: linear-gradient(180deg, var(--bg-wash), transparent 45%), var(--bg);
+  --canvas-dot: rgba(16, 16, 16, 0.2);
+  --menu: rgba(255, 255, 255, 0.96);
+  --danger: #bb1a1e;
+  --danger-strong: #a11619;
+  --danger-ink: #ffffff;
+  --danger-soft: color-mix(in srgb, var(--danger) 8%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 28%, transparent);
+  --danger-border-hover: color-mix(in srgb, var(--danger) 35%, transparent);
+  --success: var(--accent);
+  --neutral-dot: #b7b7b5;
+  --fail-dot: #b44747;
+  --warning: #b98900;
+  --info: var(--muted);
+  --trigger-line: rgba(0, 0, 0, 0.09);
+  --log-rule: color-mix(in srgb, var(--ink) 10%, transparent);
+  --agent-mark-color: var(--muted);
+  --agent-claude-color: #c76243;
+  /* Third-party brand marks. Fixed identity, not theme colors. */
+  --agent-claude-code-color: #d97757;
+  --agent-cursor-color: #5b8def;
+  --agent-codex-color: #36a477;
+  --agent-opencode-color: #a678d4;
+  --agent-github-copilot-color: #8256d0;
+  --agent-gemini-color: #4f7cff;
+  --agent-grok-color: #111111;
+  --agent-pi-color: #111111;
+  --agent-omp-color: #f97316;
+  /* Alfred's own mark: the app-icon jacket behind the bow tie. Fixed identity,
+     not a theme color; used only where the mark itself is drawn. */
+  --brand-alfred: #2c2c30;
+  --brand-alfred-deep: #141416;
+  --bottom-dock-height: 2.7rem;
+  /* Typography: Infer is preferred; bundled Geist keeps releases offline-safe. */
+  --font-sans:
+    "Infer", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "Geist Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --leading-compact: 1.2;
+  --leading-default: 1.4;
+  --leading-relaxed: 1.55;
+
+  /* Four-pixel spacing grid, with half steps for dense desktop controls. */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Shape, control, and icon scales. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --radius: var(--radius-lg);
+  --window-frame-radius: 11px;
+  --control-height-compact: 28px;
+  --control-height-default: 32px;
+  --control-height-comfortable: 36px;
+  --control-height-navigation: 38px;
+  --control-height-large: 40px;
+  --titlebar-height: 44px;
+  --titlebar-safe-start: var(--space-3);
+  --titlebar-safe-end: var(--space-3);
+  --titlebar-macos-safe-start: 78px;
+  --titlebar-macos-compact-safe-start: 72px;
+  --icon-size-compact: 16px;
+  --icon-size-default: 18px;
+  --icon-size-prominent: 20px;
+  --icon-size-display: 24px;
+
+  /* Interaction, elevation, motion, and layering. Mixed against --ink (not a
+     flat white/black alpha) so hover/pressed/selected stay visible even when a
+     control already sits on a near-white (light) or near-black (dark) panel,
+     where a same-tone alpha wash reads as invisible. Kept neutral (ink, not
+     accent) so selection reads as quiet gray, not a colored chip. */
+  --control-background: var(--surface-card);
+  --control-background-hover: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  --control-background-pressed: color-mix(
+    in srgb,
+    var(--ink) 14%,
+    var(--surface)
+  );
+  --control-background-selected: color-mix(
+    in srgb,
+    var(--ink) 20%,
+    var(--surface)
+  );
+  --control-border: var(--line);
+
+  /* Shared control face for field-style controls (selects, inputs, popover
+     select triggers): one raised gradient plus the raised elevation so every
+     editable control reads as the same physical keycap on any surface. */
+  --control-surface: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--control-background-hover) 96%, white),
+    var(--control-background-pressed)
+  );
+
+  /* Quiet interaction surfaces. ONE scale for every borderless row, ghost icon
+     button, nav item, menu item, and list row — anything that sits directly on
+     a panel and must tint it rather than paint an opaque tile over it. The
+     --control-background-* scale above is its opaque counterpart, for filled
+     controls that own their own background. Both are mixed against --ink so
+     they invert with the theme; these stay transparent so the panel, canvas,
+     or card beneath still reads through. Accent tints mark a genuinely
+     selected or primary state, never a hover. */
+  --surface-hover: color-mix(in srgb, var(--ink) 4%, transparent);
+  --surface-selected: color-mix(in srgb, var(--ink) 7%, transparent);
+  --surface-pressed: color-mix(in srgb, var(--ink) 10%, transparent);
+  --focus-ring-color: var(--accent-edge);
+  --focus-ring: 0 0 0 2px var(--focus-ring-color);
+  --disabled-opacity: 0.45;
+  --elevation-raised: var(--shadow-soft);
+  --elevation-popover: var(--shadow-menu);
+  --elevation-modal: var(--shadow-modal);
+  --duration-fast: 120ms;
+  --duration-standard: 180ms;
+  --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.19, 1, 0.22, 1);
+  --layer-content: 1;
+  --layer-raised: 5;
+  --layer-sticky: 10;
+  --layer-panel: 20;
+  --layer-popover: 50;
+  --layer-overlay: 80;
+  --layer-drag: 120;
+  --layer-toast: 130;
+
+  /* Sidebar navigation contract. Keep workflow and settings rails on one scale.
+     Navigation reads quiet: item ink is softened off full --ink, icons and
+     section labels step back further, and selection is a neutral wash rather
+     than an accent tint. */
+  --sidebar-item-font-size: var(--text-md);
+  --sidebar-item-font-weight: var(--font-weight-regular);
+  --sidebar-item-color: color-mix(in srgb, var(--ink) 60%, var(--muted));
+  --sidebar-icon-color: var(--icon-disabled);
+  --sidebar-icon-size: var(--icon-size-compact);
+  --sidebar-section-font-size: var(--text-lg);
+  --sidebar-section-font-weight: var(--font-weight-regular);
+  --sidebar-section-color: color-mix(in srgb, var(--muted) 72%, transparent);
+  --sidebar-item-min-height: var(--control-height-default);
+  --sidebar-item-gap: var(--space-1);
+  --sidebar-item-stack-gap: 2px;
+  --sidebar-item-inline-padding: var(--space-2);
+  font-family: var(--font-sans);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101010;
+  --bg-glow: linear-gradient(180deg, #121212 0%, #101010 100%);
+  --surface-panel: rgba(23, 23, 23, 0.82);
+  --surface-panel-opaque: #171717;
+  --surface-inset: #1b1b1b;
+  --surface-card: #202020;
+  --surface-raised: #262626;
+  --surface: #2c2c2c;
+  --bg-wash: rgba(255, 255, 255, 0.015);
+  --ink: #fcfcfc;
+  --sidebar-item-color: #aaaaaa;
+  --muted: #aaaaaa;
+  --icon: #fcfcfc;
+  --icon-disabled: #8e8f8d;
+  --line: color-mix(in srgb, var(--ink) 12%, transparent);
+  --ink-faint: color-mix(in srgb, var(--ink) 6%, transparent);
+  --ink-soft: color-mix(in srgb, var(--ink) 8%, transparent);
+  --ink-mid: color-mix(in srgb, var(--ink) 20%, transparent);
+  --ink-ghost: color-mix(in srgb, var(--ink) 42%, transparent);
+  --ink-strong: color-mix(in srgb, var(--ink) 72%, transparent);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.46);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --shadow-node:
+    0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 24px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 28px 72px rgba(0, 0, 0, 0.62);
+  --shadow-menu: 0 18px 48px rgba(0, 0, 0, 0.58);
+  --backdrop: rgba(0, 0, 0, 0.68);
+  --accent: #38c99b;
+  --accent-strong: #5cddb0;
+  --accent-ink: #f3fffb;
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-mid: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 42%, transparent);
+  --accent-border-strong: color-mix(in srgb, var(--accent) 50%, transparent);
+  --accent-border-loud: color-mix(in srgb, var(--accent) 62%, transparent);
+  --accent-edge: color-mix(in srgb, var(--accent) 50%, transparent);
+  --accent-edge-strong: color-mix(in srgb, var(--accent) 65%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 12%, transparent);
+  --btn-primary: #137a5f;
+  --btn-primary-hover: #168266;
+  --handle-fill: var(--accent);
+  --handle-ring: rgba(16, 16, 16, 0.92);
+  --handle-glow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Canvas node identity hues: header gradient tint + icon color. */
+  --node-accent-input: #60a5fa;
+  --node-accent-identity: #c084fc;
+  --node-accent-agent: #a78bfa;
+  --node-accent-custom-agent: #818cf8;
+  --node-accent-app-action: #22d3ee;
+  --node-accent-output: #fbbf24;
+  --node-accent-memory: #f472b6;
+  --node-accent-template: #2dd4bf;
+  --node-accent-file-inject: #fb923c;
+  --node-accent-git-status: #fb7185;
+  --node-accent-shell: #94a3b8;
+  --node-accent-script: #e879f9;
+  --node-accent-http: #38bdf8;
+  --node-accent-notify: #facc15;
+  --node-accent-write-file: #4ade80;
+  --node-accent-git-host: #34d399;
+  --canvas: linear-gradient(180deg, var(--bg-wash), transparent 45%), var(--bg);
+  --canvas-dot: rgba(255, 255, 255, 0.22);
+  --menu: rgba(28, 28, 28, 0.96);
+  --danger: #e55e5f;
+  --danger-strong: #c74449;
+  --danger-ink: #ffffff;
+  --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
+  --danger-border-hover: color-mix(in srgb, var(--danger) 42%, transparent);
+  --success: var(--accent);
+  --neutral-dot: #595959;
+  --fail-dot: var(--danger);
+  --warning: #d8a520;
+  --info: var(--muted);
+  --trigger-line: rgba(255, 255, 255, 0.1);
+  --log-rule: color-mix(in srgb, var(--ink) 10%, transparent);
+  --agent-mark-color: #aaaaaa;
+  --agent-claude-color: #ef8a6c;
+  --agent-github-copilot-color: #b89aff;
+  --agent-gemini-color: #8ca8ff;
+  --agent-grok-color: #f2f5f3;
+  --agent-pi-color: #f2f5f3;
+}
+
+html[data-platform="macos"] {
+  --titlebar-safe-start: var(--titlebar-macos-safe-start);
+}

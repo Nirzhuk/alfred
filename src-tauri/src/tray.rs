@@ -133,8 +133,8 @@ fn status_tooltip(app: &AppHandle, snap: &TraySnapshot) -> String {
 
 fn status_icon() -> tauri::Result<Image<'static>> {
     // Native tray APIs consume raster images; this is the menu-bar rendition
-    // of public/icon-mustache.svg.
-    Image::from_bytes(include_bytes!("../icons/trayMustacheTemplate@2x.png"))
+    // of assets/branding/tray-bow-tie.svg.
+    Image::from_bytes(include_bytes!("../icons/trayBowTieTemplate@2x.png"))
 }
 
 fn build_menu(app: &AppHandle, snap: &TraySnapshot) -> tauri::Result<Menu<Wry>> {

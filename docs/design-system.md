@@ -203,8 +203,8 @@ at least 28px in dense chrome and 32px for ordinary controls.
 - Use `--control-*` tokens for shared control states.
 - Use emerald only when the interface is communicating action, location,
   focus, progress, or success. Hover is neutral.
-- `--brand-alfred` and `--brand-alfred-deep` are the app-icon teal. They paint
-  only Alfred's own mustache mark (the Speak with Alfred orb), never controls,
+- `--brand-alfred` and `--brand-alfred-deep` are the app-icon jacket. They paint
+  only Alfred's own bow tie mark (the Speak with Alfred orb), never controls,
   states, or text, and stay fixed across themes like third-party agent marks.
 - On macOS, the transparent window installs one full-window native
   `NSVisualEffectView` through [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)

@@ -80,7 +80,7 @@
   color: var(--ink);
 }
 
-/* Alfred's orb: the app-icon mustache on a teal tile inside a light ring.
+/* Alfred's orb: the app-icon bow tie on a jacket-dark tile inside a light ring.
    The tile never rotates; the ring's light travels via --builder-angle. */
 
 .alfred-orb {
@@ -142,12 +142,12 @@
   pointer-events: none;
 }
 
-.alfred-orb-mustache {
+.alfred-orb-bow-tie {
   width: 80%;
   height: auto;
   transform-origin: 50% 55%;
   filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--brand-alfred-deep) 60%, transparent));
-  animation: alfred-mustache-idle 4.8s var(--ease-standard) infinite;
+  animation: alfred-bow-tie-idle 4.8s var(--ease-standard) infinite;
 }
 
 .alfred-orb.is-busy::before {
@@ -159,8 +159,8 @@
   animation: alfred-orb-glow 1.6s var(--ease-standard) infinite;
 }
 
-.alfred-orb.is-busy .alfred-orb-mustache {
-  animation: alfred-mustache-twirl 1.1s var(--ease-standard) infinite;
+.alfred-orb.is-busy .alfred-orb-bow-tie {
+  animation: alfred-bow-tie-sway 1.1s var(--ease-standard) infinite;
 }
 
 .alfred-orb.is-xs {
@@ -291,7 +291,7 @@
   color: var(--accent-ink);
   background: linear-gradient(165deg, var(--brand-alfred), var(--brand-alfred-deep));
   box-shadow: 0 10px 30px color-mix(in srgb, var(--brand-alfred) 35%, transparent);
-  animation: alfred-mustache-idle 1.6s var(--ease-standard) infinite;
+  animation: alfred-bow-tie-idle 1.6s var(--ease-standard) infinite;
 }
 
 /* Composer attachment tray */
@@ -1524,7 +1524,7 @@
   }
 }
 
-@keyframes alfred-mustache-idle {
+@keyframes alfred-bow-tie-idle {
   0%,
   100% {
     transform: translateY(0) rotate(0deg);
@@ -1534,8 +1534,8 @@
   }
 }
 
-/* A butler's twirl: ends lift and settle while he works. */
-@keyframes alfred-mustache-twirl {
+/* A butler straightening the tie: it tips and settles while Alfred works. */
+@keyframes alfred-bow-tie-sway {
   0%,
   100% {
     transform: rotate(0deg) scaleX(1);

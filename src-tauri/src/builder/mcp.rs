@@ -193,7 +193,19 @@ pub fn tool_definitions() -> Vec<Value> {
             }),
             &["id"],
         ),
-        tool("run_workflow", "Start a manual run. Returns the run id.", json!({ "id": { "type": "string" } }), &["id"]),
+        tool(
+            "run_workflow",
+            "Start a manual run. Returns the run id. Fails without starting, naming the fields, if a {{ask:Name}} placeholder has no default and no answer.",
+            json!({
+                "id": { "type": "string" },
+                "answers": {
+                    "type": "object",
+                    "description": "Values for {{ask:Name}} placeholders, keyed by Name.",
+                    "additionalProperties": { "type": "string" },
+                },
+            }),
+            &["id"],
+        ),
         tool(
             "get_run",
             "Get a run's status and each step's output. waitSeconds (max 300) waits for it to finish.",
@@ -366,8 +378,28 @@ pub fn call_tool(app: &AppHandle, name: &str, args: &Value) -> Result<Value, Str
         }
         "run_workflow" => {
             let id = required(args, "id")?;
-            let summary = runner::start_run(app.clone(), db.inner(), id, RunTrigger::Manual, None)
-                .map_err(|e| e.to_string())?;
+            let answers: HashMap<_, _> = string_map(args.get("answers")).into_iter().collect();
+            let workflow = db
+                .get_workflow(id)
+                .map_err(|e| e.to_string())?
+                .ok_or("No workflow with that id. Call list_workflows.")?;
+            let nodes = workflow.graph["nodes"].as_array().map_or(&[][..], Vec::as_slice);
+            let missing = runner::ask::missing_answers(nodes, &answers);
+            if !missing.is_empty() {
+                return Err(format!(
+                    "Not started. This workflow needs answers for: {}. Ask the user, then call run_workflow again with `answers`.",
+                    missing.join(", ")
+                ));
+            }
+            let summary = runner::start_run_with_answers(
+                app.clone(),
+                db.inner(),
+                id,
+                RunTrigger::Manual,
+                None,
+                answers,
+            )
+            .map_err(|e| e.to_string())?;
             crate::tray::refresh(app);
             serde_json::to_value(summary).map_err(|e| e.to_string())
         }
@@ -803,5 +835,7 @@ mod tests {
         let names: HashSet<_> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names.len(), tools.len());
         assert!(tools.iter().all(|t| t["inputSchema"]["type"] == "object"));
+        let run = tools.iter().find(|t| t["name"] == "run_workflow").unwrap();
+        assert_eq!(run["inputSchema"]["properties"]["answers"]["type"], "object");
     }
 }
