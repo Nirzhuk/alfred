@@ -32,7 +32,7 @@ export function MemoryNode({ id, data }: NodeProps<MemoryFlowNode>) {
         <p className="wf-node-skill muted">
           {count > 0 ? "Injected into context" : "From this or other workflows"}
         </p>
-        <NodeRunResult nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} inputFirst />
       </div>
       <Handle
         className="wf-handle"

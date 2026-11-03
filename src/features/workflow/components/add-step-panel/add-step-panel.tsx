@@ -1,4 +1,5 @@
 import { Panel, useReactFlow } from "@xyflow/react";
+import { Icon } from "../../../../components/icon";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,13 +12,17 @@ import {
 } from "../add-step-menu-items";
 
 type Props = AddStepMenuHandlers;
+type PanelProps = Props & {
+  /** Null while there is nothing to arrange. */
+  onTidy: (() => void) | null;
+};
 
 function AddStepDropdownBody(props: Props & { getPosition: () => { x: number; y: number } }) {
   const close = useDropdownMenuClose();
   return <AddStepMenuItems {...props} close={close} />;
 }
 
-export function AddStepPanel(props: Props) {
+export function AddStepPanel({ onTidy, ...props }: PanelProps) {
   const { screenToFlowPosition } = useReactFlow();
 
   const getPosition = () => {
@@ -30,6 +35,15 @@ export function AddStepPanel(props: Props) {
 
   return (
     <Panel position="top-right" className="add-step-panel">
+      <button
+        type="button"
+        className="add-step-trigger"
+        disabled={!onTidy}
+        onClick={() => onTidy?.()}
+      >
+        <Icon name="flow-arrow" size={16} />
+        Tidy up
+      </button>
       <DropdownMenu className="add-step-panel-inner">
         <DropdownMenuTrigger className="add-step-trigger" aria-haspopup="dialog">
           <span aria-hidden>+</span>

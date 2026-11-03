@@ -1,1 +1,1 @@
-export { FileInjectPaths } from "./file-inject-paths";
+export { FileInjectPaths, InjectedPathsList } from "./file-inject-paths";

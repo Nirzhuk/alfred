@@ -148,7 +148,7 @@ export function FileInjectSettings({
           onChange={(paths) => onUpdate({ paths })}
           variant="modal"
         />
-        <p className="hint">File contents are appended to the run context.</p>
+        <p className="hint">File contents and each folder's top-level listing are appended to the run context.</p>
       </div>
     </>
   );

@@ -230,7 +230,7 @@ export function PromptNode({ id, data, selected }: NodeProps<InputFlowNode>) {
         ) : null}
       </div>
 
-        <NodeRunResult nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} inputFirst />
       </div>
       <Handle
         className="wf-handle"

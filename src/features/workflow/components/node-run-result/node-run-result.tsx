@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../../../../components/icon";
+import { attachmentFileName } from "../../attachments";
+import { isSafeToOpen, outputFilePaths } from "../../output-files";
 import { useWorkflowStore } from "../../store";
+import { absolutePath, formatStepInput } from "../output-modal/output-modal";
 import { FixWithAlfredButton } from "../run-failure";
 
 export function previewText(text: string, max = 140) {
@@ -10,10 +14,23 @@ export function previewText(text: string, max = 140) {
   return `${flat.slice(0, max)}…`;
 }
 
+type Tab = "input" | "output";
+
 type Props = {
   nodeId: string;
   title: string;
+  /** For steps that supply data, where what went in is what you came to see. */
+  inputFirst?: boolean;
 };
+
+/** Output once there is one, unless the step is a source of input. */
+export function defaultResultTab(
+  hasInput: boolean,
+  hasOutput: boolean,
+  inputFirst: boolean,
+): Tab {
+  return hasInput && (inputFirst || !hasOutput) ? "input" : "output";
+}
 
 function TerminalGlyph() {
   return (
@@ -38,23 +55,108 @@ function TerminalGlyph() {
   );
 }
 
+const MAX_NAMED_FILES = 2;
+
+/** Named when few, counted when not. */
+export function ResultFileChips({
+  paths,
+  onShowAll,
+}: {
+  paths: string[];
+  onShowAll: () => void;
+}) {
+  if (paths.length === 0) return null;
+
+  const open = (path: string) => {
+    // Opening an executable runs it, so a path read from text only gets revealed.
+    void absolutePath(path)
+      .then(isSafeToOpen(path) ? openPath : revealItemInDir)
+      .catch((error) => {
+        console.warn("Could not open file", error);
+        onShowAll();
+      });
+  };
+
+  return (
+    <div className="wf-node-result-files">
+      {paths.length > MAX_NAMED_FILES ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onShowAll();
+          }}
+        >
+          <Icon name="file" size={12} />
+          <span>{paths.length} files</span>
+        </button>
+      ) : (
+        paths.map((path) => (
+          <button
+            key={path}
+            type="button"
+            title={path}
+            aria-label={`Open ${attachmentFileName(path)}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              open(path);
+            }}
+          >
+            <Icon name="file" size={12} />
+            <span>{attachmentFileName(path)}</span>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** The files behind the visible tab. */
+function ResultFiles({
+  nodeId,
+  tab,
+  inputFirst,
+  onShowAll,
+}: {
+  nodeId: string;
+  tab: Tab;
+  inputFirst: boolean;
+  onShowAll: () => void;
+}) {
+  const input = useWorkflowStore((state) => state.stepInputs[nodeId]);
+  const output = useWorkflowStore((state) => state.stepOutputs[nodeId]);
+  const changed = useWorkflowStore((state) => state.stepStats[nodeId]?.filesChanged);
+
+  const paths = useMemo(() => {
+    if (tab === "input") {
+      // Input and File inject cards already list their files above the result.
+      return input && !inputFirst ? outputFilePaths(formatStepInput(input)) : [];
+    }
+    const existing = (changed ?? [])
+      .filter((file) => file.status !== "deleted")
+      .map((file) => file.path);
+    return [...new Set([...existing, ...outputFilePaths(output ?? "")])];
+  }, [tab, input, inputFirst, output, changed]);
+
+  return <ResultFileChips paths={paths} onShowAll={onShowAll} />;
+}
+
 /** Live, tabbed view of the values a workflow node consumed and produced. */
-export function NodeRunResult({ nodeId, title }: Props) {
+export function NodeRunResult({ nodeId, title, inputFirst = false }: Props) {
   const input = useWorkflowStore((state) => state.stepInputs[nodeId]);
   const output = useWorkflowStore((state) => state.stepOutputs[nodeId]);
   const status = useWorkflowStore((state) => state.stepStatuses[nodeId]);
   const openRunPanel = useWorkflowStore((state) => state.openRunPanel);
   const openStepData = useWorkflowStore((state) => state.openStepData);
-  const [tab, setTab] = useState<"input" | "output">("input");
+  const [pickedTab, setPickedTab] = useState<Tab | null>(null);
 
   const running = status === "running";
   const hasInput = Boolean(input);
   const hasOutput = Boolean(output?.trim());
 
   useEffect(() => {
-    if (!hasInput && hasOutput) setTab("output");
-    if (hasInput && !hasOutput) setTab("input");
-  }, [hasInput, hasOutput]);
+    if (!hasOutput) setPickedTab(null); // A new run starts from the default again.
+  }, [hasOutput]);
 
   if (status === "failed") {
     return (
@@ -118,7 +220,10 @@ export function NodeRunResult({ nodeId, title }: Props) {
     );
   }
 
-  const activeTab = tab === "input" && hasInput ? "input" : "output";
+  const activeTab =
+    (pickedTab === "input" && hasInput) || (pickedTab === "output" && hasOutput)
+      ? pickedTab
+      : defaultResultTab(hasInput, hasOutput, inputFirst);
   const preview =
     activeTab === "input"
       ? input?.summary ?? "Input ready"
@@ -144,7 +249,7 @@ export function NodeRunResult({ nodeId, title }: Props) {
     if (!hasInput || !hasOutput) return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    setTab(activeTab === "input" ? "output" : "input");
+    setPickedTab(activeTab === "input" ? "output" : "input");
   };
 
   return (
@@ -165,7 +270,7 @@ export function NodeRunResult({ nodeId, title }: Props) {
             onKeyDown={onTabKeyDown}
             onClick={(event) => {
               event.stopPropagation();
-              setTab("input");
+              setPickedTab("input");
             }}
           >
             Input
@@ -182,7 +287,7 @@ export function NodeRunResult({ nodeId, title }: Props) {
           onKeyDown={onTabKeyDown}
           onClick={(event) => {
             event.stopPropagation();
-            if (hasOutput) setTab("output");
+            if (hasOutput) setPickedTab("output");
           }}
         >
           Output{!hasOutput && running ? " · Working…" : ""}
@@ -208,6 +313,12 @@ export function NodeRunResult({ nodeId, title }: Props) {
             <span className="run-output-action">View full {activeTab} →</span>
           ) : null}
         </button>
+        <ResultFiles
+          nodeId={nodeId}
+          tab={activeTab}
+          inputFirst={inputFirst}
+          onShowAll={openDetail}
+        />
       </div>
       {running ? (
         <button

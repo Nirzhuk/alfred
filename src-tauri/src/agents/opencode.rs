@@ -1,3 +1,4 @@
+use super::models;
 use super::process::{cwd_from_request, find_bin, prefer_stdout, run_cmd};
 use super::{
     map_cmd_err, AgentActivity, AgentActivityKind, AgentActivityState, AgentAdapter, AgentError,
@@ -36,7 +37,7 @@ impl AgentAdapter for OpencodeAdapter {
         // Keep workflow-created sessions easy to identify in OpenCode history.
         let marker = format!("alfred-{}", Uuid::new_v4());
 
-        let args = vec![
+        let args = models::omit_cli_default_model(vec![
             "run".into(),
             "--model".into(),
             model.clone(),
@@ -48,7 +49,7 @@ impl AgentAdapter for OpencodeAdapter {
             "--title".into(),
             marker.clone(),
             prompt,
-        ];
+        ]);
 
         let stream_event = |line: &str| {
             for activity in activities_from_event(line) {

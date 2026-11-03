@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFileDrop } from "../../use-file-drop";
+import type { InputAttachment } from "../../types";
 import { InputAttachmentList } from "../input-attachment-list";
 
 type Props = {
@@ -10,20 +11,60 @@ type Props = {
   variant: "compact" | "modal";
 };
 
-/** The File inject step's file list, shared by its canvas card and settings. */
+/**
+ * `paths` is a plain string list in the workflow contract, so whether each one
+ * is a folder is asked of the disk rather than stored.
+ */
+function useInjectedAttachments(paths: string[]): InputAttachment[] {
+  const [folders, setFolders] = useState<ReadonlySet<string>>(new Set());
+  const key = paths.join("\0");
+
+  useEffect(() => {
+    if (paths.length === 0) return;
+    let stale = false;
+    void invoke<boolean[]>("paths_are_folders", { paths }).then((flags) => {
+      if (!stale) setFolders(new Set(paths.filter((_, index) => flags[index])));
+    });
+    return () => {
+      stale = true;
+    };
+    // `key` is the value of `paths`; callers pass a fresh array each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return paths.map((path) => ({
+    id: path,
+    path,
+    kind: folders.has(path) ? "folder" : "file",
+  }));
+}
+
+/** What a finished File inject step read, for the run's input viewer. */
+export function InjectedPathsList({ paths }: { paths: string[] }) {
+  return (
+    <InputAttachmentList
+      attachments={useInjectedAttachments(paths)}
+      onRemove={() => undefined}
+      readOnly
+      variant="modal"
+    />
+  );
+}
+
+/** The File inject step's path list, shared by its canvas card and settings. */
 export function FileInjectPaths({ paths, onChange, variant }: Props) {
-  const [notice, setNotice] = useState<string | null>(null);
+  const attachments = useInjectedAttachments(paths);
 
   const add = (incoming: string[]) => {
     onChange([...new Set([...paths, ...incoming])]);
   };
 
-  const pick = async () => {
+  const pick = async (directory: boolean) => {
     try {
       const picked = await open({
         multiple: true,
-        directory: false,
-        title: "Inject files into context",
+        directory,
+        title: directory ? "Inject folders into context" : "Inject files into context",
       });
       if (picked) add(picked);
     } catch (e) {
@@ -31,17 +72,7 @@ export function FileInjectPaths({ paths, onChange, variant }: Props) {
     }
   };
 
-  const { ref, over } = useFileDrop<HTMLDivElement>((dropped) => {
-    void invoke<boolean[]>("paths_are_folders", { paths: dropped }).then((folders) => {
-      const files = dropped.filter((_, index) => !folders[index]);
-      if (files.length > 0) add(files);
-      setNotice(
-        files.length < dropped.length
-          ? "Folders are skipped here. Attach them to an Input step instead."
-          : null,
-      );
-    });
-  });
+  const { ref, over } = useFileDrop<HTMLDivElement>(add);
 
   return (
     <div
@@ -51,21 +82,29 @@ export function FileInjectPaths({ paths, onChange, variant }: Props) {
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="wf-attach-field-header">
-        {variant === "modal" ? <span>Files</span> : null}
-        <button
-          type="button"
-          className="ghost wf-input-attach-btn"
-          onClick={() => void pick()}
-        >
-          + File
-        </button>
+        {variant === "modal" ? <span>Files and folders</span> : null}
+        <div className="wf-input-attach-actions">
+          <button
+            type="button"
+            className="ghost wf-input-attach-btn"
+            onClick={() => void pick(false)}
+          >
+            + File
+          </button>
+          <button
+            type="button"
+            className="ghost wf-input-attach-btn"
+            onClick={() => void pick(true)}
+          >
+            + Folder
+          </button>
+        </div>
       </div>
-      {notice ? <p className="wf-input-attach-empty">{notice}</p> : null}
       <InputAttachmentList
-        attachments={paths.map((path) => ({ id: path, path, kind: "file" as const }))}
+        attachments={attachments}
         onRemove={(path) => onChange(paths.filter((item) => item !== path))}
         variant={variant}
-        emptyLabel="Drop files here to inject them"
+        emptyLabel="Drop files or folders here to inject them"
       />
     </div>
   );

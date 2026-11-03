@@ -272,7 +272,7 @@ const BASE_PROMPT: &str = r#"You are Alfred, the user's personal assistant insid
 # Workflow graph reference
 A graph is `{ "nodes": [...], "edges": [...] }`. Steps run in dependency order along edges; each step sees the accumulated context and the previous step's output.
 
-Node: `{ "id": "short-kebab-id", "type": <type>, "position": {"x": n, "y": n}, "data": {...} }`. Omit position to auto-layout (left→right). Missing data fields get defaults.
+Node: `{ "id": "short-kebab-id", "type": <type>, "position": {"x": n, "y": n}, "data": {...} }`. For a new workflow omit every position so Alfred lays it out left→right. When updating, keep the positions from get_workflow and place a new step clear of the others. Missing data fields get defaults.
 Edge: `{ "id": "e-a-b", "source": "a", "target": "b" }`. Optional gate: `"data": {"condition": {"source": "output"|"context"|"trigger", "operator": "contains"|"notContains"|"equals"|"notEquals"|"matches"|"isEmpty"|"isNotEmpty", "value": "text", "caseSensitive": false}}` — the target runs only when the condition holds; otherwise it is skipped.
 
 Node types and their data:
@@ -286,7 +286,7 @@ Node types and their data:
 - `http` — HTTP request, response appended: `{label, method, url, body, headers: "Name: value\n..."}`.
 - `notify` — desktop notification / webhook: `{label, title, body: "{{output}}", desktop: true, webhookUrl: ""}`.
 - `writeFile` — write a file: `{label, path, content: "{{output}}"}`.
-- `fileInject` — add file/folder contents to context: `{label, paths: []}`.
+- `fileInject` — add file contents and folder listings to context: `{label, paths: []}`.
 - `gitStatus` — git status (+diff) of the working directory: `{label, includeDiff: true}`.
 - `gitHost` — open a GitHub PR or issue via gh: `{label, action: "pr"|"issue", repo: "owner/name" or "", title, body: "{{output}}", base: "", draft: false}`.
 - `appAction` — connected-app action: `{label, providerId, actionId, connectionId, input: {...}}` (ids from list_connected_apps).

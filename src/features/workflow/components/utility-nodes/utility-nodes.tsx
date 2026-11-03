@@ -60,6 +60,7 @@ export function FileInjectNode({
       icon={<Icon name="file" size={16} />}
       title={data.label || "File inject"}
       meta="Inject into context"
+      inputFirst
     >
       <FileInjectPaths
         paths={data.paths ?? []}

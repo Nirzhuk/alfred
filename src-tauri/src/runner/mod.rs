@@ -2796,7 +2796,7 @@ fn execute_level_node(
                 let mut sections = Vec::new();
                 sections.push("## Injected files".to_string());
                 for path in &paths {
-                    sections.push(format!("### File\n`{path}`\n{}", read_file_brief(path)));
+                    sections.push(injected_path_section(path));
                 }
                 let text = sections.join("\n\n");
                 if !context_prompt.is_empty() {
@@ -4468,6 +4468,24 @@ mod tests {
         ActionArtifact, ActionFieldDescriptor, ActionFieldKind, ActionOption,
     };
     use serde_json::json;
+
+    #[test]
+    fn file_inject_lists_folders_and_reads_files() {
+        let dir = std::env::temp_dir().join(format!("alfred-inject-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notes.txt");
+        fs::write(&file, "hello").unwrap();
+
+        let folder = injected_path_section(dir.to_str().unwrap());
+        assert!(folder.starts_with("### Folder"), "{folder}");
+        assert!(folder.contains("- `notes.txt`"), "{folder}");
+
+        let read = injected_path_section(file.to_str().unwrap());
+        assert!(read.starts_with("### File"), "{read}");
+        assert!(read.contains("hello"), "{read}");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn runner_source_projection_preserves_typed_origins_and_omits_host_metadata() {
@@ -7430,6 +7448,16 @@ fn script_invocation(
         _ => vec![script_arg],
     };
     Ok((bin, args))
+}
+
+// ponytail: a folder injects its top-level listing, as on Input. Inlining every
+// file could add 80 x 96 KB to one prompt; walk the tree if listings fall short.
+fn injected_path_section(path: &str) -> String {
+    if Path::new(path).is_dir() {
+        format!("### Folder\n`{path}`\n{}", list_folder_brief(path))
+    } else {
+        format!("### File\n`{path}`\n{}", read_file_brief(path))
+    }
 }
 
 fn read_file_brief(path: &str) -> String {

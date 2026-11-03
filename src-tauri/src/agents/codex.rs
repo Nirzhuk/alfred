@@ -1,3 +1,4 @@
+use super::models;
 use super::process::{cwd_from_request, find_bin, prefer_stdout, run_cmd};
 use super::{
     AgentActivity, AgentActivityKind, AgentActivityState, AgentAdapter, AgentError, AgentProvider,
@@ -58,7 +59,7 @@ impl AgentAdapter for CodexAdapter {
         ];
 
         let mut last_err = String::new();
-        for args in attempts {
+        for args in attempts.into_iter().map(models::omit_cli_default_model) {
             if hooks
                 .control
                 .map(|control| control.is_cancelled())

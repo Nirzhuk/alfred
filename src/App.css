@@ -6013,6 +6013,39 @@ button.primary.danger-solid:hover:not(:disabled) {
   word-break: break-word;
 }
 
+.wf-node-result-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0 var(--space-2-5) var(--space-2);
+}
+
+.wf-node-result-files > button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-0-5) var(--space-1-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.wf-node-result-files > button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.wf-node-result-files > button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wf-node-result-console {
   display: flex;
   align-items: center;
@@ -6226,6 +6259,9 @@ button.primary.danger-solid:hover:not(:disabled) {
 }
 
 .add-step-panel.react-flow__panel {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   margin: var(--space-3);
   z-index: var(--layer-sticky);
   overflow: visible;
@@ -6278,8 +6314,8 @@ button.primary.danger-solid:hover:not(:disabled) {
   --handle-fill: var(--node-accent, var(--accent));
   --handle-glow: 0 0 0 3px color-mix(in srgb, var(--node-accent, var(--accent)) 20%, transparent);
   position: relative;
-  min-width: 180px;
-  max-width: 260px;
+  /* geometry: fixed so a step's text or run result never changes its width. */
+  width: 240px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0;
@@ -6370,10 +6406,18 @@ button.primary.danger-solid:hover:not(:disabled) {
   stroke-linecap: round;
 }
 
+/*
+ * geometry: resizing writes an inline width over this. Left auto, an unresized
+ * card stretches to fit its run preview and changes width with each tab.
+ */
+.react-flow__node.react-flow__node-prompt,
+.react-flow__node.react-flow__node-input {
+  width: 280px;
+}
+
 /* Undo React Flow’s built-in `input` node chrome (type id is `"input"`). */
 .react-flow__node-input {
   padding: 0 !important;
-  width: auto;
   border: none !important;
   background: transparent !important;
   text-align: left;
@@ -8075,6 +8119,41 @@ button.wf-node-error-message:hover {
 
 .file-editor-conflict > span {
   flex: 1;
+}
+
+.output-modal-markdown {
+  font-family: var(--font-sans);
+  white-space: normal;
+}
+
+.output-modal-body .json-key {
+  color: var(--node-accent-input);
+}
+
+.output-modal-body .json-string {
+  color: var(--accent);
+}
+
+.output-modal-body .json-number {
+  color: var(--node-accent-memory);
+}
+
+.output-modal-body .json-boolean {
+  color: var(--node-accent-agent);
+}
+
+.output-modal-body .json-null,
+.output-modal-body .json-punctuation {
+  color: var(--muted);
+}
+
+/* Prose held in a JSON string: its own block, so it reads as lines. */
+.output-modal-body .json-text {
+  display: block;
+  margin-block: var(--space-1);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid var(--line);
+  color: var(--ink);
 }
 
 .output-modal-summary {

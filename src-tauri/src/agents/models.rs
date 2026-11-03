@@ -1,25 +1,29 @@
-//! Discover models from each local agent automatically.
+//! Discover models from each local agent automatically, so a new model release
+//! needs no Alfred update. Fallbacks hold only version-free ids (aliases or the
+//! CLI's own default) because anything versioned here eventually goes stale.
 //!
 //! Sources:
-//! - Claude Code: stable CLI aliases (without opening a headless session)
+//! - Claude Code: the CLI's `initialize` handshake, else its aliases
 //! - OpenCode: `opencode models`
-//! - Codex: `~/.codex/models_cache.json` (+ default from `config.toml`)
-//! - Cursor: `cursor-agent models` / `--list-models`, else Cursor IDE
-//!   `availableDefaultModels2` from `state.vscdb`
-//! - GitHub Copilot, Gemini, and Grok: stable CLI model aliases after binary
-//!   detection; each CLI keeps its own model picker and does not expose a
-//!   reliable non-interactive catalog.
+//! - Codex: `codex debug models`, else `~/.codex/models_cache.json`
+//! - Cursor: Cursor IDE `availableDefaultModels2` from `state.vscdb`, else
+//!   `cursor-agent models` / `--list-models`
+//! - Grok: `grok models`
 //! - pi: `pi --list-models` (authenticated providers only)
 //! - OMP: `omp models --json`
+//! - Gemini: the CLI's own aliases (no non-interactive catalog)
+//! - GitHub Copilot: the CLI default plus custom ids (no documented
+//!   non-interactive catalog)
 
 use super::pi;
 use super::{valid_model_id, AgentError, AgentHarness, AgentProvider, NATIVE_RUNTIME_UNAVAILABLE};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -246,90 +250,51 @@ fn test_model(id: &str) -> ModelOption {
 pub fn default_model(provider: AgentProvider) -> &'static str {
     match provider {
         AgentProvider::ClaudeCode => "sonnet",
-        AgentProvider::Cursor => "grok-4.5",
-        AgentProvider::Codex => "gpt-5.6-luna",
-        AgentProvider::Opencode => "opencode/big-pickle",
-        AgentProvider::GithubCopilot => "claude-sonnet-4.5",
         AgentProvider::Gemini => "auto",
-        AgentProvider::Grok => "grok-build",
-        // pi and OMP reach 15+ providers, so the only model id valid on every
-        // install is the one the user already configured.
-        AgentProvider::Pi | AgentProvider::Omp => pi::CLI_DEFAULT_MODEL,
+        // These reach many models, so the only id that stays valid on every
+        // install and through every release is the one the user configured.
+        AgentProvider::Cursor
+        | AgentProvider::Codex
+        | AgentProvider::Opencode
+        | AgentProvider::GithubCopilot
+        | AgentProvider::Grok
+        | AgentProvider::Pi
+        | AgentProvider::Omp => pi::CLI_DEFAULT_MODEL,
     }
+}
+
+/// Drop `--model default` so the CLI falls back to its configured model.
+pub(super) fn omit_cli_default_model(mut args: Vec<String>) -> Vec<String> {
+    if let Some(index) = args.iter().position(|arg| arg == "--model") {
+        if args.get(index + 1).map(String::as_str) == Some(pi::CLI_DEFAULT_MODEL) {
+            args.drain(index..=index + 1);
+        }
+    }
+    args
 }
 
 /// Static fallback when discovery fails (CLI missing / not logged in).
 pub fn fallback_models(provider: AgentProvider) -> ProviderModels {
     let models = match provider {
         AgentProvider::ClaudeCode => vec![
-            opt("sonnet", "Sonnet 5", "Claude Code alias"),
-            opt("opus", "Opus 5", "Claude Code alias"),
-            opt("haiku", "Haiku 4.5", "Claude Code alias"),
-            opt("fable", "Fable 5", "Claude Code alias"),
-        ],
-        AgentProvider::Cursor => cursor_fallback_models(),
-        AgentProvider::Codex => vec![
-            opt("gpt-5.6-luna", "gpt-5.6-luna", "Codex fallback"),
-            opt("gpt-5.6-terra", "gpt-5.6-terra", "Codex fallback"),
-            opt("gpt-5.6-sol", "gpt-5.6-sol", "Codex fallback"),
-        ],
-        AgentProvider::Opencode => vec![opt(
-            "opencode/big-pickle",
-            "opencode/big-pickle",
-            "OpenCode fallback",
-        )],
-        AgentProvider::GithubCopilot => vec![
-            opt(
-                "claude-sonnet-4.5",
-                "Claude Sonnet 4.5",
-                "GitHub Copilot default",
-            ),
-            opt("claude-opus-4.5", "Claude Opus 4.5", "GitHub Copilot"),
-            opt("claude-haiku-4.5", "Claude Haiku 4.5", "GitHub Copilot"),
-            opt("gpt-5.3-codex", "GPT-5.3 Codex", "GitHub Copilot"),
-            opt("gpt-5.2", "GPT-5.2", "GitHub Copilot"),
+            opt("sonnet", "Sonnet", "Latest · Claude Code alias"),
+            opt("opus", "Opus", "Latest · Claude Code alias"),
+            opt("haiku", "Haiku", "Latest · Claude Code alias"),
+            opt("fable", "Fable", "Latest · Claude Code alias"),
         ],
         AgentProvider::Gemini => vec![
             opt("auto", "Auto", "Gemini CLI model routing"),
-            opt(
-                "gemini-3.1-pro-preview",
-                "Gemini 3.1 Pro Preview",
-                "Gemini CLI",
-            ),
-            opt("gemini-3-pro-preview", "Gemini 3 Pro Preview", "Gemini CLI"),
-            opt(
-                "gemini-3-flash-preview",
-                "Gemini 3 Flash Preview",
-                "Gemini CLI",
-            ),
-            opt("gemini-2.5-pro", "Gemini 2.5 Pro", "Gemini CLI"),
-            opt("gemini-2.5-flash", "Gemini 2.5 Flash", "Gemini CLI"),
+            opt("pro", "Pro", "Latest · Gemini CLI alias"),
+            opt("flash", "Flash", "Latest · Gemini CLI alias"),
+            opt("flash-lite", "Flash Lite", "Latest · Gemini CLI alias"),
         ],
-        AgentProvider::Grok => vec![
-            opt("grok-build", "Grok Build", "Grok CLI coding model"),
-            opt("grok-4.5", "Grok 4.5", "Grok CLI"),
-            opt("grok-code-fast-1", "Grok Code Fast 1", "Grok CLI"),
-        ],
-        AgentProvider::Pi => vec![
-            opt(
-                pi::CLI_DEFAULT_MODEL,
-                "CLI default",
-                "Model configured in pi",
-            ),
-            opt("anthropic/claude-sonnet-5", "Claude Sonnet 5", "pi"),
-            opt("openai/gpt-5.6-luna", "GPT-5.6 Luna", "pi"),
-            opt("google/gemini-3-pro-preview", "Gemini 3 Pro Preview", "pi"),
-        ],
-        AgentProvider::Omp => vec![
-            opt(
-                pi::CLI_DEFAULT_MODEL,
-                "CLI default",
-                "Model configured in OMP",
-            ),
-            opt("anthropic/claude-sonnet-5", "Claude Sonnet 5", "OMP"),
-            opt("openai/gpt-5.6-luna", "GPT-5.6 Luna", "OMP"),
-            opt("google/gemini-3-pro-preview", "Gemini 3 Pro Preview", "OMP"),
-        ],
+        AgentProvider::Cursor => vec![cursor_auto_model()],
+        AgentProvider::Codex
+        | AgentProvider::Opencode
+        | AgentProvider::GithubCopilot
+        | AgentProvider::Grok
+        | AgentProvider::Pi
+        | AgentProvider::Omp => vec![cli_default_model()],
     };
 
     ProviderModels {
@@ -346,7 +311,7 @@ pub fn fallback_models(provider: AgentProvider) -> ProviderModels {
 
 /// Discover models from the installed agents (may take a few seconds).
 pub fn discover_all() -> Vec<ProviderModels> {
-    [
+    let providers = [
         AgentProvider::ClaudeCode,
         AgentProvider::Cursor,
         AgentProvider::Codex,
@@ -356,10 +321,15 @@ pub fn discover_all() -> Vec<ProviderModels> {
         AgentProvider::Grok,
         AgentProvider::Pi,
         AgentProvider::Omp,
-    ]
-    .into_iter()
-    .map(discover_for)
-    .collect()
+    ];
+    std::thread::scope(|scope| {
+        let handles = providers.map(|provider| scope.spawn(move || discover_for(provider)));
+        providers
+            .into_iter()
+            .zip(handles)
+            .map(|(provider, handle)| handle.join().unwrap_or_else(|_| fallback_models(provider)))
+            .collect()
+    })
 }
 
 pub fn list_provider_models(harness: Option<AgentHarness>) -> Vec<ProviderModels> {
@@ -396,11 +366,11 @@ pub fn resolve_model_for_execution(
     if !valid_model_id(candidate) {
         return Err(AgentError::InvalidModel);
     }
-    let catalog = match harness {
-        AgentHarness::Cli => discover_for(provider),
-        AgentHarness::Alfred => native_unavailable_model(provider),
-    };
-    validate_model_in_catalog(&catalog, candidate)?;
+    // CLI catalogs always allow custom ids, so probing the CLI before every
+    // step could not reject anything.
+    if harness == AgentHarness::Alfred {
+        validate_model_in_catalog(&native_unavailable_model(provider), candidate)?;
+    }
     Ok(Some(candidate.to_owned()))
 }
 
@@ -476,7 +446,7 @@ fn discover_for(provider: AgentProvider) -> ProviderModels {
             discover_static_cli(AgentProvider::GithubCopilot, "copilot")
         }
         AgentProvider::Gemini => discover_static_cli(AgentProvider::Gemini, "gemini"),
-        AgentProvider::Grok => discover_static_cli(AgentProvider::Grok, "grok"),
+        AgentProvider::Grok => discover_grok(),
         AgentProvider::Pi => discover_pi(),
         AgentProvider::Omp => discover_omp(),
     };
@@ -525,24 +495,122 @@ fn discover_static_cli(provider: AgentProvider, command: &str) -> Result<Provide
 }
 
 fn discover_claude() -> Result<ProviderModels, String> {
-    find_bin("claude").ok_or_else(|| "claude CLI not found on PATH".to_string())?;
+    let bin = find_bin("claude").ok_or_else(|| "claude CLI not found on PATH".to_string())?;
 
-    // `/model` is an interactive slash command. Calling it through `claude
-    // -p` just to populate a picker creates a real headless session and can
-    // participate in the macOS OAuth refresh race. Claude's aliases are the
-    // stable CLI interface, and custom full model IDs remain allowed.
-    let fallback = fallback_models(AgentProvider::ClaudeCode);
+    let models = match claude_models_from_handshake(&bin) {
+        Ok(models) if !models.is_empty() => models,
+        _ => return discover_static_cli(AgentProvider::ClaudeCode, "claude"),
+    };
+    let default = default_model(AgentProvider::ClaudeCode);
+    let default = if models.iter().any(|model| model.id == default) {
+        default.to_owned()
+    } else {
+        models[0].id.clone()
+    };
 
     Ok(ProviderModels {
         provider: String::new(),
         capabilities: cli_capabilities(),
-        default_model: fallback.default_model,
-        models: fallback.models,
+        default_model: default,
+        models,
         allow_custom: true,
         source: String::new(),
         available: true,
         error: None,
     })
+}
+
+/// Read the live model list from the `initialize` handshake the Agent SDK uses.
+/// No prompt is sent. Hooks, MCP servers and non-essential traffic are off, so
+/// the probe makes no API call and stays out of the macOS OAuth refresh race a
+/// real headless session can join.
+fn claude_models_from_handshake(bin: &Path) -> Result<Vec<ModelOption>, String> {
+    let mut child = Command::new(bin)
+        .args([
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--settings",
+            r#"{"disableAllHooks":true}"#,
+        ])
+        .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+        .env("ENABLE_CLAUDEAI_MCP_SERVERS", "false")
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to spawn {}: {e}", bin.display()))?;
+
+    let mut stdin = child.stdin.take().ok_or("claude stdin unavailable")?;
+    let stdout = child.stdout.take().ok_or("claude stdout unavailable")?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Some(models) = parse_claude_handshake_line(&line) {
+                let _ = sender.send(models);
+                return;
+            }
+        }
+    });
+
+    let request = r#"{"type":"control_request","request_id":"alfred-models","request":{"subtype":"initialize"}}"#;
+    let result = writeln!(stdin, "{request}")
+        .map_err(|e| e.to_string())
+        .and_then(|()| {
+            receiver
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|e| format!("claude handshake failed: {e}"))
+        });
+
+    // Closing stdin ends the CLI on its own; only force it if that does not work.
+    drop(stdin);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while matches!(child.try_wait(), Ok(None)) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
+fn parse_claude_handshake_line(line: &str) -> Option<Vec<ModelOption>> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("type")?.as_str()? != "control_response" {
+        return None;
+    }
+    let list = value.pointer("/response/response/models")?.as_array()?;
+    Some(
+        list.iter()
+            .filter_map(|item| {
+                let id = item.get("value")?.as_str()?.trim();
+                // `sonnet` / `opus` cover it, and Alfred already has its own default.
+                if id == "default" || !super::valid_model_id(id) {
+                    return None;
+                }
+                let name = item
+                    .get("displayName")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(id);
+                let description = item
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                // Some CLI versions write "Opus" + "Opus 5.5 · Best for…"; show the version.
+                Some(match description.split_once(" · ") {
+                    Some((versioned, rest)) if versioned.starts_with(name) => {
+                        opt(id, versioned, rest)
+                    }
+                    _ => opt(id, name, description),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn discover_opencode() -> Result<ProviderModels, String> {
@@ -569,22 +637,28 @@ fn discover_opencode() -> Result<ProviderModels, String> {
         ));
     }
 
-    let default = models
-        .iter()
-        .find(|m| m.id == "opencode/big-pickle")
-        .map(|m| m.id.clone())
-        .unwrap_or_else(|| models[0].id.clone());
+    Ok(cli_default_catalog(models))
+}
 
-    Ok(ProviderModels {
-        provider: String::new(),
-        capabilities: cli_capabilities(),
-        default_model: default,
-        models,
-        allow_custom: true,
-        source: String::new(),
-        available: true,
-        error: None,
-    })
+/// `grok models` is documented without an output format, so accept only rows
+/// that are clearly model ids. Anything else leaves the CLI default in charge.
+fn discover_grok() -> Result<ProviderModels, String> {
+    let bin = find_bin("grok").ok_or_else(|| "grok CLI not found on PATH".to_string())?;
+    let models = run_cmd(&bin, &["models"], Duration::from_secs(20))
+        .map(|output| parse_grok_models(&output.stdout))
+        .unwrap_or_default();
+    if models.is_empty() {
+        return discover_static_cli(AgentProvider::Grok, "grok");
+    }
+    Ok(cli_default_catalog(models))
+}
+
+fn parse_grok_models(stdout: &str) -> Vec<ModelOption> {
+    parse_cursor_cli_models(stdout)
+        .into_iter()
+        .filter(|model| model.id.starts_with("grok-"))
+        .map(|model| opt(&model.id, &model.id, "Discovered via `grok models`"))
+        .collect()
 }
 
 /// `pi --list-models` prints a padded table whose first row is the header and
@@ -602,7 +676,7 @@ fn discover_pi() -> Result<ProviderModels, String> {
         ));
     }
 
-    Ok(pi_family_catalog(models))
+    Ok(cli_default_catalog(models))
 }
 
 fn parse_pi_model_table(stdout: &str) -> Vec<ModelOption> {
@@ -638,7 +712,7 @@ fn discover_omp() -> Result<ProviderModels, String> {
         ));
     }
 
-    Ok(pi_family_catalog(models))
+    Ok(cli_default_catalog(models))
 }
 
 fn parse_omp_model_json(stdout: &str) -> Result<Vec<ModelOption>, String> {
@@ -668,14 +742,18 @@ fn parse_omp_model_json(stdout: &str) -> Result<Vec<ModelOption>, String> {
     Ok(models)
 }
 
-/// Keep the "CLI default" entry first so a workflow can defer to whatever the
-/// user configured instead of pinning a provider they may not be logged into.
-fn pi_family_catalog(discovered: Vec<ModelOption>) -> ProviderModels {
-    let mut models = vec![opt(
+fn cli_default_model() -> ModelOption {
+    opt(
         pi::CLI_DEFAULT_MODEL,
         "CLI default",
         "Model configured in the CLI",
-    )];
+    )
+}
+
+/// Keep the "CLI default" entry first so a workflow can defer to whatever the
+/// user configured instead of pinning a model that may later be retired.
+fn cli_default_catalog(discovered: Vec<ModelOption>) -> ProviderModels {
+    let mut models = vec![cli_default_model()];
     models.extend(discovered);
 
     ProviderModels {
@@ -691,16 +769,19 @@ fn pi_family_catalog(discovered: Vec<ModelOption>) -> ProviderModels {
 }
 
 fn discover_codex() -> Result<ProviderModels, String> {
+    if let Some(models) = find_bin("codex")
+        .and_then(|bin| run_cmd(&bin, &["debug", "models"], Duration::from_secs(15)).ok())
+        .and_then(|output| parse_codex_models(&output.stdout).ok())
+        .filter(|models| !models.is_empty())
+    {
+        return Ok(cli_default_catalog(models));
+    }
+
     let home = BaseDirs::new()
         .map(|b| b.home_dir().to_path_buf())
         .ok_or_else(|| "could not resolve home directory".to_string())?;
-
     let cache = home.join(".codex/models_cache.json");
     if !cache.is_file() {
-        // Try CLI if present.
-        if let Some(bin) = find_bin("codex") {
-            let _ = bin;
-        }
         return Err(format!(
             "Codex model cache not found at {}",
             cache.display()
@@ -708,16 +789,28 @@ fn discover_codex() -> Result<ProviderModels, String> {
     }
 
     let raw = std::fs::read_to_string(&cache).map_err(|e| e.to_string())?;
-    let value: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("invalid models_cache.json: {e}"))?;
+    let models = parse_codex_models(&raw)?;
+    if models.is_empty() {
+        return Err("Codex models_cache.json contained no models".into());
+    }
+    Ok(cli_default_catalog(models))
+}
 
+/// Same shape from `codex debug models` and `models_cache.json`. `visibility`
+/// is what Codex's own picker uses to hide internal models.
+fn parse_codex_models(raw: &str) -> Result<Vec<ModelOption>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("invalid Codex model catalog: {e}"))?;
     let list = value
         .get("models")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| "models_cache.json missing models[]".to_string())?;
+        .ok_or_else(|| "Codex model catalog missing models[]".to_string())?;
 
     let mut models = Vec::new();
     for item in list {
+        if item.get("visibility").and_then(|v| v.as_str()) == Some("hide") {
+            continue;
+        }
         let id = item
             .get("slug")
             .or_else(|| item.get("id"))
@@ -731,7 +824,7 @@ fn discover_codex() -> Result<ProviderModels, String> {
         let description = item
             .get("description")
             .and_then(|v| v.as_str())
-            .unwrap_or("From ~/.codex/models_cache.json")
+            .unwrap_or("From the Codex model catalog")
             .to_string();
         let label = item
             .get("display_name")
@@ -741,79 +834,11 @@ fn discover_codex() -> Result<ProviderModels, String> {
             .to_string();
         models.push(opt(id, label, description));
     }
-
-    if models.is_empty() {
-        return Err("Codex models_cache.json contained no models".into());
-    }
-
-    let default = read_codex_default_model(&home)
-        .or_else(|| models.first().map(|m| m.id.clone()))
-        .unwrap_or_else(|| default_model(AgentProvider::Codex).into());
-
-    Ok(ProviderModels {
-        provider: String::new(),
-        capabilities: cli_capabilities(),
-        default_model: default,
-        models,
-        allow_custom: true,
-        source: String::new(),
-        available: true,
-        error: None,
-    })
+    Ok(models)
 }
 
-fn read_codex_default_model(home: &Path) -> Option<String> {
-    let config = home.join(".codex/config.toml");
-    let text = std::fs::read_to_string(config).ok()?;
-    for line in text.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("model ") {
-            // model = "gpt-5.6-luna"
-            if let Some(val) = rest.split('=').nth(1) {
-                let val = val.trim().trim_matches('"').trim_matches('\'');
-                if !val.is_empty() {
-                    return Some(val.to_string());
-                }
-            }
-        }
-        if let Some(rest) = line.strip_prefix("model=") {
-            let val = rest.trim().trim_matches('"').trim_matches('\'');
-            if !val.is_empty() {
-                return Some(val.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn cursor_fallback_models() -> Vec<ModelOption> {
-    [
-        ("default", "Auto", "Cursor Auto"),
-        ("grok-4.5", "Cursor Grok 4.5", "Cursor Grok"),
-        ("composer-2.5", "Composer 2.5", "Cursor Composer"),
-        ("claude-opus-5", "Opus 5", "Anthropic"),
-        ("claude-sonnet-5", "Sonnet 5", "Anthropic"),
-        ("claude-fable-5", "Fable 5", "Anthropic"),
-        ("gpt-5.6-sol", "GPT-5.6 Sol", "OpenAI"),
-        ("gpt-5.6-terra", "GPT-5.6 Terra", "OpenAI"),
-        ("gpt-5.6-luna", "GPT-5.6 Luna", "OpenAI"),
-        ("gpt-5.5", "GPT-5.5", "OpenAI"),
-        ("gpt-5.3-codex", "Codex 5.3", "OpenAI"),
-        ("claude-sonnet-4-6", "Sonnet 4.6", "Anthropic"),
-        ("claude-opus-4-6", "Opus 4.6", "Anthropic"),
-        ("claude-haiku-4-5", "Haiku 4.5", "Anthropic"),
-        ("gemini-3.1-pro", "Gemini 3.1 Pro", "Google"),
-        ("gemini-3.6-flash", "Gemini 3.6 Flash", "Google"),
-        ("kimi-k2.7-code", "Kimi K2.7 Code", "Moonshot"),
-        (
-            "cursor-grok-4.5-high",
-            "Cursor Grok 4.5 High",
-            "Legacy slug",
-        ),
-    ]
-    .into_iter()
-    .map(|(id, label, desc)| opt(id, label, desc))
-    .collect()
+fn cursor_auto_model() -> ModelOption {
+    opt(pi::CLI_DEFAULT_MODEL, "Auto", "Cursor Auto")
 }
 
 fn discover_cursor() -> Result<ProviderModels, String> {
@@ -1164,7 +1189,7 @@ fn discover_cursor_from_ide_state() -> Result<ProviderModels, String> {
         .or_else(|| {
             models
                 .iter()
-                .find(|m| m.id == "grok-4.5" || m.id == "composer-2.5" || m.id == "default")
+                .find(|m| m.id == pi::CLI_DEFAULT_MODEL || m.id == "auto")
                 .map(|m| m.id.clone())
         })
         .unwrap_or_else(|| models[0].id.clone());
@@ -1181,12 +1206,17 @@ fn discover_cursor_from_ide_state() -> Result<ProviderModels, String> {
     })
 }
 
-fn cursor_catalog_from_models(models: Vec<ModelOption>, _source: &str) -> ProviderModels {
-    let default = models
+fn cursor_catalog_from_models(mut models: Vec<ModelOption>, _source: &str) -> ProviderModels {
+    let default = match models
         .iter()
-        .find(|m| m.id == "grok-4.5" || m.id == "composer-2.5" || m.id == "default")
-        .map(|m| m.id.clone())
-        .unwrap_or_else(|| models[0].id.clone());
+        .find(|m| m.id == pi::CLI_DEFAULT_MODEL || m.id == "auto")
+    {
+        Some(model) => model.id.clone(),
+        None => {
+            models.insert(0, cursor_auto_model());
+            pi::CLI_DEFAULT_MODEL.to_owned()
+        }
+    };
 
     ProviderModels {
         provider: String::new(),
@@ -1231,15 +1261,19 @@ struct CmdOutput {
 }
 
 fn run_cmd(bin: &Path, args: &[&str], timeout: Duration) -> Result<CmdOutput, String> {
-    // Prefer a thread+kill approach without extra deps: spawn and wait with timeout via try_wait loop.
     let mut child = Command::new(bin)
         .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("failed to spawn {}: {e}", bin.display()))?;
 
-    let start = std::time::Instant::now();
+    // Drain while waiting: a catalog larger than the pipe buffer (`codex debug
+    // models` prints ~460 KB) would otherwise block the CLI until the timeout.
+    let stdout = drain_in_background(child.stdout.take());
+    let stderr = drain_in_background(child.stderr.take());
+
+    let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(_status)) => break,
@@ -1259,13 +1293,21 @@ fn run_cmd(bin: &Path, args: &[&str], timeout: Duration) -> Result<CmdOutput, St
         }
     }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("failed reading output from {}: {e}", bin.display()))?;
-
     Ok(CmdOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
+fn drain_in_background<R: Read + Send + 'static>(
+    pipe: Option<R>,
+) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
     })
 }
 
@@ -1334,7 +1376,7 @@ mod pi_family_tests {
 
         let mut strict = fallback_models(AgentProvider::Codex);
         strict.allow_custom = false;
-        assert!(validate_model_in_catalog(&strict, "gpt-5.6-luna").is_ok());
+        assert!(validate_model_in_catalog(&strict, pi::CLI_DEFAULT_MODEL).is_ok());
         assert!(matches!(
             validate_model_in_catalog(&strict, "sonnet"),
             Err(AgentError::InvalidModel)
@@ -1364,6 +1406,122 @@ mod pi_family_tests {
         for forbidden in ["accessToken", "refreshToken", "apiKey", "credential"] {
             assert!(!json.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn claude_handshake_reads_real_rows_and_skips_noise() {
+        assert!(parse_claude_handshake_line(r#"{"type":"system"}"#).is_none());
+        assert!(parse_claude_handshake_line("not json").is_none());
+
+        let line = serde_json::json!({
+            "type": "control_response",
+            "response": {"subtype": "success", "response": {"models": [
+                {"value": "default", "displayName": "Default (recommended)", "description": "Opus 5.5 · Best"},
+                {"value": "opus", "displayName": "Opus", "description": "Opus 5.5 · Best for everyday"},
+                {"value": "sonnet", "displayName": "Sonnet 5.5", "description": "Most efficient"},
+                {"value": "claude-fable-5-1[1m]", "displayName": "Fable", "description": "Fable 5.1 · Hardest tasks"},
+                {"value": "", "displayName": "Empty"},
+                {"displayName": "No value"}
+            ]}}
+        })
+        .to_string();
+        let models = parse_claude_handshake_line(&line).expect("control response");
+        let rows: Vec<_> = models
+            .iter()
+            .map(|m| (m.id.as_str(), m.label.as_str(), m.description.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("opus", "Opus 5.5", "Best for everyday"),
+                ("sonnet", "Sonnet 5.5", "Most efficient"),
+                ("claude-fable-5-1[1m]", "Fable 5.1", "Hardest tasks"),
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_catalog_hides_internal_models() {
+        let models = parse_codex_models(
+            r#"{"models":[
+                {"slug":"gpt-new","display_name":"GPT New","visibility":"list"},
+                {"slug":"internal","display_name":"Internal","visibility":"hide"},
+                {"slug":"no-visibility"}
+            ]}"#,
+        )
+        .expect("catalog");
+        let ids: Vec<_> = models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["gpt-new", "no-visibility"]);
+        assert!(parse_codex_models("nope").is_err());
+    }
+
+    #[test]
+    fn grok_parser_keeps_only_model_ids() {
+        let stdout = "Available models:\n* grok-build  (default)\n- grok-4.5\ngrok-code-fast-1  2M\nError: please log in\ngrok models needs auth\n";
+        let ids: Vec<_> = parse_grok_models(stdout)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, vec!["grok-build", "grok-4.5", "grok-code-fast-1"]);
+    }
+
+    #[test]
+    fn cli_default_drops_the_model_flag_only() {
+        let args = |list: &[&str]| list.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            omit_cli_default_model(args(&["exec", "--model", "default", "go"])),
+            args(&["exec", "go"])
+        );
+        assert_eq!(
+            omit_cli_default_model(args(&["exec", "--model", "gpt-x", "default"])),
+            args(&["exec", "--model", "gpt-x", "default"])
+        );
+    }
+
+    #[test]
+    fn fallbacks_never_pin_a_versioned_model() {
+        for provider in [
+            AgentProvider::ClaudeCode,
+            AgentProvider::Cursor,
+            AgentProvider::Codex,
+            AgentProvider::Opencode,
+            AgentProvider::GithubCopilot,
+            AgentProvider::Gemini,
+            AgentProvider::Grok,
+            AgentProvider::Pi,
+            AgentProvider::Omp,
+        ] {
+            let catalog = fallback_models(provider);
+            assert!(catalog.models.iter().any(|m| m.id == catalog.default_model));
+            for model in catalog.models {
+                assert!(
+                    !model.id.chars().any(|c| c.is_ascii_digit()),
+                    "{} pins {}",
+                    provider.as_str(),
+                    model.id
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_cmd_survives_output_larger_than_the_pipe_buffer() {
+        let output = run_cmd(
+            Path::new("/bin/sh"),
+            &["-c", "head -c 500000 /dev/zero | tr '\\0' 'x'"],
+            Duration::from_secs(10),
+        )
+        .expect("large output must not time out");
+        assert_eq!(output.stdout.len(), 500_000);
+    }
+
+    #[test]
+    fn cli_runs_do_not_need_a_catalog_probe() {
+        assert_eq!(
+            resolve_model_for_execution(AgentProvider::Codex, AgentHarness::Cli, None).unwrap(),
+            Some(pi::CLI_DEFAULT_MODEL.to_owned())
+        );
     }
 
     #[test]
@@ -1402,7 +1560,7 @@ mod pi_family_tests {
 
     #[test]
     fn catalogs_offer_the_cli_default_first() {
-        let catalog = pi_family_catalog(vec![opt("anthropic/x", "X", "")]);
+        let catalog = cli_default_catalog(vec![opt("anthropic/x", "X", "")]);
         assert_eq!(catalog.default_model, pi::CLI_DEFAULT_MODEL);
         assert_eq!(catalog.models[0].id, pi::CLI_DEFAULT_MODEL);
         assert!(catalog.allow_custom);

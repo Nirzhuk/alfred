@@ -74,182 +74,50 @@ const CLI_MODEL_CAPABILITIES = {
   nativeRuntimeAvailable: false,
 };
 
-/** Fallback catalog if the backend isn't available yet. */
+function fallbackCatalog(
+  provider: AgentProviderId,
+  defaultModel = "default",
+  models: ModelOption[] = [
+    { id: "default", label: "CLI default", description: "" },
+  ],
+): ProviderModels {
+  return {
+    provider,
+    ...CLI_MODEL_CAPABILITIES,
+    defaultModel,
+    allowCustom: true,
+    source: "fallback",
+    available: false,
+    models,
+  };
+}
+
+/**
+ * Fallback catalog if the backend isn't available yet. Version-free ids only:
+ * the real list comes from each CLI at load time.
+ */
 export const FALLBACK_PROVIDER_MODELS: ProviderModels[] = [
-  {
-    provider: "claude_code",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "sonnet",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "sonnet", label: "Sonnet 5", description: "" },
-      { id: "opus", label: "Opus 5", description: "" },
-      { id: "haiku", label: "Haiku 4.5", description: "" },
-      { id: "fable", label: "Fable 5", description: "" },
-    ],
-  },
-  {
-    provider: "cursor",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "grok-4.5",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "default", label: "Auto", description: "" },
-      { id: "grok-4.5", label: "Cursor Grok 4.5", description: "" },
-      { id: "composer-2.5", label: "Composer 2.5", description: "" },
-      { id: "claude-opus-5", label: "Opus 5", description: "" },
-      { id: "claude-sonnet-5", label: "Sonnet 5", description: "" },
-      { id: "claude-fable-5", label: "Fable 5", description: "" },
-      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol", description: "" },
-      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", description: "" },
-      { id: "gpt-5.3-codex", label: "Codex 5.3", description: "" },
-      { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", description: "" },
-    ],
-  },
-  {
-    provider: "codex",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "gpt-5.6-luna",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "gpt-5.6-luna", label: "gpt-5.6-luna", description: "" },
-      { id: "gpt-5.6-terra", label: "gpt-5.6-terra", description: "" },
-      { id: "gpt-5.6-sol", label: "gpt-5.6-sol", description: "" },
-    ],
-  },
-  {
-    provider: "opencode",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "opencode/big-pickle",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      {
-        id: "opencode/big-pickle",
-        label: "opencode/big-pickle",
-        description: "",
-      },
-    ],
-  },
-  {
-    provider: "github_copilot",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "claude-sonnet-4.5",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      {
-        id: "claude-sonnet-4.5",
-        label: "Claude Sonnet 4.5",
-        description: "GitHub Copilot default",
-      },
-      { id: "claude-opus-4.5", label: "Claude Opus 4.5", description: "" },
-      {
-        id: "claude-haiku-4.5",
-        label: "Claude Haiku 4.5",
-        description: "",
-      },
-      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", description: "" },
-      { id: "gpt-5.2", label: "GPT-5.2", description: "" },
-    ],
-  },
-  {
-    provider: "gemini",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "auto",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "auto", label: "Auto", description: "Gemini CLI model routing" },
-      {
-        id: "gemini-3.1-pro-preview",
-        label: "Gemini 3.1 Pro Preview",
-        description: "",
-      },
-      {
-        id: "gemini-3-pro-preview",
-        label: "Gemini 3 Pro Preview",
-        description: "",
-      },
-      {
-        id: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash Preview",
-        description: "",
-      },
-      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", description: "" },
-      {
-        id: "gemini-2.5-flash",
-        label: "Gemini 2.5 Flash",
-        description: "",
-      },
-    ],
-  },
-  {
-    provider: "grok",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "grok-build",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "grok-build", label: "Grok Build", description: "" },
-      { id: "grok-4.5", label: "Grok 4.5", description: "" },
-      { id: "grok-code-fast-1", label: "Grok Code Fast 1", description: "" },
-    ],
-  },
-  {
-    provider: "pi",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "default",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "default", label: "CLI default", description: "" },
-      {
-        id: "anthropic/claude-sonnet-5",
-        label: "Claude Sonnet 5",
-        description: "",
-      },
-      { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", description: "" },
-      {
-        id: "google/gemini-3-pro-preview",
-        label: "Gemini 3 Pro Preview",
-        description: "",
-      },
-    ],
-  },
-  {
-    provider: "omp",
-    ...CLI_MODEL_CAPABILITIES,
-    defaultModel: "default",
-    allowCustom: true,
-    source: "fallback",
-    available: false,
-    models: [
-      { id: "default", label: "CLI default", description: "" },
-      {
-        id: "anthropic/claude-sonnet-5",
-        label: "Claude Sonnet 5",
-        description: "",
-      },
-      { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", description: "" },
-      {
-        id: "google/gemini-3-pro-preview",
-        label: "Gemini 3 Pro Preview",
-        description: "",
-      },
-    ],
-  },
+  fallbackCatalog("claude_code", "sonnet", [
+    { id: "sonnet", label: "Sonnet", description: "" },
+    { id: "opus", label: "Opus", description: "" },
+    { id: "haiku", label: "Haiku", description: "" },
+    { id: "fable", label: "Fable", description: "" },
+  ]),
+  fallbackCatalog("cursor", "default", [
+    { id: "default", label: "Auto", description: "" },
+  ]),
+  fallbackCatalog("codex"),
+  fallbackCatalog("opencode"),
+  fallbackCatalog("github_copilot"),
+  fallbackCatalog("gemini", "auto", [
+    { id: "auto", label: "Auto", description: "" },
+    { id: "pro", label: "Pro", description: "" },
+    { id: "flash", label: "Flash", description: "" },
+    { id: "flash-lite", label: "Flash Lite", description: "" },
+  ]),
+  fallbackCatalog("grok"),
+  fallbackCatalog("pi"),
+  fallbackCatalog("omp"),
 ];
 
 export const NATIVE_UNAVAILABLE_PROVIDER_MODELS: ProviderModels[] =

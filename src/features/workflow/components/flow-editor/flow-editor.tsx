@@ -21,8 +21,10 @@ import {
 import { nodeTypes } from "../node-types";
 import { ScheduleArrows } from "../schedule-node";
 import { useWorkflowStore } from "../../store";
+import { layoutNodes } from "../../layout";
 import {
   composeScheduleCanvas,
+  defaultSchedulePosition,
   isScheduleCanvasId,
   scheduleCanvasNodeId,
 } from "../../schedule-canvas";
@@ -438,6 +440,42 @@ export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
     [saveScheduleLayout, scheduleId],
   );
 
+  const onTidy = useCallback(() => {
+    // Read run data here so a run's output never re-renders the canvas for this.
+    const { nodes, edges, stepInputs, stepOutputs } = useWorkflowStore.getState();
+    const at = layoutNodes(
+      nodes,
+      edges,
+      (id) => Boolean(stepInputs[id] || stepOutputs[id]),
+    );
+    onNodesChange(
+      nodes.map((node) => ({
+        id: node.id,
+        type: "position" as const,
+        position: at.get(node.id),
+      })),
+    );
+    // Left of everything, so a saved schedule position cannot land on a step.
+    if (scheduleId) {
+      void saveScheduleLayout(
+        scheduleId,
+        defaultSchedulePosition(
+          nodes.map((node) => ({
+            ...node,
+            position: at.get(node.id) ?? node.position,
+          })),
+          nodes.map((node) => node.id),
+        ),
+      );
+    }
+    void fitView({
+      padding: 0.2,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180,
+    });
+  }, [fitView, onNodesChange, saveScheduleLayout, scheduleId]);
+
   const onAddPrompt = useCallback(
     (position: { x: number; y: number }) => {
       addNode({
@@ -571,6 +609,7 @@ export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
           rootIds={schedulePiece.rootIds}
         />
         <AddStepPanel
+          onTidy={storeNodes.length > 1 ? onTidy : null}
           onAddPrompt={onAddPrompt}
           onAddAgent={onAddAgent}
           onAddChoose={onAddChoose}

@@ -10,10 +10,20 @@ for that step:
   running, the Output tab remains visible as `Working…`; streamed activity
   stays in the run console.
 
+A finished step opens on Output. Input, Memory, and File inject steps open on
+Input, because they supply data rather than transform it.
+
+Files the visible tab mentions appear on the card. Up to two show by name and
+open directly; more show as a count that opens the viewer.
+
 Select either tab and choose **View full input** or **View full output** to open
 the complete step-data viewer. The viewer supports copying the visible value.
 Agent statistics, changed files, and HTML previews remain associated with
 Output.
+
+The viewer colours JSON and renders prompts and agent text as markdown. Script,
+git, and HTTP text stays raw so its alignment survives. **View source** shows
+the original text, which is also what **Copy** copies.
 
 Inputs are captured by the runner immediately before the node's main operation,
 then persisted as the same value shown in History. An Input node with a
@@ -27,8 +37,8 @@ large input was truncated for the live desktop event.
 ## Files on input steps
 
 Add files by dropping them on an Input or File inject card, or on the step's
-settings. The **+ File** buttons still work. An Input accepts folders; a File
-inject step takes files only.
+settings. The **+ File** and **+ Folder** buttons still work. A folder adds its
+path and top-level listing to the context, not the contents of its files.
 
 Select a file on the card, or **Edit** in settings and in the viewer, to edit it
 in Alfred. **Save** (Cmd/Ctrl+S) writes to the original file, so the next run

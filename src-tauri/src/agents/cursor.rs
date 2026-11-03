@@ -1,3 +1,4 @@
+use super::models;
 use super::process::{cwd_from_request, find_bin, prefer_stdout, run_cmd};
 use super::{
     AgentActivity, AgentActivityKind, AgentActivityState, AgentAdapter, AgentError, AgentProvider,
@@ -65,6 +66,7 @@ impl AgentAdapter for CursorAdapter {
 
         let mut last_err = String::new();
         for (args, structured) in attempts {
+            let args = models::omit_cli_default_model(args);
             if hooks
                 .control
                 .map(|control| control.is_cancelled())

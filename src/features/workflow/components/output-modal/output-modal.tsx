@@ -6,8 +6,9 @@ import { Modal, ModalHeader } from "../../../../components/modal";
 import { useWorkflowStore } from "../../store";
 import { formatStatsWithSource } from "../../format-stats";
 import { createHtmlReportPreview } from "../../html-report";
-import { InputAttachmentList } from "../input-attachment-list";
+import { InjectedPathsList } from "../file-inject-paths";
 import { isSafeToOpen, outputFilePaths } from "../../output-files";
+import { isFormattedBody, StepBody } from "./step-body";
 import type {
   ChangedFile,
   ChangedFileStatus,
@@ -19,7 +20,7 @@ export function formatStepInput(snapshot: StepInputSnapshot): string {
   return JSON.stringify(snapshot.body, null, 2);
 }
 
-/** The files a File inject step read, or null for any other kind of input. */
+/** The files and folders a File inject step read, or null for any other kind of input. */
 export function injectedFilePaths(snapshot: StepInputSnapshot): string[] | null {
   if (snapshot.kind !== "file") return null;
   const paths = (snapshot.body as { paths?: unknown } | null)?.paths;
@@ -63,7 +64,7 @@ const STATUS_LABEL: Record<ChangedFileStatus, string> = {
   renamed: "Renamed",
 };
 
-async function absolutePath(path: string) {
+export async function absolutePath(path: string) {
   return path.startsWith("~/") ? join(await homeDir(), path.slice(2)) : path;
 }
 
@@ -204,9 +205,13 @@ export function OutputModal() {
     activeTab === "input" && selectedOutput.input
       ? injectedFilePaths(selectedOutput.input)
       : null;
+  const inputKind = selectedOutput.input?.kind;
+  const canViewSource =
+    !injectedFiles &&
+    (htmlPreview !== null || isFormattedBody(visibleBody, inputKind));
   const filesChanged = stats?.filesChanged ?? [];
   const mentionedFiles =
-    activeTab === "output" && !htmlPreview
+    !injectedFiles && !htmlPreview
       ? outputFilePaths(visibleBody).filter(
           (path) => !filesChanged.some((file) => file.path === path),
         )
@@ -250,7 +255,7 @@ export function OutputModal() {
         descriptionId="output-modal-description"
         actions={
           <>
-            {htmlPreview ? (
+            {canViewSource ? (
               <button
                 type="button"
                 className="ghost"
@@ -326,16 +331,7 @@ export function OutputModal() {
       ) : null}
       {injectedFiles ? (
         <div className="output-modal-body">
-          <InputAttachmentList
-            attachments={injectedFiles.map((path) => ({
-              id: path,
-              path,
-              kind: "file" as const,
-            }))}
-            onRemove={() => undefined}
-            readOnly
-            variant="modal"
-          />
+          <InjectedPathsList paths={injectedFiles} />
         </div>
       ) : htmlPreview && !viewSource ? (
         <iframe
@@ -345,13 +341,15 @@ export function OutputModal() {
           referrerPolicy="no-referrer"
           srcDoc={htmlPreview}
         />
+      ) : viewSource ? (
+        <pre className="output-modal-body">{visibleBody}</pre>
       ) : structured ? (
         <>
           <p className="output-modal-summary">{structured.summary}</p>
-          <pre className="output-modal-body">{structured.json}</pre>
+          <StepBody text={structured.json} />
         </>
       ) : (
-        <pre className="output-modal-body">{visibleBody}</pre>
+        <StepBody text={visibleBody} kind={inputKind} />
       )}
     </Modal>
   );

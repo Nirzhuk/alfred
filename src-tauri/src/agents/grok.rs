@@ -1,3 +1,4 @@
+use super::models;
 use super::process::{cwd_from_request, find_bin, prefer_stdout, run_cmd};
 use super::{
     map_cmd_err, AgentActivity, AgentActivityKind, AgentActivityState, AgentAdapter, AgentError,
@@ -28,7 +29,7 @@ impl AgentAdapter for GrokAdapter {
         let prompt = request.effective_prompt();
         let model = request.effective_model(self.provider());
         let cwd = cwd_from_request(&request.working_directory);
-        let args = vec![
+        let args = models::omit_cli_default_model(vec![
             "-p".into(),
             prompt,
             "--model".into(),
@@ -36,7 +37,7 @@ impl AgentAdapter for GrokAdapter {
             "--output-format".into(),
             "streaming-json".into(),
             "--always-approve".into(),
-        ];
+        ]);
 
         let on_line = |line: &str| {
             for activity in activities_from_event(line) {

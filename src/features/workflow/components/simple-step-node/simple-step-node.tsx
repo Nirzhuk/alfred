@@ -10,6 +10,7 @@ type Props = {
   meta?: string;
   icon?: ReactNode;
   children?: ReactNode;
+  inputFirst?: boolean;
 };
 
 /** Compact display-only step card used by Context / Action / Sink utilities. */
@@ -21,6 +22,7 @@ export function SimpleStepNode({
   meta,
   icon,
   children,
+  inputFirst,
 }: Props) {
   return (
     <div className={`wf-node ${className}`}>
@@ -38,7 +40,7 @@ export function SimpleStepNode({
         {body ? <p className="wf-node-body">{body}</p> : null}
         {meta ? <p className="wf-node-skill muted">{meta}</p> : null}
         {children}
-        <NodeRunResult nodeId={id} title={title} />
+        <NodeRunResult nodeId={id} title={title} inputFirst={inputFirst} />
       </div>
       <Handle
         className="wf-handle"

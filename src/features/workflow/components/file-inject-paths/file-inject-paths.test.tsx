@@ -8,7 +8,13 @@ const render = (paths: string[]) =>
   );
 
 test("invites a drop when empty", () => {
-  expect(render([])).toContain("Drop files here to inject them");
+  expect(render([])).toContain("Drop files or folders here to inject them");
+});
+
+test("offers both a file and a folder picker", () => {
+  const html = render([]);
+  expect(html).toContain("+ File");
+  expect(html).toContain("+ Folder");
 });
 
 test("offers Edit and Remove for each file", () => {

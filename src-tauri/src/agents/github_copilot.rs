@@ -1,3 +1,4 @@
+use super::models;
 use super::process::{cwd_from_request, find_bin, prefer_stdout, run_cmd};
 use super::{
     map_cmd_err, AgentActivity, AgentActivityKind, AgentActivityState, AgentAdapter, AgentError,
@@ -33,7 +34,7 @@ impl AgentAdapter for GithubCopilotAdapter {
         let prompt = request.effective_prompt();
         let model = request.effective_model(self.provider());
         let cwd = cwd_from_request(&request.working_directory);
-        let args = vec![
+        let args = models::omit_cli_default_model(vec![
             "-p".into(),
             prompt,
             "-s".into(),
@@ -41,7 +42,7 @@ impl AgentAdapter for GithubCopilotAdapter {
             model.clone(),
             "--allow-all".into(),
             "--no-ask-user".into(),
-        ];
+        ]);
 
         let line_index = AtomicUsize::new(0);
         let on_line = |line: &str| {

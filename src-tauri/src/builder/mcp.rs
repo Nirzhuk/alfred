@@ -726,7 +726,8 @@ pub fn normalize_graph(graph: Value) -> Result<Value, String> {
     Ok(graph)
 }
 
-/// Longest-path columns, one row per step in each column, centered.
+/// Longest-path columns, one row per step in each column, centered. The row
+/// pitch leaves room for an Input step plus the result panel a run adds to it.
 fn layout(nodes: &mut [Value], edges: &[Value]) {
     let index: HashMap<String, usize> = nodes
         .iter()
@@ -765,7 +766,7 @@ fn layout(nodes: &mut [Value], edges: &[Value]) {
         let c = column[i];
         let row = rows.entry(c).or_default();
         let height = heights[&c] as f64;
-        let y = (*row as f64 - (height - 1.0) / 2.0) * 240.0;
+        let y = (*row as f64 - (height - 1.0) / 2.0) * 340.0;
         node["position"] = json!({ "x": c as f64 * 320.0, "y": y });
         *row += 1;
     }
