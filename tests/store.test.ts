@@ -45,6 +45,7 @@ describe("agent harness graph migration", () => {
       provider: "omp",
       harness: "cli",
       model: "default",
+      fallbackModel: null,
       skillNames: [],
     });
   });
@@ -73,6 +74,41 @@ describe("agent harness graph migration", () => {
     expect(serialized).not.toContain("accessToken");
     expect(serialized).not.toContain("refreshToken");
     expect(serialized).not.toContain("apiKey");
+  });
+
+  test("preserves a saved fallback model and drops malformed values", () => {
+    const [saved] = normalizeNodes([
+      {
+        id: "agent-fallback",
+        type: "agent",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Agent",
+          provider: "claude_code",
+          model: "sonnet",
+          fallbackModel: "opus",
+        },
+      },
+    ]);
+    expect(saved.data).toMatchObject({
+      model: "sonnet",
+      fallbackModel: "opus",
+    });
+
+    const [malformed] = normalizeNodes([
+      {
+        id: "agent-malformed",
+        type: "agent",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Agent",
+          provider: "claude_code",
+          fallbackModel: { credential: "must-not-persist" },
+        } as never,
+      },
+    ]);
+    expect(malformed.data).toMatchObject({ fallbackModel: undefined });
+    expect(JSON.stringify(malformed)).not.toContain("must-not-persist");
   });
 
   test("old, imported, duplicated, and template graphs all stay on CLI", () => {

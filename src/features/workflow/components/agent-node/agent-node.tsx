@@ -38,6 +38,11 @@ export function AgentNode({ id, data }: NodeProps<AlfredNode>) {
           {agentHarness(data) === "cli" ? "CLI" : "Alfred"}
         </p>
         <p className="wf-node-model">{data.model || "default model"}</p>
+        {data.fallbackModel ? (
+          <p className="wf-node-fallback">
+            fallback: {data.fallbackModel}
+          </p>
+        ) : null}
         {skills.length > 0 ? (
           <p className="wf-node-skill">
             {skills.map((s) => `/${s}`).join(" ")}

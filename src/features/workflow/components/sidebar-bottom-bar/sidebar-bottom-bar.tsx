@@ -12,6 +12,7 @@ import {
   MenuSeparator,
   useDropdownMenuClose,
 } from "../../../../components/menu";
+import { version as appVersion } from "../../../../../package.json";
 
 function HelpIcon() {
   return (
@@ -56,7 +57,11 @@ function HelpMenuItems() {
         onSelect={() => {
           close();
           window.alert(
-            "Alfred runs local coding agents as visual workflow automations. Workflows, memories, and runs stay on this machine.",
+            [
+              `Version ${appVersion}`,
+              "",
+              "Alfred runs local coding agents as visual workflow automations. Workflows, memories, and runs stay on this machine.",
+            ].join("\n"),
           );
         }}
       >

@@ -15,6 +15,7 @@ import {
   modelsForProvider,
   selectionForAgentTarget,
   supportsFastToggle,
+  type ModelOption,
   type ProviderModels,
 } from "../../models";
 import {
@@ -195,6 +196,7 @@ export function NodeSettingsModal({ nodeId, onClose }: Props) {
             harness={agentHarness(node.data)}
             accountRef={node.data.accountRef}
             model={node.data.model}
+            fallbackModel={node.data.fallbackModel}
             skillNames={agentSkillNames(node.data)}
             skills={skills}
             providerModels={providerModels}
@@ -582,6 +584,7 @@ type AgentSettingsProps = {
   harness: AgentHarness;
   accountRef: string | null | undefined;
   model: string | null | undefined;
+  fallbackModel: string | null | undefined;
   skillNames: string[];
   skills: Skill[];
   providerModels: ProviderModels[];
@@ -591,6 +594,7 @@ type AgentSettingsProps = {
     harness?: AgentHarness;
     accountRef?: string | null;
     model?: string | null;
+    fallbackModel?: string | null;
     skillNames?: string[];
     skillName?: null;
   }) => void;
@@ -602,6 +606,7 @@ function AgentSettings({
   harness,
   accountRef,
   model,
+  fallbackModel,
   skillNames,
   skills,
   providerModels,
@@ -631,6 +636,24 @@ function AgentSettings({
   const showCustomModel = savedModelIsCustom || customModelSelected;
   const showFastToggle = !showCustomModel && supportsFastToggle(selectedOption);
   const fastEnabled = showFastToggle && isFastModel(selectedOption, selectedModel);
+  const fallbackValue = fallbackModel?.trim() || null;
+  const fallbackOption = fallbackValue
+    ? modelOptionForValue(catalog, fallbackValue)
+    : undefined;
+  const savedFallbackIsCustom = Boolean(
+    fallbackValue && catalog.allowCustom && !fallbackOption,
+  );
+  const [fallbackCustomSelected, setFallbackCustomSelected] = useState(false);
+  const [fallbackCustomDraft, setFallbackCustomDraft] = useState(
+    savedFallbackIsCustom ? (fallbackValue ?? "") : "",
+  );
+  const [fallbackMenuOpen, setFallbackMenuOpen] = useState(false);
+  const showFallbackCustom = savedFallbackIsCustom || fallbackCustomSelected;
+  const fallbackLabel = !fallbackValue
+    ? "None"
+    : showFallbackCustom
+      ? fallbackCustomDraft.trim() || "Custom…"
+      : fallbackOption?.label || fallbackValue;
   const providerSkills = skills.filter((s) => s.providers.includes(provider));
 
   const invocation =
@@ -656,6 +679,7 @@ function AgentSettings({
                   harness,
                   selectedModel,
                 ),
+                fallbackModel: null,
               });
             }}
           >
@@ -683,14 +707,15 @@ function AgentSettings({
             value={harness}
             onChange={(event) => {
               const nextHarness = event.currentTarget.value as AgentHarness;
-              onUpdate(
-                selectionForAgentTarget(
+              onUpdate({
+                ...selectionForAgentTarget(
                   providerModels,
                   provider,
                   nextHarness,
                   selectedModel,
                 ),
-              );
+                fallbackModel: null,
+              });
             }}
           >
             <option value="cli">Provider CLI</option>
@@ -726,61 +751,24 @@ function AgentSettings({
                 className="model-select-menu"
                 aria-label="Models"
               >
-                {catalog.models.map((option) => {
-                  const selected =
-                    !showCustomModel && selectedOption?.id === option.id;
-                  return (
-                    <MenuItem
-                      key={option.id}
-                      className="model-select-option"
-                      aria-checked={selected}
-                      role="menuitemradio"
-                      title={option.description || undefined}
-                      onSelect={() => {
-                        setCustomModelSelected(false);
-                        setCustomModelDraft("");
-                        setModelMenuOpen(false);
-                        onUpdate({ model: option.baseId ?? option.id });
-                      }}
-                    >
-                      <span className="model-select-option-copy">
-                        <span className="model-select-option-label">
-                          {option.label}
-                        </span>
-                        {option.description ? (
-                          <span className="model-select-option-description">
-                            {option.description}
-                          </span>
-                        ) : null}
-                      </span>
-                      {selected ? <CheckIcon /> : null}
-                    </MenuItem>
-                  );
-                })}
-                {catalog.allowCustom ? (
-                  <MenuItem
-                    className="model-select-option"
-                    aria-checked={showCustomModel}
-                    role="menuitemradio"
-                    onSelect={() => {
-                      setCustomModelSelected(true);
-                      setCustomModelDraft(
-                        savedModelIsCustom ? selectedModel : "",
-                      );
-                      setModelMenuOpen(false);
-                    }}
-                  >
-                    <span className="model-select-option-copy">
-                      <span className="model-select-option-label">
-                        Custom…
-                      </span>
-                      <span className="model-select-option-description">
-                        Enter a model alias or ID
-                      </span>
-                    </span>
-                    {showCustomModel ? <CheckIcon /> : null}
-                  </MenuItem>
-                ) : null}
+                <ModelMenuOptions
+                  catalog={catalog}
+                  selectedId={showCustomModel ? undefined : selectedOption?.id}
+                  customSelected={showCustomModel}
+                  onSelectModel={(option) => {
+                    setCustomModelSelected(false);
+                    setCustomModelDraft("");
+                    setModelMenuOpen(false);
+                    onUpdate({ model: option.baseId ?? option.id });
+                  }}
+                  onSelectCustom={() => {
+                    setCustomModelSelected(true);
+                    setCustomModelDraft(
+                      savedModelIsCustom ? selectedModel : "",
+                    );
+                    setModelMenuOpen(false);
+                  }}
+                />
               </DropdownMenuContent>
             </DropdownMenu>
             {showFastToggle ? (
@@ -814,6 +802,114 @@ function AgentSettings({
         </button>
       </div>
 
+      <div className="agent-fallback-controls">
+        <div className="field model-select-field">
+          <span>Fallback model</span>
+          <div className="model-select-row">
+            <DropdownMenu
+              open={fallbackMenuOpen}
+              onOpenChange={setFallbackMenuOpen}
+              className="model-select"
+            >
+              <DropdownMenuTrigger
+                className="model-select-trigger"
+                aria-label="Select fallback model"
+                disabled={catalog.models.length === 0 && !catalog.allowCustom}
+              >
+                <span className="model-select-value">{fallbackLabel}</span>
+                <ChevronDownIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                side="bottom"
+                className="model-select-menu"
+                aria-label="Fallback models"
+              >
+                <MenuItem
+                  className="model-select-option"
+                  aria-checked={!fallbackValue}
+                  role="menuitemradio"
+                  onSelect={() => {
+                    setFallbackCustomSelected(false);
+                    setFallbackCustomDraft("");
+                    setFallbackMenuOpen(false);
+                    onUpdate({ fallbackModel: null });
+                  }}
+                >
+                  <span className="model-select-option-copy">
+                    <span className="model-select-option-label">None</span>
+                    <span className="model-select-option-description">
+                      Fail the step if the primary model is unavailable
+                    </span>
+                  </span>
+                  {!fallbackValue ? <CheckIcon /> : null}
+                </MenuItem>
+                <ModelMenuOptions
+                  catalog={catalog}
+                  selectedId={
+                    showFallbackCustom ? undefined : fallbackOption?.id
+                  }
+                  customSelected={showFallbackCustom}
+                  onSelectModel={(option) => {
+                    setFallbackCustomSelected(false);
+                    setFallbackCustomDraft("");
+                    setFallbackMenuOpen(false);
+                    onUpdate({ fallbackModel: option.baseId ?? option.id });
+                  }}
+                  onSelectCustom={() => {
+                    setFallbackCustomSelected(true);
+                    setFallbackCustomDraft(
+                      savedFallbackIsCustom ? (fallbackValue ?? "") : "",
+                    );
+                    setFallbackMenuOpen(false);
+                  }}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <p className="hint">
+            Retried once when the primary model is unavailable (usage limit,
+            overload, or unknown model). The fallback stays on{" "}
+            {agentLabel(provider)} and{" "}
+            {harness === "cli" ? "Provider CLI" : "Alfred"}.
+          </p>
+          {fallbackValue && fallbackValue === selectedModel ? (
+            <p className="hint">
+              This matches the primary model and will be ignored.
+            </p>
+          ) : null}
+        </div>
+
+        {harness === "cli" && catalog.allowCustom && showFallbackCustom ? (
+          <div className="custom-model-fields">
+            <label className="field">
+              <span>Custom fallback model ID</span>
+              <input
+                type="text"
+                value={fallbackCustomDraft}
+                placeholder={
+                  provider === "opencode"
+                    ? "provider/model"
+                    : "model alias or id"
+                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setFallbackCustomDraft(value);
+                  onUpdate({
+                    fallbackModel: value.trim() ? value : null,
+                  });
+                }}
+              />
+            </label>
+            <p className="hint">
+              {fallbackCustomDraft.trim()
+                ? `The CLI will use --model ${fallbackCustomDraft.trim()} for the retry.`
+                : "Enter the model ID to pass on the retry."}
+            </p>
+          </div>
+        ) : null}
+      </div>
+
       {harness === "alfred" ? (
         <div className="agent-native-status" role="status">
           <strong>
@@ -822,7 +918,7 @@ function AgentSettings({
           <span>
             {capabilityReason(nativeCapability)}. Alfred-managed credentials are
             separate from Provider CLI credentials, and execution never falls
-            back automatically.
+            back to another harness automatically.
           </span>
           {nativeCapability?.runtimeVersion ? (
             <span>Runtime target: {nativeCapability.runtimeVersion}</span>
@@ -843,8 +939,8 @@ function AgentSettings({
           : catalog.available
             ? "Using model aliases supported by this CLI"
             : catalog.error
-              ? `Using fallback — ${catalog.error}`
-              : "Using fallback model list"}
+              ? `Using built-in model list — ${catalog.error}`
+              : "Using built-in model list"}
       </p>
 
       {harness === "cli" && catalog.allowCustom && showCustomModel ? (
@@ -895,6 +991,66 @@ function AgentSettings({
       ) : (
         <p className="hint">No skills — freeform prompt.</p>
       )}
+    </>
+  );
+}
+
+type ModelMenuOptionsProps = {
+  catalog: ProviderModels;
+  selectedId: string | undefined;
+  customSelected: boolean;
+  onSelectModel: (option: ModelOption) => void;
+  onSelectCustom: () => void;
+};
+
+function ModelMenuOptions({
+  catalog,
+  selectedId,
+  customSelected,
+  onSelectModel,
+  onSelectCustom,
+}: ModelMenuOptionsProps) {
+  return (
+    <>
+      {catalog.models.map((option) => {
+        const selected = !customSelected && selectedId === option.id;
+        return (
+          <MenuItem
+            key={option.id}
+            className="model-select-option"
+            aria-checked={selected}
+            role="menuitemradio"
+            title={option.description || undefined}
+            onSelect={() => onSelectModel(option)}
+          >
+            <span className="model-select-option-copy">
+              <span className="model-select-option-label">{option.label}</span>
+              {option.description ? (
+                <span className="model-select-option-description">
+                  {option.description}
+                </span>
+              ) : null}
+            </span>
+            {selected ? <CheckIcon /> : null}
+          </MenuItem>
+        );
+      })}
+      {catalog.allowCustom ? (
+        <MenuItem
+          className="model-select-option"
+          aria-checked={customSelected}
+          role="menuitemradio"
+          onSelect={onSelectCustom}
+        >
+          <span className="model-select-option-copy">
+            <span className="model-select-option-label">Custom…</span>
+            <span className="model-select-option-description">
+              Enter a model alias or ID
+            </span>
+          </span>
+          {customSelected ? <CheckIcon /> : null}
+        </MenuItem>
+      ) : null}
     </>
   );
 }

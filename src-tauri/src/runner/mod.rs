@@ -34,7 +34,8 @@ use crate::agents::review::{
 use crate::agents::{
     auth_required, execute_target, AgentActivity, AgentActivityKind, AgentActivityState,
     AgentAuthRequired, AgentError, AgentExecutionTarget, AgentHarness, AgentProvider, AgentRequest,
-    AgentRequestMetadata, AgentRunHooks, OpaqueAgentAccountRef, SafeAgentRunMetadata,
+    AgentRequestMetadata, AgentResponse, AgentRunHooks, OpaqueAgentAccountRef,
+    SafeAgentRunMetadata,
 };
 use crate::db::{
     build_review_prompt, discover_review_targets_at, parse_reviewer_output, Db, EvidenceOrigin,
@@ -55,7 +56,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
@@ -688,6 +689,80 @@ fn safe_agent_error(error: &AgentError) -> &'static str {
         AgentError::InvalidModel => crate::agents::INVALID_AGENT_MODEL,
         AgentError::NativeRuntimeUnavailable => crate::agents::NATIVE_RUNTIME_UNAVAILABLE,
         AgentError::Message(_) => "agent_execution_failed",
+    }
+}
+
+/// A different model can only help when the primary attempt failed because the
+/// model itself was unavailable. Authentication, missing binaries, cancellation,
+/// and ordinary task failures stay terminal; retrying those would repeat side
+/// effects without changing the outcome.
+fn fallback_model_eligible(error: &AgentError) -> bool {
+    let AgentError::Message(message) = error else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    [
+        "usage limit",
+        "session limit",
+        "weekly limit",
+        "rate limit",
+        "rate_limit",
+        "limit reached",
+        "too many requests",
+        "quota",
+        "http 429",
+        "http 529",
+        "status 429",
+        "status 529",
+        "status: 429",
+        "status: 529",
+        "status code 429",
+        "status code 529",
+        "error 429",
+        "code 429",
+        "code: 429",
+        "(429)",
+        "(529)",
+        "429 rate",
+        "429 too many",
+        "529 overloaded",
+        "overloaded",
+        "over capacity",
+        "at capacity",
+        "model not found",
+        "model_not_found",
+        "model_not_available",
+        "model_not_supported",
+        "unknown model",
+        "unsupported model",
+        "invalid model",
+        "model does not exist",
+        "model is unavailable",
+        "model is not available",
+        "model unavailable",
+        "selected model",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+}
+
+/// Run the primary model; when it reports an availability failure and the node
+/// configured a distinct fallback, retry exactly once. `on_fallback` runs before
+/// the retry so callers can update run state and stream a notice.
+fn execute_with_model_fallback<T>(
+    primary: Option<&str>,
+    fallback: Option<&str>,
+    mut execute: impl FnMut(Option<&str>) -> Result<T, AgentError>,
+    mut on_fallback: impl FnMut(&str, &str),
+) -> Result<T, AgentError> {
+    match execute(primary) {
+        Ok(value) => Ok(value),
+        Err(error) if fallback.is_some() && fallback_model_eligible(&error) => {
+            let fallback = fallback.expect("fallback model is present");
+            on_fallback(primary.unwrap_or("default"), fallback);
+            execute(Some(fallback))
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -2203,11 +2278,12 @@ fn execute_level_node(
                     model.as_deref(),
                 )
                 .map_err(|error| safe_agent_error(&error).to_owned())?;
-                step_agent_metadata = Some(SafeAgentRunMetadata::identity(
+                let primary_metadata = SafeAgentRunMetadata::identity(
                     provider,
                     harness,
                     resolved_model.as_deref(),
-                ));
+                );
+                step_agent_metadata = Some(primary_metadata.clone());
                 let account_ref = if harness == AgentHarness::Alfred {
                     data.get("accountRef")
                         .and_then(Value::as_str)
@@ -2225,23 +2301,38 @@ fn execute_level_node(
                     context_prompt.clone()
                 };
                 let query_text = task_query_state.query_text(context_prompt.is_empty());
-                let target = AgentExecutionTarget {
-                    provider,
-                    harness,
-                    account_ref,
-                    model: resolved_model.clone(),
-                    working_directory: working_directory.clone(),
-                    request_metadata: AgentRequestMetadata::new(run_id, &node_id)
-                        .map_err(|error| safe_agent_error(&error).to_owned())?,
-                };
+                let fallback_model = data
+                    .get("fallbackModel")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .and_then(|requested| {
+                        crate::agents::models::resolve_model_for_execution(
+                            provider,
+                            harness,
+                            Some(requested),
+                        )
+                        .ok()
+                    })
+                    .flatten()
+                    .filter(|candidate| Some(candidate.as_str()) != resolved_model.as_deref());
                 let git_before = working_directory.as_deref().map(git_status_snapshot);
                 let model_label = resolved_model
                     .as_deref()
                     .map(|value| format!(" · `{value}`"))
                     .unwrap_or_default();
+                let fallback_metadata = fallback_model.as_ref().map(|fallback| {
+                    SafeAgentRunMetadata::identity(provider, harness, Some(fallback))
+                });
+                let fallback_active = AtomicBool::new(false);
 
                 let on_activity = |activity: &AgentActivity| {
                     let safe_activity = safe_activity_for_run_event(activity, harness);
+                    let metadata = if fallback_active.load(Ordering::Relaxed) {
+                        fallback_metadata.as_ref()
+                    } else {
+                        Some(&primary_metadata)
+                    };
                     let _ = emit(
                         app,
                         RunEvent {
@@ -2255,7 +2346,7 @@ fn execute_level_node(
                             message: safe_activity.label.clone(),
                             input: None,
                             output: None,
-                            stats: step_agent_metadata.as_ref().map(safe_metadata_value),
+                            stats: metadata.map(safe_metadata_value),
                             activity: Some(safe_activity),
                             auth_required: None,
                             at: Utc::now().to_rfc3339(),
@@ -2378,28 +2469,73 @@ fn execute_level_node(
                         Ok(())
                     },
                     |prompt| {
-                        let request = AgentRequest {
-                            prompt,
-                            model: resolved_model.clone(),
-                            skill: None,
-                            skill_name: None,
-                            skill_names: skill_names.clone(),
-                            working_directory: working_directory.clone(),
-                            extra: Value::Null,
+                        let attempt = |model: Option<&str>| -> Result<AgentResponse, AgentError> {
+                            let request = AgentRequest {
+                                prompt: prompt.clone(),
+                                model: model.map(str::to_owned),
+                                skill: None,
+                                skill_name: None,
+                                skill_names: skill_names.clone(),
+                                working_directory: working_directory.clone(),
+                                extra: Value::Null,
+                            };
+                            let target = AgentExecutionTarget {
+                                provider,
+                                harness,
+                                account_ref: account_ref.clone(),
+                                model: model.map(str::to_owned),
+                                working_directory: working_directory.clone(),
+                                request_metadata: AgentRequestMetadata::new(run_id, &node_id)?,
+                            };
+                            execute_target(
+                                &target,
+                                request,
+                                AgentRunHooks {
+                                    control: Some(control),
+                                    on_activity: Some(&on_activity),
+                                },
+                                native_router.as_ref().map(|router| {
+                                    router.inner() as &dyn crate::agents::AgentNativeRuntime
+                                }),
+                            )
                         };
-                        execute_target(
-                            &target,
-                            request,
-                            AgentRunHooks {
-                                control: Some(control),
-                                on_activity: Some(&on_activity),
+
+                        execute_with_model_fallback(
+                            resolved_model.as_deref(),
+                            fallback_model.as_deref(),
+                            attempt,
+                            |primary, fallback| {
+                                let _ = emit(
+                                    app,
+                                    RunEvent {
+                                        run_id: run_id.into(),
+                                        workflow_id: workflow_id.into(),
+                                        kind: "step_log".into(),
+                                        node_id: Some(node_id.clone()),
+                                        node_type: Some(node_type.clone()),
+                                        node_label: Some(label.clone()),
+                                        status: Some("running".into()),
+                                        message: format!(
+                                            "Primary model `{primary}` is unavailable — retrying with fallback `{fallback}`"
+                                        ),
+                                        input: None,
+                                        output: None,
+                                        stats: fallback_metadata
+                                            .as_ref()
+                                            .map(safe_metadata_value),
+                                        activity: None,
+                                        auth_required: None,
+                                        at: Utc::now().to_rfc3339(),
+                                    },
+                                );
+                                fallback_active.store(true, Ordering::Relaxed);
                             },
-                            native_router.as_ref().map(|router| {
-                                router.inner() as &dyn crate::agents::AgentNativeRuntime
-                            }),
                         )
                     },
                 )?;
+                if fallback_active.load(Ordering::Relaxed) {
+                    step_agent_metadata = fallback_metadata.clone();
+                }
                 match response {
                     Ok(response) => {
                         last_output =
@@ -2407,10 +2543,15 @@ fn execute_level_node(
                         task_query_state.clear_last_output();
                         last_files_changed.clear();
                         files_reset = true;
+                        let effective_model = if fallback_active.load(Ordering::Relaxed) {
+                            fallback_model.as_deref()
+                        } else {
+                            resolved_model.as_deref()
+                        };
                         let mut metadata = SafeAgentRunMetadata::from_untrusted(
                             provider,
                             harness,
-                            resolved_model.as_deref(),
+                            effective_model,
                             &response.metadata,
                         );
                         if let (Some(before), Some(dir)) =
@@ -4961,6 +5102,94 @@ mod tests {
             crate::agents::NATIVE_RUNTIME_UNAVAILABLE
         );
         assert!(safe_agent_error(&adversarial).len() < 64);
+    }
+
+    #[test]
+    fn fallback_retries_only_model_availability_failures() {
+        for message in [
+            "You've hit your session limit · resets 10:30am",
+            "Claude hit its five_hour usage limit. Try again after it resets.",
+            "429 Too Many Requests",
+            "The model is overloaded",
+            "model not found: anthropic/claude-sonnet-5",
+            "model_not_available: gpt-5.6-luna",
+            "There's an issue with the selected model (opus). It may not exist.",
+        ] {
+            assert!(
+                fallback_model_eligible(&AgentError::Message(message.into())),
+                "{message}"
+            );
+        }
+        for message in [
+            "claude CLI not found. Install Claude Code and ensure `claude` is on PATH.",
+            "not logged in",
+            "authentication required",
+            "failed to compile the workspace",
+            "error at src/main.rs:429: expected value",
+            "the input file does not exist",
+        ] {
+            assert!(
+                !fallback_model_eligible(&AgentError::Message(message.into())),
+                "{message}"
+            );
+        }
+        assert!(!fallback_model_eligible(&AgentError::Cancelled));
+        assert!(!fallback_model_eligible(&AgentError::InvalidModel));
+    }
+
+    #[test]
+    fn fallback_retries_once_with_the_configured_model() {
+        let mut calls = Vec::new();
+        let mut notice = None;
+        let result = execute_with_model_fallback(
+            Some("sonnet"),
+            Some("opus"),
+            |model| {
+                calls.push(model.map(str::to_owned));
+                if model == Some("sonnet") {
+                    Err(AgentError::Message("usage limit reached".into()))
+                } else {
+                    Ok("done".to_string())
+                }
+            },
+            |primary, fallback| notice = Some((primary.to_string(), fallback.to_string())),
+        );
+
+        assert_eq!(result.unwrap(), "done");
+        assert_eq!(
+            calls,
+            vec![Some("sonnet".to_string()), Some("opus".to_string())]
+        );
+        assert_eq!(notice, Some(("sonnet".to_string(), "opus".to_string())));
+    }
+
+    #[test]
+    fn fallback_does_not_retry_unrelated_or_unconfigured_failures() {
+        let mut calls = 0;
+        let result = execute_with_model_fallback(
+            Some("sonnet"),
+            Some("opus"),
+            |_| {
+                calls += 1;
+                Err::<(), _>(AgentError::Message("failed to compile".into()))
+            },
+            |_, _| panic!("no fallback for a task failure"),
+        );
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+
+        let mut calls = 0;
+        let result = execute_with_model_fallback(
+            Some("sonnet"),
+            None,
+            |_| {
+                calls += 1;
+                Err::<(), _>(AgentError::Message("usage limit reached".into()))
+            },
+            |_, _| panic!("no fallback is configured"),
+        );
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
     }
 
     #[test]

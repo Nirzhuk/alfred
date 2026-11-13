@@ -156,6 +156,19 @@ export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
     [displayNodes, scheduleNode],
   );
 
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  // A connection is the only place a condition is authored, so a plain click on
+  // it opens the editor. Keyboard users reach the same editor with Enter on a
+  // selected edge. The condition chip reuses this so it can be hoverable.
+  const openEdgeCondition = useCallback(
+    (edgeId: string) => {
+      setConditionEdgeId(edgeId);
+      closeMenu();
+    },
+    [closeMenu],
+  );
+
   const edges = useMemo(
     () =>
       storeEdges.map((edge) => {
@@ -168,9 +181,10 @@ export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
           ariaLabel: condition
             ? `Connection from ${from} to ${to}, runs when ${edgeConditionSummary(condition)}`
             : `Connection from ${from} to ${to}, always runs`,
+          data: { ...edge.data, onOpenCondition: openEdgeCondition },
         };
       }),
-    [storeEdges, storeNodes],
+    [storeEdges, storeNodes, openEdgeCondition],
   );
 
   /** Round pan offsets and clamp zoom so nodes stay sharp. */
@@ -187,8 +201,6 @@ export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
     }
   }, [getViewport, setViewport]);
 
-  const closeMenu = useCallback(() => setMenu(null), []);
-
   const openNodeSettings = useCallback(
     (nodeId: string) => {
       setSelectedNodeId(nodeId);
@@ -196,17 +208,6 @@ export function FlowEditor({ displayNodes, focusScheduleRequest }: Props) {
       closeMenu();
     },
     [setSelectedNodeId, closeMenu],
-  );
-
-  // A connection is the only place a condition is authored, so a plain click on
-  // it opens the editor. Keyboard users reach the same editor with Enter on a
-  // selected edge.
-  const openEdgeCondition = useCallback(
-    (edgeId: string) => {
-      setConditionEdgeId(edgeId);
-      closeMenu();
-    },
-    [closeMenu],
   );
 
   const onEdgeClick = useCallback(

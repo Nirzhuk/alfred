@@ -7,9 +7,16 @@ import {
 } from "@tauri-apps/plugin-notification";
 import { create } from "zustand";
 import { detectDesktopPlatform } from "../../platform";
+import {
+  CONDITION_SKIP_SOUND_INTERVAL_MS,
+  playSoundPreset,
+} from "./feedback-sounds";
 
 const ENABLED_KEY = "alfred:notifications-enabled";
-const SOUND_KEY = "alfred:notification-sound";
+const SUCCESS_SOUND_KEY = "alfred:notification-success-sound";
+const ERROR_SOUND_KEY = "alfred:notification-error-sound";
+/** Pre-split installs stored one sound at this key. */
+const LEGACY_SOUND_KEY = "alfred:notification-sound";
 
 export const NOTIFICATION_SOUND_OPTIONS = [
   { value: "system", label: "System default" },
@@ -22,6 +29,14 @@ export const NOTIFICATION_SOUND_OPTIONS = [
 export type NotificationSound =
   (typeof NOTIFICATION_SOUND_OPTIONS)[number]["value"];
 
+/** Which outcome the configured sound belongs to. */
+export type NotificationSoundKind = "success" | "error";
+
+export type NotificationSounds = {
+  success: NotificationSound;
+  error: NotificationSound;
+};
+
 export type NotificationPermissionStatus = "unknown" | "granted" | "denied";
 
 export type OpenRunOutputPayload = {
@@ -33,12 +48,16 @@ export type OpenRunOutputPayload = {
 
 type NotificationsState = {
   enabled: boolean;
-  sound: NotificationSound;
+  successSound: NotificationSound;
+  errorSound: NotificationSound;
   permission: NotificationPermissionStatus;
   busy: boolean;
   refreshPermission: () => Promise<NotificationPermissionStatus>;
   setEnabled: (enabled: boolean) => Promise<void>;
-  setSound: (sound: NotificationSound) => Promise<void>;
+  setSound: (
+    kind: NotificationSoundKind,
+    sound: NotificationSound,
+  ) => Promise<void>;
   openSystemSettings: () => Promise<void>;
   sendTest: () => Promise<boolean>;
 };
@@ -61,20 +80,52 @@ function persistNotificationsEnabled(enabled: boolean) {
   }
 }
 
-export function readNotificationSound(): NotificationSound {
+function isNotificationSound(
+  value: string | null,
+): value is NotificationSound {
+  return NOTIFICATION_SOUND_OPTIONS.some((option) => option.value === value);
+}
+
+/**
+ * Resolve the two stored sounds, falling back to the pre-split setting.
+ *
+ * Exported for tests; callers normally use `readNotificationSounds`.
+ */
+export function resolveNotificationSounds(stored: {
+  legacy: string | null;
+  success: string | null;
+  error: string | null;
+}): NotificationSounds {
+  const legacy = isNotificationSound(stored.legacy)
+    ? stored.legacy
+    : ("system" as const);
+  return {
+    success: isNotificationSound(stored.success) ? stored.success : legacy,
+    error: isNotificationSound(stored.error) ? stored.error : legacy,
+  };
+}
+
+export function readNotificationSounds(): NotificationSounds {
   try {
-    const raw = localStorage.getItem(SOUND_KEY);
-    return NOTIFICATION_SOUND_OPTIONS.some((option) => option.value === raw)
-      ? (raw as NotificationSound)
-      : "system";
+    return resolveNotificationSounds({
+      legacy: localStorage.getItem(LEGACY_SOUND_KEY),
+      success: localStorage.getItem(SUCCESS_SOUND_KEY),
+      error: localStorage.getItem(ERROR_SOUND_KEY),
+    });
   } catch {
-    return "system";
+    return { success: "system", error: "system" };
   }
 }
 
-function persistNotificationSound(sound: NotificationSound) {
+function persistNotificationSound(
+  kind: NotificationSoundKind,
+  sound: NotificationSound,
+) {
   try {
-    localStorage.setItem(SOUND_KEY, sound);
+    localStorage.setItem(
+      kind === "success" ? SUCCESS_SOUND_KEY : ERROR_SOUND_KEY,
+      sound,
+    );
   } catch {
     /* ignore */
   }
@@ -102,11 +153,14 @@ async function ensureGranted(): Promise<NotificationPermissionStatus> {
   }
 }
 
-async function syncNativeSound(sound: NotificationSound): Promise<void> {
+async function syncNativeSounds(sounds: NotificationSounds): Promise<void> {
   try {
-    await invoke("set_notification_sound_cmd", { sound });
+    await invoke("set_notification_sounds_cmd", {
+      successSound: sounds.success,
+      errorSound: sounds.error,
+    });
   } catch (err) {
-    console.warn("Failed to sync notification sound", err);
+    console.warn("Failed to sync notification sounds", err);
   }
 }
 
@@ -135,9 +189,12 @@ export async function shouldNotifyAboutRun(): Promise<boolean> {
   }
 }
 
+const storedSounds = readNotificationSounds();
+
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   enabled: readNotificationsEnabled(),
-  sound: readNotificationSound(),
+  successSound: storedSounds.success,
+  errorSound: storedSounds.error,
   permission: "unknown",
   busy: false,
 
@@ -168,10 +225,12 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     }
   },
 
-  setSound: async (sound) => {
-    persistNotificationSound(sound);
-    set({ sound });
-    await syncNativeSound(sound);
+  setSound: async (kind, sound) => {
+    persistNotificationSound(kind, sound);
+    if (kind === "success") set({ successSound: sound });
+    else set({ errorSound: sound });
+    const { successSound, errorSound } = get();
+    await syncNativeSounds({ success: successSound, error: errorSound });
   },
 
   openSystemSettings: async () => {
@@ -205,12 +264,44 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   },
 }));
 
+/**
+ * Play the configured cue inside Alfred.
+ *
+ * Used when the window is focused, where desktop notifications are withheld
+ * (they are only sent for background runs).
+ */
+export function playNotificationSound(kind: NotificationSoundKind): void {
+  const { successSound, errorSound } = useNotificationsStore.getState();
+  playSoundPreset(kind === "success" ? successSound : errorSound);
+}
+
+let lastConditionSkipSoundAt = Number.NEGATIVE_INFINITY;
+
+/**
+ * Alert once per burst when a conditional connection does not fire.
+ *
+ * A skipped branch normally skips several steps in a row; the throttle keeps
+ * one branch from sounding like a slot machine. Returns whether a cue played.
+ */
+export function playConditionSkippedSound(now = Date.now()): boolean {
+  if (now - lastConditionSkipSoundAt < CONDITION_SKIP_SOUND_INTERVAL_MS) {
+    return false;
+  }
+  lastConditionSkipSoundAt = now;
+  playNotificationSound("error");
+  return true;
+}
+
 /** Startup: refresh permission; only prompt if the user wants notifications. */
 export async function prepareNotifications(): Promise<void> {
   const enabled = readNotificationsEnabled();
-  const sound = readNotificationSound();
-  useNotificationsStore.setState({ enabled, sound });
-  await syncNativeSound(sound);
+  const sounds = readNotificationSounds();
+  useNotificationsStore.setState({
+    enabled,
+    successSound: sounds.success,
+    errorSound: sounds.error,
+  });
+  await syncNativeSounds(sounds);
   if (!enabled) {
     const permission = await readPermission();
     useNotificationsStore.setState({ permission });

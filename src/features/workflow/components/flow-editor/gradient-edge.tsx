@@ -16,6 +16,12 @@ import {
 } from "../../types";
 import "./gradient-edge.css";
 
+type CanvasEdgeData = WorkflowEdgeData & {
+  /** Opens the condition editor. The chip is hoverable for its tooltip, so it
+   * must keep the edge's click affordance. */
+  onOpenCondition?: (edgeId: string) => void;
+};
+
 type GradientProps = {
   id: string;
   sourceX: number;
@@ -83,9 +89,8 @@ export function GradientEdge({
   const targetSkipped = useWorkflowStore(
     (state) => state.stepStatuses[target] === "skipped",
   );
-  const condition = parseEdgeCondition(
-    (data as WorkflowEdgeData | undefined)?.condition,
-  );
+  const edgeData = data as CanvasEdgeData | undefined;
+  const condition = parseEdgeCondition(edgeData?.condition);
   const [path, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -95,6 +100,11 @@ export function GradientEdge({
     targetPosition,
   });
   const summary = condition ? edgeConditionSummary(condition) : null;
+  const chipLabel = summary
+    ? targetSkipped
+      ? `did not fire — ${summary}`
+      : summary
+    : null;
 
   return (
     <>
@@ -131,7 +141,7 @@ export function GradientEdge({
         labelBgPadding={labelBgPadding}
         labelBgBorderRadius={labelBgBorderRadius}
       />
-      {summary ? (
+      {chipLabel ? (
         <EdgeLabelRenderer>
           <span
             className={`edge-condition-chip${targetSkipped ? " is-not-fired" : ""}`}
@@ -140,9 +150,15 @@ export function GradientEdge({
               // computed above, in canvas coordinates.
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
-            title={summary}
+            // A long condition truncates at the chip's max width; the title
+            // reveals the full label on hover.
+            title={chipLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              edgeData?.onOpenCondition?.(id);
+            }}
           >
-            {targetSkipped ? `did not fire — ${summary}` : summary}
+            {chipLabel}
           </span>
         </EdgeLabelRenderer>
       ) : null}

@@ -96,30 +96,43 @@ impl NotificationSound {
 }
 
 pub struct NotificationPreferences {
-    sound: Mutex<NotificationSound>,
+    success_sound: Mutex<NotificationSound>,
+    error_sound: Mutex<NotificationSound>,
 }
 
 impl Default for NotificationPreferences {
     fn default() -> Self {
         Self {
-            sound: Mutex::new(NotificationSound::default()),
+            success_sound: Mutex::new(NotificationSound::default()),
+            error_sound: Mutex::new(NotificationSound::default()),
         }
     }
 }
 
 impl NotificationPreferences {
-    fn sound(&self) -> NotificationSound {
+    fn success_sound(&self) -> NotificationSound {
         *self
-            .sound
+            .success_sound
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn set_sound(&self, sound: NotificationSound) {
+    fn error_sound(&self) -> NotificationSound {
         *self
-            .sound
+            .error_sound
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = sound;
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn set_sounds(&self, success: NotificationSound, error: NotificationSound) {
+        *self
+            .success_sound
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = success;
+        *self
+            .error_sound
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = error;
     }
 }
 
@@ -140,9 +153,15 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-fn selected_sound<R: Runtime>(app: &AppHandle<R>) -> NotificationSound {
+fn success_sound<R: Runtime>(app: &AppHandle<R>) -> NotificationSound {
     app.try_state::<NotificationPreferences>()
-        .map(|preferences| preferences.sound())
+        .map(|preferences| preferences.success_sound())
+        .unwrap_or_default()
+}
+
+fn error_sound<R: Runtime>(app: &AppHandle<R>) -> NotificationSound {
+    app.try_state::<NotificationPreferences>()
+        .map(|preferences| preferences.error_sound())
         .unwrap_or_default()
 }
 
@@ -157,9 +176,9 @@ fn notification_icon_path<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
 fn configure_notification<R: Runtime>(
     app: &AppHandle<R>,
     notification: &mut notify_rust::Notification,
+    sound: NotificationSound,
 ) {
     notification.appname(app.config().product_name.as_deref().unwrap_or("Alfred"));
-    let sound = selected_sound(app);
 
     #[cfg(all(unix, not(target_os = "macos")))]
     if sound == NotificationSound::None {
@@ -287,6 +306,11 @@ pub fn notify_run_finished<R: Runtime>(
     body: String,
 ) {
     let app = app.clone();
+    let sound = if ok {
+        success_sound(&app)
+    } else {
+        error_sound(&app)
+    };
     let (summary, message) = run_notification_copy(&workflow_name, ok);
 
     // Notification action handlers may wait for minutes or hours. Retain a
@@ -305,7 +329,7 @@ pub fn notify_run_finished<R: Runtime>(
             .body(message)
             // Lets Linux/XDG treat a banner click as the default action.
             .action("default", "View output");
-        configure_notification(&app, &mut notification);
+        configure_notification(&app, &mut notification, sound);
 
         let Ok(handle) = notification.show() else {
             return;
@@ -322,13 +346,16 @@ pub fn notify_run_finished<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn set_notification_sound_cmd(
+pub fn set_notification_sounds_cmd(
     preferences: State<'_, NotificationPreferences>,
-    sound: String,
+    success_sound: String,
+    error_sound: String,
 ) -> Result<(), String> {
-    let sound = NotificationSound::parse(&sound)
-        .ok_or_else(|| format!("unsupported notification sound: {sound}"))?;
-    preferences.set_sound(sound);
+    let success = NotificationSound::parse(&success_sound)
+        .ok_or_else(|| format!("unsupported success notification sound: {success_sound}"))?;
+    let error = NotificationSound::parse(&error_sound)
+        .ok_or_else(|| format!("unsupported error notification sound: {error_sound}"))?;
+    preferences.set_sounds(success, error);
     Ok(())
 }
 
@@ -348,11 +375,12 @@ pub fn notify_run_finished_cmd(
 /// Fire-and-forget branded desktop banner (including Notify nodes and tests).
 pub fn notify_message<R: Runtime>(app: &AppHandle<R>, title: String, body: String) {
     let app = app.clone();
+    let sound = success_sound(&app);
     std::thread::spawn(move || {
         let preview: String = body.chars().take(220).collect();
         let mut notification = notify_rust::Notification::new();
         notification.summary(&title).body(&preview);
-        configure_notification(&app, &mut notification);
+        configure_notification(&app, &mut notification, sound);
         let _ = notification.show();
     });
 }
@@ -366,8 +394,8 @@ pub fn notify_message_cmd(app: AppHandle, title: String, body: String) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_notification_body, run_notification_copy, NotificationSound,
-        MAX_NOTIFICATION_OPEN_BODY_BYTES,
+        bounded_notification_body, run_notification_copy, NotificationPreferences,
+        NotificationSound, MAX_NOTIFICATION_OPEN_BODY_BYTES,
     };
 
     #[test]
@@ -393,6 +421,18 @@ mod tests {
             Some(NotificationSound::None)
         );
         assert_eq!(NotificationSound::parse("unknown"), None);
+    }
+
+    #[test]
+    fn stores_success_and_error_sounds_independently() {
+        let preferences = NotificationPreferences::default();
+        assert_eq!(preferences.success_sound(), NotificationSound::System);
+        assert_eq!(preferences.error_sound(), NotificationSound::System);
+
+        preferences.set_sounds(NotificationSound::Chime, NotificationSound::Pop);
+
+        assert_eq!(preferences.success_sound(), NotificationSound::Chime);
+        assert_eq!(preferences.error_sound(), NotificationSound::Pop);
     }
 
     #[test]

@@ -458,13 +458,14 @@ fn sanitize_node(
             result
         }
         "agent" => {
-            let mut result = keep(
+            let result = keep(
                 &data,
                 &[
                     "label",
                     "provider",
                     "harness",
                     "model",
+                    "fallbackModel",
                     "skillNames",
                     "skillName",
                 ],
@@ -509,20 +510,22 @@ fn sanitize_node(
                     capability: None,
                 });
             }
-            if let Some(model) = result
-                .get("model")
-                .and_then(Value::as_str)
-                .filter(|v| !v.trim().is_empty())
-            {
-                requirements.push(Requirement {
-                    kind: RequirementKind::Model,
-                    name: model.into(),
-                    provider: result
-                        .get("provider")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
-                    capability: None,
-                });
+            for field in ["model", "fallbackModel"] {
+                if let Some(model) = result
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.trim().is_empty())
+                {
+                    requirements.push(Requirement {
+                        kind: RequirementKind::Model,
+                        name: model.into(),
+                        provider: result
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        capability: None,
+                    });
+                }
             }
             if let Some(skills) = result.get("skillNames").and_then(Value::as_array) {
                 for skill in skills
@@ -1620,6 +1623,7 @@ fn allowed_fields(node_type: &str) -> &'static [&'static str] {
             "provider",
             "harness",
             "model",
+            "fallbackModel",
             "skillNames",
             "skillName",
             "accountRef",
@@ -1688,6 +1692,7 @@ fn validate_node_data(node: &TemplateNode, allow_local_refs: bool) -> Result<(),
         "provider",
         "harness",
         "model",
+        "fallbackModel",
         "skillName",
         "kind",
         "role",
@@ -2209,6 +2214,26 @@ mod tests {
             "d9db7d11405c97a44909e5031ff785cd5c0ec7129652d5e1734373f4484de462"
         );
     }
+    #[test]
+    fn exports_fallback_models_as_model_requirements() {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id":"agent","type":"agent","data":{"label":"Agent","provider":"claude_code","harness":"cli","model":"sonnet","fallbackModel":"opus","skillNames":[]},"position":{"x":0,"y":0}}
+            ],
+            "edges": []
+        });
+        let template = export_graph("Fallback", "", &graph).unwrap();
+        assert_eq!(
+            template.graph.nodes[0].data["fallbackModel"],
+            Value::String("opus".into())
+        );
+        assert!(template.requirements.iter().any(|requirement| {
+            requirement.kind == RequirementKind::Model
+                && requirement.name == "opus"
+                && requirement.provider.as_deref() == Some("claude_code")
+        }));
+    }
+
     #[test]
     fn canonical_unicode_and_numeric_defaults_match_shared_fixture() {
         let value: Value = serde_json::from_str(include_str!(

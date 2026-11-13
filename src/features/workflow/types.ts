@@ -112,6 +112,11 @@ export type AgentNodeData = {
   accountRef?: string | null;
   /** CLI model id / alias, e.g. `sonnet`, `gpt-5`, `opencode/big-pickle` */
   model?: string | null;
+  /**
+   * Same-provider, same-harness model to retry once with when the primary
+   * model is unavailable (usage limit, overload, or unknown model).
+   */
+  fallbackModel?: string | null;
   /** Skills to invoke, e.g. `["tdd","review"]` → `/tdd /review …` */
   skillNames?: string[];
   /** @deprecated Prefer `skillNames`. Still read when loading older graphs. */
@@ -127,6 +132,7 @@ export function defaultAgentNodeData(
     provider,
     harness: "cli",
     model,
+    fallbackModel: null,
     skillNames: [],
   };
 }

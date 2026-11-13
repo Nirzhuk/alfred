@@ -62,7 +62,12 @@ import {
   normalizeSchedulePosition,
   stripScheduleCanvasElements,
 } from "./schedule-canvas";
-import { notifyRunFinished, shouldNotifyAboutRun } from "../../native";
+import {
+  notifyRunFinished,
+  playConditionSkippedSound,
+  playNotificationSound,
+  shouldNotifyAboutRun,
+} from "../../native";
 import { useToastStore } from "../../components/toast/toast-store";
 
 type AddMemoryInput = {
@@ -267,6 +272,12 @@ export function normalizeNodes(nodes: WorkflowNode[]): WorkflowNode[] {
         typeof raw.model === "string" || raw.model === null
           ? raw.model
           : undefined,
+      fallbackModel:
+        typeof raw.fallbackModel === "string"
+          ? raw.fallbackModel.trim() || null
+          : raw.fallbackModel === null
+            ? null
+            : undefined,
       skillNames,
     };
     return { ...node, data: next };
@@ -2142,6 +2153,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       if (event.kind === "step_skipped" && event.nodeId) {
         stepStatuses[event.nodeId] = "skipped";
         if (event.message) stepOutputs[event.nodeId] = event.message;
+        // Conditional connections that did not fire are easy to miss on the
+        // canvas, so surface the first skip in a burst with the error cue.
+        playConditionSkippedSound();
       }
       if (event.kind === "step_failed" && event.nodeId) {
         stepStatuses[event.nodeId] = "failed";
@@ -2158,14 +2172,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         const outputBody = event.output?.trim() || "Run completed";
         queueMicrotask(() => {
           void (async () => {
-            if (!(await shouldNotifyAboutRun())) return;
-            await notifyRunFinished({
-              workflowId: event.workflowId,
-              workflowName,
-              ok: true,
-              title: "Final output",
-              body: outputBody,
-            });
+            if (await shouldNotifyAboutRun()) {
+              await notifyRunFinished({
+                workflowId: event.workflowId,
+                workflowName,
+                ok: true,
+                title: "Final output",
+                body: outputBody,
+              });
+              return;
+            }
+            playNotificationSound("success");
           })();
         });
       }
@@ -2177,14 +2194,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           event.message?.trim() || event.output?.trim() || "Run failed";
         queueMicrotask(() => {
           void (async () => {
-            if (!(await shouldNotifyAboutRun())) return;
-            await notifyRunFinished({
-              workflowId: event.workflowId,
-              workflowName,
-              ok: false,
-              title: "Run failed",
-              body: failBody,
-            });
+            if (await shouldNotifyAboutRun()) {
+              await notifyRunFinished({
+                workflowId: event.workflowId,
+                workflowName,
+                ok: false,
+                title: "Run failed",
+                body: failBody,
+              });
+              return;
+            }
+            playNotificationSound("error");
           })();
         });
       }

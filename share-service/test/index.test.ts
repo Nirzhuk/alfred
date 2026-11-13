@@ -17,7 +17,7 @@ import invalidNumericRequirement from "../../contracts/workflow-template/fixture
 import inputScriptFixture from "../../contracts/workflow-template/fixtures/input-script.json";
 import canonicalBoundariesFixture from "../../contracts/workflow-template/fixtures/canonical-boundaries.json";
 import notesToSlackFixture from "../../contracts/workflow-template/fixtures/notes-to-slack.json";
-import { validateTemplate } from "../src/contract";
+import { validateTemplate, type Template } from "../src/contract";
 
 const capability = "a".repeat(64);
 const request = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => new Request(`https://share.example${path}`, { method, headers: { authorization: `Bearer ${capability}`, "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -82,6 +82,9 @@ describe("workflow share service", () => {
   });
   test("accepts grouped agent account bindings without a local account value", () => {
     expect(() => validateTemplate(agentAccountFixture as any)).not.toThrow();
+    const withNumericFallback = structuredClone(agentAccountFixture);
+    (withNumericFallback.graph.nodes[0].data as Record<string, unknown>).fallbackModel = 42;
+    expect(() => validateTemplate(withNumericFallback as Template)).toThrow();
     expect(() => validateTemplate({ ...agentAccountFixture, graph: { ...agentAccountFixture.graph, nodes: [{ ...agentAccountFixture.graph.nodes[0], data: { ...agentAccountFixture.graph.nodes[0].data, accountRef: "local-account" } }, agentAccountFixture.graph.nodes[1]] } } as any)).toThrow();
   });
   test("accepts a recipient-parameterized file start", () => {

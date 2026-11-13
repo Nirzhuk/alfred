@@ -3531,6 +3531,19 @@ html[data-platform="macos"]
   height: var(--sidebar-icon-size);
 }
 
+.sidebar-working-bow {
+  width: var(--sidebar-icon-size);
+  height: var(--sidebar-icon-size);
+  object-fit: contain;
+  animation: alfred-bow-tie-sway 1.1s var(--ease-standard) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-working-bow {
+    animation: none;
+  }
+}
+
 .sidebar-nav-item:hover .sidebar-nav-icon,
 .sidebar-nav-item.is-active .sidebar-nav-icon {
   color: var(--icon);
@@ -5620,6 +5633,14 @@ button.primary.danger-solid:hover:not(:disabled) {
   gap: var(--space-2);
 }
 
+.agent-fallback-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+
 .agent-provider-field,
 .agent-harness-field,
 .model-select-field {
@@ -5877,6 +5898,12 @@ button.primary.danger-solid:hover:not(:disabled) {
   font-size: var(--text-sm);
   color: var(--ink);
   opacity: 0.8;
+}
+
+.wf-node-fallback {
+  margin: var(--space-0-5) 0 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
 }
 
 .wf-node-skill {

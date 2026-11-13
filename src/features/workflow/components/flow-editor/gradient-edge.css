@@ -27,9 +27,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* The chip is a label. The edge underneath owns the click that opens the
-     editor, so the chip must never swallow it. */
-  pointer-events: none;
+  /* The chip stays clickable: a click opens the condition editor exactly like
+     the edge underneath, and hover reveals the truncated label. */
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .edge-condition-chip.is-not-fired {

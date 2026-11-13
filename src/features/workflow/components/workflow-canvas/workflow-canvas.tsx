@@ -141,6 +141,7 @@ export function WorkflowCanvas() {
   const canOpenActivity =
     Boolean(activeRun) || memories.length > 0 || runLogs.length > 0;
   const unseenReplies = useBuilderStore((s) => s.unseenChatIds.length > 0);
+  const builderWorking = useBuilderStore((s) => s.working);
   const activityRunning = activeRun?.status === "running";
   const activityEventCount = useMemo(
     () => runLogs.filter((line) => Boolean(line.activity)).length,
@@ -717,6 +718,7 @@ export function WorkflowCanvas() {
                   memoriesOpen={memoriesOpen}
                   memoriesEnabled={Boolean(activeWorkflowId)}
                   unseenReplies={unseenReplies}
+                  working={builderWorking}
                   onChange={(nextView) => {
                     if (nextView === "history") {
                       navigateHistory({ type: "open-history" });

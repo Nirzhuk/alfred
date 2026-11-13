@@ -718,7 +718,7 @@ pub fn run() {
             quick_access::set_quick_access_always_on_top,
             quick_access::set_quick_access_fullscreen,
             quick_access::open_quick_access_target,
-            notifications::set_notification_sound_cmd,
+            notifications::set_notification_sounds_cmd,
             notifications::notify_message_cmd,
             notifications::notify_run_finished_cmd,
             builder::builder_get_config,

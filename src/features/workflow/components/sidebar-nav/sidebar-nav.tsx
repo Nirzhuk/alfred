@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import bowTie from "../../../../assets/brand/alfred-bow-tie.svg?no-inline";
 import { Icon } from "../../../../components/icon/icon";
 
 export type SidebarView = "canvas" | "history" | "schedules" | "settings" | "builder";
@@ -11,6 +12,7 @@ type Props = {
   memoriesEnabled: boolean;
   /** A chat reply finished while the user was outside the Builder. */
   unseenReplies: boolean;
+  working: boolean;
   onChange: (view: SidebarView) => void;
   onNewWorkflow: () => void;
   onToggleActivity: () => void;
@@ -188,6 +190,7 @@ export function SidebarNav({
   memoriesOpen,
   memoriesEnabled,
   unseenReplies,
+  working,
   onChange,
   onNewWorkflow,
   onToggleActivity,
@@ -204,7 +207,12 @@ export function SidebarNav({
       />
       <NavButton
         label="Speak with Alfred"
-        icon={<Icon name="sparkle" size={18} />}
+        icon={working ? (
+          <>
+            <img className="sidebar-working-bow" src={bowTie} alt="" />
+            <span className="sr-only">Agent working</span>
+          </>
+        ) : <Icon name="sparkle" size={18} />}
         active={view === "builder"}
         unread={unseenReplies}
         onClick={() => onChange("builder")}

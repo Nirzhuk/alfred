@@ -112,3 +112,23 @@ Alfred never performs step 3 automatically because it can change the account,
 billing owner, data route, and tool permissions. See the
 [native harness support runbook](native-harness-support.md) for safe diagnostic
 and runtime-recovery guidance.
+
+## Model fallback
+
+An agent node can name one **Fallback model** in its settings. Alfred retries
+the step once with that model only when the primary attempt fails because the
+model was unavailable: a usage or rate limit, provider overload, or an unknown
+or unsupported model. Authentication failures, a missing CLI, cancellation, and
+ordinary task failures are not retried.
+
+The fallback stays on the node's provider, harness, and account. It never
+switches harnesses or accounts, so the CLI/native credential, billing owner,
+data route, and tool permissions remain the ones the user selected. A fallback
+that resolves to the same model as the primary is ignored. If the retry also
+fails, the step fails with the retry's error and the run history shows the
+fallback model in the step statistics.
+
+The retry repeats the same prompt in the same working directory. If the primary
+attempt already changed files before it reported the availability failure, the
+fallback can repeat or extend that work. Prefer fallback for failures that
+happen before the task starts mutating files.

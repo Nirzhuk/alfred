@@ -31,6 +31,7 @@ import {
 import {
   isMacPlatform,
   NOTIFICATION_SOUND_OPTIONS,
+  playNotificationSound,
   type NotificationSound,
   useNotificationsStore,
 } from "../../notifications";
@@ -52,6 +53,53 @@ import { version as appVersion } from "../../../../../package.json";
 type Props = {
   activeSection: SettingsSectionId;
 };
+
+function NotificationSoundRow({
+  label,
+  description,
+  value,
+  onChange,
+  onPreview,
+}: {
+  label: string;
+  description: string;
+  value: NotificationSound;
+  onChange: (sound: NotificationSound) => void;
+  onPreview: () => void;
+}) {
+  return (
+    <div className="settings-row settings-row-control">
+      <div>
+        <p className="settings-label">{label}</p>
+        <p className="settings-value">{description}</p>
+      </div>
+      <div className="settings-sound-controls">
+        <SelectControl
+          containerClassName="settings-sound-select"
+          aria-label={label}
+          value={value}
+          onChange={(event) =>
+            onChange(event.currentTarget.value as NotificationSound)
+          }
+        >
+          {NOTIFICATION_SOUND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </SelectControl>
+        <button
+          type="button"
+          className="ghost settings-test-btn"
+          disabled={value === "none"}
+          onClick={onPreview}
+        >
+          Preview
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "system", label: "System" },
@@ -92,7 +140,8 @@ export function SettingsPage({ activeSection }: Props) {
     useState<HTMLDivElement | null>(null);
 
   const notificationsEnabled = useNotificationsStore((s) => s.enabled);
-  const notificationSound = useNotificationsStore((s) => s.sound);
+  const successSound = useNotificationsStore((s) => s.successSound);
+  const errorSound = useNotificationsStore((s) => s.errorSound);
   const permission = useNotificationsStore((s) => s.permission);
   const busy = useNotificationsStore((s) => s.busy);
   const setNotificationsEnabled = useNotificationsStore((s) => s.setEnabled);
@@ -547,31 +596,30 @@ export function SettingsPage({ activeSection }: Props) {
                   </button>
                 </div>
               </div>
+              <NotificationSoundRow
+                label="Success sound"
+                description="Finished runs and desktop Notify nodes. Plays inside Alfred when the window is focused."
+                value={successSound}
+                onChange={(sound) =>
+                  void setNotificationSound("success", sound)
+                }
+                onPreview={() => playNotificationSound("success")}
+              />
+              <NotificationSoundRow
+                label="Error sound"
+                description="Failed runs and conditional branches that did not fire. Plays when focused, or with the failure notification in the background."
+                value={errorSound}
+                onChange={(sound) => void setNotificationSound("error", sound)}
+                onPreview={() => playNotificationSound("error")}
+              />
               <div className="settings-row settings-row-control">
                 <div>
-                  <p className="settings-label">Notification sound</p>
+                  <p className="settings-label">Test desktop notification</p>
                   <p className="settings-value">
-                    Used for finished runs, failures, and desktop Notify nodes.
+                    Confirms desktop permission and plays the success sound.
                   </p>
                 </div>
-                <div className="settings-sound-controls">
-                  <SelectControl
-                    containerClassName="settings-sound-select"
-                    aria-label="Notification sound"
-                    value={notificationSound}
-                    disabled={!notificationsEnabled || busy}
-                    onChange={(event) =>
-                      void setNotificationSound(
-                        event.currentTarget.value as NotificationSound,
-                      )
-                    }
-                  >
-                    {NOTIFICATION_SOUND_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </SelectControl>
+                <div className="settings-controls settings-quick-access-actions">
                   <button
                     type="button"
                     className="ghost settings-test-btn"
@@ -580,7 +628,7 @@ export function SettingsPage({ activeSection }: Props) {
                     }
                     onClick={() => void sendTest()}
                   >
-                    Preview
+                    Send test
                   </button>
                 </div>
               </div>

@@ -6,7 +6,7 @@
   "description": "Two agent nodes use one recipient account selection.",
   "graph": {
     "nodes": [
-      { "id": "agent-a", "type": "agent", "data": { "label": "First", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent-a", "type": "agent", "data": { "label": "First", "provider": "claude_code", "harness": "cli", "model": "sonnet", "fallbackModel": "opus", "skillNames": [] }, "position": { "x": 0, "y": 0 } },
       { "id": "agent-b", "type": "agent", "data": { "label": "Second", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 220, "y": 0 } }
     ],
     "edges": []
