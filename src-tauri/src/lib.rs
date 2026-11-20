@@ -14,10 +14,12 @@ mod macos_titlebar;
 mod native_window_material;
 mod notifications;
 mod quick_access;
+mod run_dialog;
 mod runner;
 mod scheduler;
 mod sharing;
 mod skills;
+mod system_facts;
 mod templates;
 mod tray;
 mod triggers;
@@ -338,6 +340,11 @@ fn initialize_app_state(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+/// `Alfred mcp <endpoint.json>`: stdio MCP bridge for outside agents.
+pub fn mcp_bridge(endpoint: std::path::PathBuf) {
+    builder::bridge::run(endpoint)
+}
+
 pub fn run() {
     let startup_trace =
         StartupTrace(std::env::var_os("ALFRED_STARTUP_TRACE").map(|_| Instant::now()));
@@ -493,8 +500,12 @@ pub fn run() {
 
             match builder::mcp::start(app.handle().clone()) {
                 Ok(port) => {
-                    if let Ok(mut slot) = app.state::<builder::BuilderState>().mcp_port.lock() {
+                    let state = app.state::<builder::BuilderState>();
+                    if let Ok(mut slot) = state.mcp_port.lock() {
                         *slot = Some(port);
+                    }
+                    if let Err(e) = builder::write_endpoint(port, &state.mcp_token) {
+                        eprintln!("outside agents can't reach Alfred: {e}");
                     }
                 }
                 Err(e) => eprintln!("workflow builder API not started: {e}"),
@@ -559,10 +570,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window keeps Alfred running in the menu bar / tray.
+            // Closing the main window keeps Alfred running in the menu bar /
+            // tray. The run dialog is disposable: closing it ends the request.
             if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                if window.label() != run_dialog::WINDOW_LABEL {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
             #[cfg(target_os = "macos")]
             match event {
@@ -582,6 +596,7 @@ pub fn run() {
             commands::deactivate_license,
             commands::get_license_status,
             commands::validate_condition_pattern,
+            commands::preview_condition_subject,
             commands::agent_accounts::list_agent_account_providers,
             commands::agent_accounts::list_agent_accounts,
             commands::agent_accounts::get_agent_account,
@@ -658,6 +673,8 @@ pub fn run() {
             commands::list_agent_models,
             commands::get_agent_usage,
             commands::list_skills,
+            run_dialog::open_run_dialog,
+            run_dialog::submit_run_dialog,
             commands::run_workflow,
             commands::cancel_run,
             commands::list_active_runs,
@@ -724,6 +741,7 @@ pub fn run() {
             builder::builder_get_config,
             builder::builder_save_config,
             builder::builder_info,
+            builder::builder_connect_claude,
             builder::builder_send,
             builder::builder_cancel,
             builder::builder_read_image,

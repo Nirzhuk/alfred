@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "run-dialog",
+  "description": "Capability for the workflow run window",
+  "windows": ["run-dialog"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-title",
+    "core:window:allow-show",
+    "core:window:allow-start-dragging"
+  ]
+}

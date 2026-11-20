@@ -496,12 +496,30 @@ export type WorkflowNodeData =
 export type WorkflowNode = Node<WorkflowNodeData>;
 
 /**
- * What a connection's condition compares. Every value already exists at
- * evaluation time. Step status and exit code are deliberately absent: a failing
- * step ends the run before downstream connections are evaluated, so a condition
- * on them could never be true.
+ * What a connection's condition compares. Run sources read data produced by
+ * this run; `system` reads a value from the computer at the times documented in
+ * `SYSTEM_FIELD_HINTS`.
  */
-export type EdgeConditionSource = "output" | "context" | "trigger";
+export type EdgeConditionSource = "output" | "context" | "trigger" | "system";
+
+export type RunEdgeConditionSource = "output" | "context" | "trigger";
+
+/** Every machine value a condition can name. Mirrors `SystemField` in Rust. */
+export type SystemField =
+  | "weekday"
+  | "date"
+  | "time"
+  | "timezone"
+  | "os"
+  | "hostname"
+  | "username"
+  | "powerSource"
+  | "battery"
+  | "network"
+  | "path"
+  | "env"
+  | "frontmostApp"
+  | "clipboard";
 
 export type EdgeConditionOperator =
   | "contains"
@@ -510,12 +528,30 @@ export type EdgeConditionOperator =
   | "notEquals"
   | "matches"
   | "isEmpty"
-  | "isNotEmpty";
+  | "isNotEmpty"
+  | "isOneOf"
+  | "isNotOneOf"
+  | "before"
+  | "after"
+  | "between"
+  | "notBetween"
+  | "atLeast"
+  | "atMost"
+  | "exists"
+  | "notExists"
+  | "isFile"
+  | "isDirectory"
+  | "modifiedBefore"
+  | "modifiedAfter";
 
 /** Operators that ignore `value` and hide its field in the editor. */
 export const UNARY_EDGE_CONDITION_OPERATORS: EdgeConditionOperator[] = [
   "isEmpty",
   "isNotEmpty",
+  "exists",
+  "notExists",
+  "isFile",
+  "isDirectory",
 ];
 
 export function isUnaryEdgeConditionOperator(
@@ -524,18 +560,32 @@ export function isUnaryEdgeConditionOperator(
   return UNARY_EDGE_CONDITION_OPERATORS.includes(operator);
 }
 
+export function operatorNeedsSecondValue(
+  operator: EdgeConditionOperator,
+): boolean {
+  return operator === "between" || operator === "notBetween";
+}
+
 /** Matches the Rust-side cap in `runner::conditions`. */
 export const MAX_EDGE_CONDITION_VALUE_BYTES = 512;
 
 /**
  * Gate on a connection. Absent means the connection always fires, which is the
  * behavior of every graph written before this existed.
+ *
+ * `field` is present for a `system` source. `key` names the variable or path
+ * for `env` and `path`. `value2` is the upper bound for `between` /
+ * `notBetween`.
  */
 export type EdgeCondition = {
   source: EdgeConditionSource;
+  field?: SystemField;
+  key?: string;
   operator: EdgeConditionOperator;
-  /** Ignored by `isEmpty` / `isNotEmpty`. */
+  /** Ignored by unary operators. */
   value: string;
+  /** Upper bound for `between` / `notBetween`. */
+  value2?: string;
   /** Text comparison case sensitivity. Absent reads as false. */
   caseSensitive?: boolean;
 };
@@ -555,13 +605,84 @@ export function defaultEdgeCondition(): EdgeCondition {
   };
 }
 
-const EDGE_CONDITION_SOURCES: EdgeConditionSource[] = [
+const RUN_EDGE_CONDITION_SOURCES: RunEdgeConditionSource[] = [
   "output",
   "context",
   "trigger",
 ];
 
-const EDGE_CONDITION_OPERATORS: EdgeConditionOperator[] = [
+const SYSTEM_FIELDS: SystemField[] = [
+  "weekday",
+  "date",
+  "time",
+  "timezone",
+  "os",
+  "hostname",
+  "username",
+  "powerSource",
+  "battery",
+  "network",
+  "path",
+  "env",
+  "frontmostApp",
+  "clipboard",
+];
+
+export const SYSTEM_FIELD_GROUPS: {
+  label: string;
+  fields: SystemField[];
+}[] = [
+  { label: "Clock", fields: ["weekday", "date", "time", "timezone"] },
+  { label: "Machine", fields: ["os", "hostname", "username"] },
+  { label: "Power & network", fields: ["powerSource", "battery", "network"] },
+  { label: "Files", fields: ["path"] },
+  { label: "Environment", fields: ["env"] },
+  { label: "Active app & clipboard", fields: ["frontmostApp", "clipboard"] },
+];
+
+export const SYSTEM_FIELD_LABELS: Record<SystemField, string> = {
+  weekday: "Day of week",
+  date: "Date",
+  time: "Time of day",
+  timezone: "Time zone",
+  os: "Operating system",
+  hostname: "Hostname",
+  username: "Username",
+  powerSource: "Power source",
+  battery: "Battery level",
+  network: "Network",
+  path: "File or folder",
+  env: "Environment variable",
+  frontmostApp: "Frontmost app",
+  clipboard: "Clipboard text",
+};
+
+/**
+ * When each value is read. The clock is pinned at run start so a long run
+ * cannot cross midnight and change its branch; everything else is read when the
+ * connection is evaluated.
+ */
+export const SYSTEM_FIELD_HINTS: Record<SystemField, string> = {
+  weekday: "The local weekday when the run starts, captured once per run.",
+  date: "The local date when the run starts, captured once per run.",
+  time: "The local time when the run starts, captured once per run.",
+  timezone: "The computer's IANA time zone when the run starts.",
+  os: "The operating system running Alfred.",
+  hostname: "This computer's hostname.",
+  username: "The account running Alfred.",
+  powerSource: "AC power or battery, read when this connection is evaluated.",
+  battery: "Charge percentage, read when this connection is evaluated.",
+  network:
+    "Whether a default network route exists, read when this connection is evaluated.",
+  path: "Resolved from the workflow working directory and read when this connection is evaluated.",
+  env: "An environment variable of the Alfred process.",
+  frontmostApp:
+    "The app in front, read when this connection is evaluated. macOS only.",
+  clipboard:
+    "The clipboard's text, read when this connection is evaluated. Never stored or sent to a model.",
+};
+
+export const RUN_EDGE_CONDITION_OPERATORS: EdgeConditionOperator[] = [
   "contains",
   "notContains",
   "equals",
@@ -571,11 +692,155 @@ const EDGE_CONDITION_OPERATORS: EdgeConditionOperator[] = [
   "isNotEmpty",
 ];
 
+const TEXT_OPERATORS: EdgeConditionOperator[] = [
+  "contains",
+  "notContains",
+  "equals",
+  "notEquals",
+  "matches",
+  "isEmpty",
+  "isNotEmpty",
+  "isOneOf",
+  "isNotOneOf",
+];
+
+/** Operator list per machine field. Mirrors `field_supports` in Rust. */
+export const SYSTEM_FIELD_OPERATORS: Record<
+  SystemField,
+  EdgeConditionOperator[]
+> = {
+  weekday: ["isOneOf", "isNotOneOf"],
+  date: ["equals", "before", "after"],
+  time: ["before", "after", "between", "notBetween"],
+  timezone: ["equals", "notEquals", "contains", "isOneOf", "isNotOneOf"],
+  os: ["equals", "notEquals"],
+  hostname: TEXT_OPERATORS,
+  username: TEXT_OPERATORS,
+  powerSource: ["equals", "notEquals"],
+  battery: ["atLeast", "atMost", "between", "notBetween"],
+  network: ["equals", "notEquals"],
+  path: [
+    "exists",
+    "notExists",
+    "isFile",
+    "isDirectory",
+    "modifiedBefore",
+    "modifiedAfter",
+  ],
+  env: TEXT_OPERATORS,
+  frontmostApp: TEXT_OPERATORS,
+  clipboard: TEXT_OPERATORS,
+};
+
+/** Fields whose operators compare text and therefore offer case sensitivity. */
+export function fieldSupportsCaseSensitivity(field: SystemField): boolean {
+  return (
+    field === "hostname" ||
+    field === "username" ||
+    field === "env" ||
+    field === "frontmostApp" ||
+    field === "clipboard"
+  );
+}
+
+export function fieldRequiresKey(field: SystemField): boolean {
+  return field === "path" || field === "env";
+}
+
+export const SYSTEM_FIELD_KEY_LABELS: Partial<Record<SystemField, string>> = {
+  path: "Path",
+  env: "Variable",
+};
+
+export const SYSTEM_FIELD_OPTIONS: Partial<
+  Record<SystemField, { value: string; label: string }[]>
+> = {
+  os: [
+    { value: "macos", label: "macOS" },
+    { value: "windows", label: "Windows" },
+    { value: "linux", label: "Linux" },
+  ],
+  powerSource: [
+    { value: "AC", label: "AC power" },
+    { value: "Battery", label: "Battery" },
+  ],
+  network: [
+    { value: "online", label: "online" },
+    { value: "offline", label: "offline" },
+  ],
+};
+
+export const WEEKDAY_OPTIONS: { value: string; short: string }[] = [
+  { value: "Monday", short: "Mon" },
+  { value: "Tuesday", short: "Tue" },
+  { value: "Wednesday", short: "Wed" },
+  { value: "Thursday", short: "Thu" },
+  { value: "Friday", short: "Fri" },
+  { value: "Saturday", short: "Sat" },
+  { value: "Sunday", short: "Sun" },
+];
+
+export function parseWeekdaySelection(value: string): string[] {
+  const selected = new Set<string>();
+  for (const part of value.split(",")) {
+    const match = WEEKDAY_OPTIONS.find(
+      (option) => option.value.toLowerCase() === part.trim().toLowerCase(),
+    );
+    if (match) selected.add(match.value);
+  }
+  return WEEKDAY_OPTIONS.map((option) => option.value).filter((value) =>
+    selected.has(value),
+  );
+}
+
+export function formatWeekdaySelection(days: string[]): string {
+  return parseWeekdaySelection(days.join(",")).join(", ");
+}
+
+function localToday(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** A complete starting draft when the author switches to a machine value. */
+export function defaultSystemCondition(field: SystemField): EdgeCondition {
+  const operator = SYSTEM_FIELD_OPERATORS[field][0];
+  return {
+    source: "system",
+    field,
+    key: fieldRequiresKey(field) ? "" : undefined,
+    operator,
+    value:
+      field === "date"
+        ? localToday()
+        : field === "time"
+          ? "09:00"
+          : field === "battery"
+            ? "20"
+            : field === "os"
+              ? "macos"
+              : field === "powerSource"
+                ? "AC"
+                : field === "network"
+                  ? "online"
+                  : "",
+    value2: operatorNeedsSecondValue(operator)
+      ? field === "battery"
+        ? "80"
+        : "17:00"
+      : undefined,
+    caseSensitive: false,
+  };
+}
+
 export const EDGE_CONDITION_SOURCE_LABELS: Record<EdgeConditionSource, string> =
   {
     output: "Step output",
     context: "Run context",
     trigger: "Trigger payload",
+    system: "Computer value",
   };
 
 export const EDGE_CONDITION_OPERATOR_LABELS: Record<
@@ -589,7 +854,48 @@ export const EDGE_CONDITION_OPERATOR_LABELS: Record<
   matches: "matches regex",
   isEmpty: "is empty",
   isNotEmpty: "is not empty",
+  isOneOf: "is one of",
+  isNotOneOf: "is not one of",
+  before: "is before",
+  after: "is after",
+  between: "is between",
+  notBetween: "is not between",
+  atLeast: "is at least",
+  atMost: "is at most",
+  exists: "exists",
+  notExists: "does not exist",
+  isFile: "is a file",
+  isDirectory: "is a directory",
+  modifiedBefore: "was modified before",
+  modifiedAfter: "was modified after",
 };
+
+/** Field-aware label, e.g. a date `equals` reads "is on". */
+export function edgeConditionOperatorLabel(
+  operator: EdgeConditionOperator,
+  field?: SystemField,
+): string {
+  if (field === "date" && operator === "equals") return "is on";
+  if (
+    (field === "os" ||
+      field === "powerSource" ||
+      field === "network" ||
+      field === "timezone") &&
+    operator === "equals"
+  ) {
+    return "is";
+  }
+  if (
+    (field === "os" ||
+      field === "powerSource" ||
+      field === "network" ||
+      field === "timezone") &&
+    operator === "notEquals"
+  ) {
+    return "is not";
+  }
+  return EDGE_CONDITION_OPERATOR_LABELS[operator];
+}
 
 /**
  * Read a condition off untrusted graph JSON. Returns null for anything that is
@@ -601,16 +907,63 @@ export function parseEdgeCondition(value: unknown): EdgeCondition | null {
   const raw = value as Record<string, unknown>;
   const source = raw.source;
   const operator = raw.operator;
-  if (!EDGE_CONDITION_SOURCES.includes(source as EdgeConditionSource)) {
+  if (
+    source !== "system" &&
+    !RUN_EDGE_CONDITION_SOURCES.includes(source as RunEdgeConditionSource)
+  ) {
     return null;
   }
-  if (!EDGE_CONDITION_OPERATORS.includes(operator as EdgeConditionOperator)) {
+  if (
+    typeof operator !== "string" ||
+    !(operator in EDGE_CONDITION_OPERATOR_LABELS)
+  ) {
     return null;
   }
+  const parsedOperator = operator as EdgeConditionOperator;
   const text = typeof raw.value === "string" ? raw.value : "";
+  const value2 =
+    typeof raw.value2 === "string" ? raw.value2.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES) : "";
+  const keyRaw = typeof raw.key === "string" ? raw.key.trim() : "";
+  const key = keyRaw.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES);
+
+  if (source === "system") {
+    const fieldRaw = raw.field;
+    if (
+      typeof fieldRaw !== "string" ||
+      !SYSTEM_FIELDS.includes(fieldRaw as SystemField)
+    ) {
+      return null;
+    }
+    const field = fieldRaw as SystemField;
+    if (!SYSTEM_FIELD_OPERATORS[field].includes(parsedOperator)) return null;
+    if (fieldRequiresKey(field) && !key) return null;
+    if (!fieldRequiresKey(field) && key) return null;
+    if (operatorNeedsSecondValue(parsedOperator) && !value2) return null;
+    if (!operatorNeedsSecondValue(parsedOperator) && value2) return null;
+    return {
+      source,
+      field,
+      ...(key ? { key } : {}),
+      operator: parsedOperator,
+      value: text.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES),
+      ...(value2 ? { value2 } : {}),
+      caseSensitive:
+        raw.caseSensitive === true && fieldSupportsCaseSensitivity(field),
+    };
+  }
+
+  if (raw.field != null || raw.key != null || raw.value2 != null) return null;
+  if (
+    !RUN_EDGE_CONDITION_SOURCES.includes(
+      source as RunEdgeConditionSource,
+    ) ||
+    !RUN_EDGE_CONDITION_OPERATORS.includes(parsedOperator)
+  ) {
+    return null;
+  }
   return {
-    source: source as EdgeConditionSource,
-    operator: operator as EdgeConditionOperator,
+    source: source as RunEdgeConditionSource,
+    operator: parsedOperator,
     value: text.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES),
     caseSensitive: raw.caseSensitive === true,
   };
@@ -620,8 +973,138 @@ export function edgeCondition(edge: WorkflowEdge): EdgeCondition | null {
   return parseEdgeCondition(edge.data?.condition);
 }
 
-/** Short chip text, e.g. `output contains "FAIL"`. */
+/** The select value that identifies the compared subject. */
+export function edgeConditionSubjectValue(condition: EdgeCondition): string {
+  return condition.source === "system" && condition.field
+    ? `system.${condition.field}`
+    : condition.source;
+}
+
+/**
+ * Whether the editor may save this draft. Regex validity is checked separately
+ * against the runner's engine, which is the only engine that matters.
+ */
+export function edgeConditionValidationError(
+  condition: EdgeCondition,
+): string | null {
+  const field = condition.source === "system" ? condition.field : undefined;
+  if (condition.source === "system" && !field) {
+    return "Choose what to compare.";
+  }
+  if (field && fieldRequiresKey(field)) {
+    if (!(condition.key ?? "").trim()) {
+      return field === "env" ? "Enter a variable name." : "Enter a path.";
+    }
+  }
+  if (!isUnaryEdgeConditionOperator(condition.operator)) {
+    if (field === "weekday") {
+      if (parseWeekdaySelection(condition.value).length === 0) {
+        return "Choose at least one day.";
+      }
+    } else if (!condition.value.trim()) {
+      return "Enter a value.";
+    }
+  }
+  if (operatorNeedsSecondValue(condition.operator)) {
+    if (!(condition.value2 ?? "").trim()) return "Enter both bounds.";
+  }
+  if (field === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(condition.value.trim())) {
+    return "Enter a date.";
+  }
+  if (field === "time") {
+    const time = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (!time.test(condition.value.trim())) return "Enter a time.";
+    if (
+      operatorNeedsSecondValue(condition.operator) &&
+      !time.test((condition.value2 ?? "").trim())
+    ) {
+      return "Enter both times.";
+    }
+  }
+  if (field === "battery") {
+    const percent = (value?: string) =>
+      /^\d{1,3}$/.test((value ?? "").trim()) && Number(value) <= 100;
+    if (!percent(condition.value)) return "Enter a level from 0 to 100.";
+    if (
+      operatorNeedsSecondValue(condition.operator) &&
+      !percent(condition.value2)
+    ) {
+      return "Enter both levels from 0 to 100.";
+    }
+    if (
+      operatorNeedsSecondValue(condition.operator) &&
+      Number(condition.value) > Number(condition.value2)
+    ) {
+      return "The lower bound must not be above the upper bound.";
+    }
+  }
+  if (
+    field === "path" &&
+    (condition.operator === "modifiedBefore" ||
+      condition.operator === "modifiedAfter") &&
+    !/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(condition.value.trim())
+  ) {
+    return "Enter a date and time.";
+  }
+  return null;
+}
+
+function weekdaySummary(value: string): string {
+  return parseWeekdaySelection(value)
+    .map(
+      (day) =>
+        WEEKDAY_OPTIONS.find((option) => option.value === day)?.short ?? day,
+    )
+    .join(", ");
+}
+
+function optionLabel(field: SystemField, value: string): string {
+  return (
+    SYSTEM_FIELD_OPTIONS[field]?.find(
+      (option) => option.value.toLowerCase() === value.trim().toLowerCase(),
+    )?.label ?? value
+  );
+}
+
+function systemConditionSummary(condition: EdgeCondition): string {
+  const field = condition.field as SystemField;
+  const subject = SYSTEM_FIELD_LABELS[field].toLowerCase();
+  const operator = edgeConditionOperatorLabel(condition.operator, field);
+  if (field === "weekday") {
+    return `${subject} ${operator} ${weekdaySummary(condition.value)}`;
+  }
+  if (field === "path") {
+    const key = condition.key ?? "";
+    return isUnaryEdgeConditionOperator(condition.operator)
+      ? `file "${key}" ${operator}`
+      : `file "${key}" ${operator} "${condition.value}"`;
+  }
+  if (field === "env") {
+    return `environment variable "${condition.key ?? ""}" ${operator} "${condition.value}"`;
+  }
+  if (field === "battery") {
+    if (operatorNeedsSecondValue(condition.operator)) {
+      return `${subject} ${operator} ${condition.value}% and ${condition.value2 ?? ""}%`;
+    }
+    return `${subject} ${operator} ${condition.value}%`;
+  }
+  if (field === "os" || field === "powerSource" || field === "network") {
+    return `${subject} ${operator} ${optionLabel(field, condition.value)}`;
+  }
+  if (isUnaryEdgeConditionOperator(condition.operator)) {
+    return `${subject} ${operator}`;
+  }
+  if (operatorNeedsSecondValue(condition.operator)) {
+    return `${subject} ${operator} "${condition.value}" and "${condition.value2 ?? ""}"`;
+  }
+  return `${subject} ${operator} "${condition.value}"`;
+}
+
+/** Short chip text, e.g. `output contains "FAIL"` or `day of week is one of Sat, Sun`. */
 export function edgeConditionSummary(condition: EdgeCondition): string {
+  if (condition.source === "system" && condition.field) {
+    return systemConditionSummary(condition);
+  }
   const subject = EDGE_CONDITION_SOURCE_LABELS[condition.source].toLowerCase();
   const operator = EDGE_CONDITION_OPERATOR_LABELS[condition.operator];
   if (isUnaryEdgeConditionOperator(condition.operator)) {

@@ -20,7 +20,12 @@ test("parses env and header lines, ignoring junk", () => {
 test("renders rules, servers and the built-in API", () => {
   const html = renderToStaticMarkup(
     <BuilderSetupPanel
-      info={{ agents: [], mcpReady: true, tools: [{ name: "create_workflow", description: "d" }] }}
+      info={{
+        agents: [],
+        mcpReady: true,
+        tools: [{ name: "create_workflow", description: "d" }],
+        externalMcp: { name: "alfred", command: "/Applications/Alfred.app/Contents/MacOS/alfred mcp /tmp/e.json" },
+      }}
       agent={{ id: "codex", label: "Codex", installed: true }}
       config={{
         rules: [{ id: "r", name: "House style", body: "b", enabled: true }],
@@ -39,4 +44,6 @@ test("renders rules, servers and the built-in API", () => {
   expect(html).toContain("github");
   expect(html).toContain('aria-label="Use MCP server github"');
   expect(html).toContain('aria-checked="false"');
+  expect(html).toContain("Add to Claude Code");
+  expect(html).toContain("alfred mcp /tmp/e.json");
 });

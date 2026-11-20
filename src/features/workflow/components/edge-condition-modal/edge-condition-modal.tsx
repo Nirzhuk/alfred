@@ -3,36 +3,52 @@ import { Icon } from "../../../../components/icon";
 import { Modal, ModalHeader } from "../../../../components/modal";
 import { SelectControl } from "../../../../components/select-control";
 import {
-  EDGE_CONDITION_OPERATOR_LABELS,
-  EDGE_CONDITION_SOURCE_LABELS,
   MAX_EDGE_CONDITION_VALUE_BYTES,
-  defaultEdgeCondition,
+  RUN_EDGE_CONDITION_OPERATORS,
+  SYSTEM_FIELD_GROUPS,
+  SYSTEM_FIELD_HINTS,
+  SYSTEM_FIELD_KEY_LABELS,
+  SYSTEM_FIELD_LABELS,
+  SYSTEM_FIELD_OPERATORS,
+  SYSTEM_FIELD_OPTIONS,
+  WEEKDAY_OPTIONS,
+  defaultSystemCondition,
   edgeCondition,
+  edgeConditionOperatorLabel,
+  edgeConditionSubjectValue,
+  edgeConditionValidationError,
+  fieldRequiresKey,
+  fieldSupportsCaseSensitivity,
+  formatWeekdaySelection,
   isUnaryEdgeConditionOperator,
+  operatorNeedsSecondValue,
+  parseWeekdaySelection,
   type EdgeCondition,
   type EdgeConditionOperator,
-  type EdgeConditionSource,
+  type RunEdgeConditionSource,
+  type SystemField,
 } from "../../types";
 import { useWorkflowStore } from "../../store";
-import { validateConditionPattern } from "../../api";
+import {
+  previewConditionSubject,
+  validateConditionPattern,
+  type ConditionSubjectPreview,
+} from "../../api";
 import "./edge-condition-modal.css";
 
-const SOURCES: EdgeConditionSource[] = ["output", "context", "trigger"];
-
-const OPERATORS: EdgeConditionOperator[] = [
-  "contains",
-  "notContains",
-  "equals",
-  "notEquals",
-  "matches",
-  "isEmpty",
-  "isNotEmpty",
-];
-
-const SOURCE_HINTS: Record<EdgeConditionSource, string> = {
+const SOURCE_HINTS: Record<RunEdgeConditionSource, string> = {
   output: "What the step this connection leaves produced on this run.",
   context: "Everything gathered so far on this run, across earlier steps.",
   trigger: "The payload that started the run. Empty for a manual run.",
+};
+
+const TEXT_VALUE_PLACEHOLDERS: Partial<Record<SystemField, string>> = {
+  timezone: "America/New_York",
+  hostname: "macbook",
+  username: "niri",
+  env: "true",
+  frontmostApp: "Safari",
+  clipboard: "text that must appear",
 };
 
 /**
@@ -83,6 +99,7 @@ export function EdgeConditionModal({ edgeId, onClose }: Props) {
     (state) => state.clearEdgeCondition,
   );
   const nodes = useWorkflowStore((state) => state.nodes);
+  const workflowId = useWorkflowStore((state) => state.activeWorkflowId);
 
   const edge = useMemo(
     () => edges.find((candidate) => candidate.id === edgeId) ?? null,
@@ -90,14 +107,65 @@ export function EdgeConditionModal({ edgeId, onClose }: Props) {
   );
 
   const [draft, setDraft] = useState<EdgeCondition>(
-    () => (edge && edgeCondition(edge)) ?? defaultEdgeCondition(),
+    () => (edge && edgeCondition(edge)) ?? { source: "output", operator: "contains", value: "" },
   );
+  const [preview, setPreview] = useState<ConditionSubjectPreview | null>(null);
+  const [attempted, setAttempted] = useState(false);
+
+  const field = draft.source === "system" ? draft.field : undefined;
+  const canPreview =
+    !field || !fieldRequiresKey(field) || Boolean(draft.key?.trim());
+  const unary = isUnaryEdgeConditionOperator(draft.operator);
+  const needsSecondValue = operatorNeedsSecondValue(draft.operator);
+  const showCaseSensitivity =
+    !unary &&
+    (field ? fieldSupportsCaseSensitivity(field) : true) &&
+    (draft.operator === "contains" ||
+      draft.operator === "notContains" ||
+      draft.operator === "equals" ||
+      draft.operator === "notEquals" ||
+      draft.operator === "matches" ||
+      draft.operator === "isOneOf" ||
+      draft.operator === "isNotOneOf");
+
   // Every hook runs before the missing-edge bail-out below.
   const { error: patternError, checking } = usePatternError(
     draft.value,
     Boolean(draft.caseSensitive),
     draft.operator === "matches",
   );
+  const draftError = edgeConditionValidationError(draft);
+
+  useEffect(() => {
+    if (!field || !canPreview) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setPreview(null);
+    const timer = setTimeout(
+      () => {
+        void previewConditionSubject(workflowId ?? "", field, draft.key)
+          .then((value) => {
+            if (!cancelled) setPreview(value);
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setPreview({
+                value: null,
+                detail: null,
+                unavailable: "Could not read this value.",
+              });
+            }
+          });
+      },
+      fieldRequiresKey(field) ? 300 : 0,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [field, canPreview, draft.key, workflowId]);
 
   if (!edge) return null;
 
@@ -108,21 +176,204 @@ export function EdgeConditionModal({ edgeId, onClose }: Props) {
   };
 
   const existing = edgeCondition(edge);
-  const unary = isUnaryEdgeConditionOperator(draft.operator);
-  const valueMissing = !unary && !draft.value.trim();
-  const canSave = !patternError && !checking && !valueMissing;
+  const subjectValue = edgeConditionSubjectValue(draft);
+  const operators = field
+    ? SYSTEM_FIELD_OPERATORS[field]
+    : RUN_EDGE_CONDITION_OPERATORS;
+  const hint = field
+    ? SYSTEM_FIELD_HINTS[field]
+    : SOURCE_HINTS[draft.source as RunEdgeConditionSource];
+  const shownError = patternError ?? (attempted ? draftError : null);
 
   const update = (patch: Partial<EdgeCondition>) =>
     setDraft((previous) => ({ ...previous, ...patch }));
 
-  const save = () => {
-    if (!canSave) return;
-    setEdgeCondition(edgeId, {
-      ...draft,
-      value: unary ? "" : draft.value.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES),
+  const changeSubject = (value: string) => {
+    setAttempted(false);
+    if (value.startsWith("system.")) {
+      setDraft(defaultSystemCondition(value.slice("system.".length) as SystemField));
+      return;
+    }
+    setDraft({
+      source: value as RunEdgeConditionSource,
+      operator: "contains",
+      value: "",
+      caseSensitive: false,
     });
+  };
+
+  const changeOperator = (operator: EdgeConditionOperator) => {
+    setAttempted(false);
+    setDraft((previous) => ({
+      ...previous,
+      operator,
+      value2: operatorNeedsSecondValue(operator)
+        ? (previous.value2 ?? (previous.field === "battery" ? "80" : "17:00"))
+        : undefined,
+    }));
+  };
+
+  const toggleWeekday = (day: string, checked: boolean) => {
+    const days = parseWeekdaySelection(draft.value);
+    update({
+      value: formatWeekdaySelection(
+        checked ? [...days, day] : days.filter((value) => value !== day),
+      ),
+    });
+  };
+
+  const canSave = !patternError && !checking && !draftError;
+
+  const save = () => {
+    if (draftError) {
+      setAttempted(true);
+      return;
+    }
+    if (!canSave) return;
+    const condition: EdgeCondition = {
+      source: draft.source,
+      operator: draft.operator,
+      value: unary
+        ? ""
+        : draft.value.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES),
+      caseSensitive: showCaseSensitivity ? Boolean(draft.caseSensitive) : false,
+    };
+    if (field) condition.field = field;
+    if (field && fieldRequiresKey(field) && draft.key?.trim()) {
+      condition.key = draft.key
+        .trim()
+        .slice(0, MAX_EDGE_CONDITION_VALUE_BYTES);
+    }
+    if (needsSecondValue && draft.value2) {
+      condition.value2 = draft.value2.slice(0, MAX_EDGE_CONDITION_VALUE_BYTES);
+    }
+    setEdgeCondition(edgeId, condition);
     onClose();
   };
+
+  const renderValueControl = () => {
+    if (unary) return null;
+    if (field === "weekday") {
+      const selected = new Set(parseWeekdaySelection(draft.value));
+      return (
+        <div className="field">
+          <span>Days</span>
+          <div className="edge-condition-weekdays">
+            {WEEKDAY_OPTIONS.map((option) => (
+              <label key={option.value} className="edge-condition-weekday">
+                <input
+                  type="checkbox"
+                  checked={selected.has(option.value)}
+                  onChange={(event) =>
+                    toggleWeekday(option.value, event.target.checked)
+                  }
+                />
+                <span>{option.short}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    if (field === "date") {
+      return (
+        <label className="field">
+          <span>Date</span>
+          <input
+            type="date"
+            value={draft.value}
+            onChange={(event) => update({ value: event.target.value })}
+          />
+        </label>
+      );
+    }
+    if (field === "time" || field === "battery") {
+      const numeric = field === "battery";
+      return (
+        <div className="edge-condition-range">
+          <label className="field">
+            <span>{needsSecondValue ? "From" : "Value"}</span>
+            <input
+              type={numeric ? "number" : "time"}
+              min={numeric ? 0 : undefined}
+              max={numeric ? 100 : undefined}
+              step={numeric ? 1 : undefined}
+              value={draft.value}
+              onChange={(event) => update({ value: event.target.value })}
+            />
+          </label>
+          {needsSecondValue ? (
+            <label className="field">
+              <span>To</span>
+              <input
+                type={numeric ? "number" : "time"}
+                min={numeric ? 0 : undefined}
+                max={numeric ? 100 : undefined}
+                step={numeric ? 1 : undefined}
+                value={draft.value2 ?? ""}
+                onChange={(event) => update({ value2: event.target.value })}
+              />
+            </label>
+          ) : null}
+        </div>
+      );
+    }
+    if (field && SYSTEM_FIELD_OPTIONS[field]) {
+      return (
+        <label className="field">
+          <span>Value</span>
+          <SelectControl
+            value={draft.value}
+            onChange={(event) => update({ value: event.target.value })}
+          >
+            {SYSTEM_FIELD_OPTIONS[field]?.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectControl>
+        </label>
+      );
+    }
+    if (field === "path") {
+      return (
+        <label className="field">
+          <span>Modified</span>
+          <input
+            type="datetime-local"
+            value={draft.value}
+            onChange={(event) => update({ value: event.target.value })}
+          />
+        </label>
+      );
+    }
+    return (
+      <label className="field">
+        <span>Value</span>
+        <input
+          type="text"
+          value={draft.value}
+          maxLength={MAX_EDGE_CONDITION_VALUE_BYTES}
+          placeholder={
+            (field && TEXT_VALUE_PLACEHOLDERS[field]) ??
+            (draft.operator === "matches" ? "FAIL|error" : "FAIL")
+          }
+          aria-invalid={patternError ? true : undefined}
+          aria-describedby={shownError ? "edge-condition-error" : undefined}
+          onChange={(event) => update({ value: event.target.value })}
+        />
+      </label>
+    );
+  };
+
+  const previewText =
+    preview === null
+      ? "Reading the current value…"
+      : preview.unavailable
+        ? `Unavailable: ${preview.unavailable}`
+        : preview.value
+          ? `Current: ${preview.value}${preview.detail ? ` · ${preview.detail}` : ""}`
+          : `Current: ${preview.value === "" ? "empty" : (preview.detail ?? "not set")}`;
 
   return (
     <Modal
@@ -156,61 +407,70 @@ export function EdgeConditionModal({ edgeId, onClose }: Props) {
       <div className="edge-condition-body">
         <label className="field">
           <span>Compare</span>
-          <SelectControl
-            value={draft.source}
-            onChange={(event) =>
-              update({ source: event.target.value as EdgeConditionSource })
-            }
-          >
-            {SOURCES.map((source) => (
-              <option key={source} value={source}>
-                {source === "output"
-                  ? `Output of ${nodeLabel(edge.source)}`
-                  : EDGE_CONDITION_SOURCE_LABELS[source]}
-              </option>
+          <SelectControl value={subjectValue} onChange={(event) => changeSubject(event.target.value)}>
+            <optgroup label="Run">
+              <option value="output">Output of {nodeLabel(edge.source)}</option>
+              <option value="context">Run context</option>
+              <option value="trigger">Trigger payload</option>
+            </optgroup>
+            {SYSTEM_FIELD_GROUPS.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.fields.map((subject) => (
+                  <option key={subject} value={`system.${subject}`}>
+                    {SYSTEM_FIELD_LABELS[subject]}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </SelectControl>
         </label>
-        <p className="hint">{SOURCE_HINTS[draft.source]}</p>
+        <p className="hint">{hint}</p>
+
+        {field && fieldRequiresKey(field) ? (
+          <label className="field">
+            <span>{SYSTEM_FIELD_KEY_LABELS[field]}</span>
+            <input
+              type="text"
+              value={draft.key ?? ""}
+              maxLength={MAX_EDGE_CONDITION_VALUE_BYTES}
+              placeholder={field === "env" ? "CI" : "reports/latest.md"}
+              aria-invalid={attempted && draftError ? true : undefined}
+              onChange={(event) => update({ key: event.target.value })}
+            />
+          </label>
+        ) : null}
 
         <label className="field">
           <span>Test</span>
           <SelectControl
             value={draft.operator}
             onChange={(event) =>
-              update({ operator: event.target.value as EdgeConditionOperator })
+              changeOperator(event.target.value as EdgeConditionOperator)
             }
           >
-            {OPERATORS.map((operator) => (
+            {operators.map((operator) => (
               <option key={operator} value={operator}>
-                {EDGE_CONDITION_OPERATOR_LABELS[operator]}
+                {edgeConditionOperatorLabel(operator, field)}
               </option>
             ))}
           </SelectControl>
         </label>
 
-        {unary ? null : (
-          <label className="field">
-            <span>Value</span>
-            <input
-              type="text"
-              value={draft.value}
-              maxLength={MAX_EDGE_CONDITION_VALUE_BYTES}
-              placeholder={draft.operator === "matches" ? "FAIL|error" : "FAIL"}
-              aria-invalid={patternError ? true : undefined}
-              aria-describedby={patternError ? "edge-condition-error" : undefined}
-              onChange={(event) => update({ value: event.target.value })}
-            />
-          </label>
-        )}
+        {renderValueControl()}
 
-        {patternError ? (
-          <p className="field-error" id="edge-condition-error" role="alert">
-            {patternError}
+        {field && canPreview ? (
+          <p className="hint edge-condition-current" aria-live="polite">
+            {previewText}
           </p>
         ) : null}
 
-        {unary ? null : (
+        {shownError ? (
+          <p className="field-error" id="edge-condition-error" role="alert">
+            {shownError}
+          </p>
+        ) : null}
+
+        {showCaseSensitivity ? (
           <label className="edge-condition-toggle">
             <input
               type="checkbox"
@@ -221,7 +481,7 @@ export function EdgeConditionModal({ edgeId, onClose }: Props) {
             />
             <span>Match upper and lower case exactly</span>
           </label>
-        )}
+        ) : null}
 
         <div className="edge-condition-actions">
           {existing ? (

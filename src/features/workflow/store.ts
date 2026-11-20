@@ -9,7 +9,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import * as api from "./api";
-import { askFields, type AskField } from "./ask-fields";
+import { askFields } from "./ask-fields";
 import { FALLBACK_PROVIDER_MODELS, type ProviderModels } from "./models";
 import type { AgentCapabilityManifest } from "./agent-capabilities";
 import {
@@ -325,8 +325,6 @@ type WorkflowStore = {
   workflowLoading: boolean;
   error: string | null;
   runPanelOpen: boolean;
-  /** Run dialog waiting for `{{ask:…}}` answers before a manual run starts. */
-  askRun: { workflowId: string; fields: AskField[] } | null;
   /** Run activity is isolated per workflow so several workflows can run together. */
   workflowRunStates: Record<string, WorkflowRunState>;
   activeRun: RunSummary | null;
@@ -432,7 +430,6 @@ type WorkflowStore = {
     workflowId?: string,
     answers?: Record<string, string>,
   ) => Promise<void>;
-  closeAskRun: () => void;
   cancelActiveRun: (workflowId?: string) => Promise<void>;
   openRunPanel: (nodeId?: string | null) => void;
   closeRunPanel: () => void;
@@ -682,6 +679,28 @@ export async function installRunEventBridge() {
   });
 }
 
+type RunDialogSubmit = {
+  workflowId: string;
+  answers: Record<string, string>;
+};
+
+let runDialogUnlisten: UnlistenFn | null = null;
+
+/**
+ * The run window only collects answers; the main window owns run state. It
+ * hands them back here so the existing manual-run path starts the run.
+ */
+export async function installRunDialogEventBridge() {
+  if (runDialogUnlisten) return;
+  runDialogUnlisten = await listen<RunDialogSubmit>(
+    "run-dialog://submit",
+    (event) => {
+      const { workflowId, answers } = event.payload;
+      void useWorkflowStore.getState().runActiveWorkflow(workflowId, answers);
+    },
+  );
+}
+
 /**
  * Keep the visible schedule in step with the database.
  *
@@ -743,7 +762,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflowLoading: false,
   error: null,
   runPanelOpen: false,
-  askRun: null,
   workflowRunStates: {},
   activeRun: null,
   activeNodeId: null,
@@ -1679,11 +1697,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (!answers) {
       const fields = askFields(targetNodes);
       if (fields.length > 0) {
-        set({ askRun: { workflowId: targetWorkflowId, fields } });
+        try {
+          set({ error: null });
+          await api.openRunDialog(targetWorkflowId);
+        } catch (error) {
+          set({ error: String(error) });
+        }
         return;
       }
     }
-    set({ askRun: null });
 
     await installRunEventBridge();
     const nextRunState = emptyWorkflowRunState(
@@ -1740,8 +1762,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }));
     }
   },
-
-  closeAskRun: () => set({ askRun: null }),
 
   cancelActiveRun: async (workflowId) => {
     const { activeWorkflowId, workflowRunStates } = get();

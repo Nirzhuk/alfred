@@ -111,16 +111,44 @@ fn handle_http(app: &AppHandle, request: &mut Request) -> (u16, String) {
     }
 }
 
-fn rpc_error(id: Value, code: i64, message: &str) -> Value {
+pub(super) fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
 /// Notifications (no id) get no reply.
-fn handle_rpc(app: &AppHandle, message: Value) -> Option<Value> {
-    let id = message.get("id").cloned()?;
-    let method = message.get("method").and_then(Value::as_str).unwrap_or("");
-    let params = message.get("params").cloned().unwrap_or(Value::Null);
-    let result = match method {
+/// Speak with Alfred's own setup; outside agents (via the stdio bridge) don't see these.
+pub const BUILDER_ONLY_TOOLS: [&str; 4] = ["list_rules", "add_rule", "list_mcp_servers", "add_mcp_server"];
+pub const GUIDE_TOOL: &str = "get_workflow_guide";
+
+const EXTERNAL_INSTRUCTIONS: &str = "Alfred is the user's desktop app for local multi-agent workflows. \
+Its tools create, edit, run and schedule workflows; whatever you create appears in Alfred's sidebar immediately. \
+Call get_workflow_guide once before you create or update a workflow.";
+
+/// What outside agents get from get_workflow_guide: the builder's graph
+/// reference plus how to turn a conversation into a workflow.
+pub const EXTERNAL_GUIDE: &str = r#"# Building Alfred workflows
+- Check what exists before you use it: list_agents for installed CLIs, list_skills for skills, list_connected_apps for app actions and connection ids. Never invent ids, skill names, or connections.
+- To change an existing workflow: list_workflows → get_workflow → update_workflow with the COMPLETE new graph (it replaces the old one).
+- To turn work from this conversation into a workflow, make each repeatable thing you did a step: shell commands → `script`, AI reasoning or code changes → `agent` (usually provider claude_code), fixed instructions → `input`, anything that varies per run → `{{ask:Name|default}}`. Set workingDirectory to the project folder. End with `chooseOutput`.
+- Run a workflow only when the user asks; then get_run with waitSeconds to report the outcome. If run_workflow says answers are missing, ask the user for exactly those fields.
+"#;
+
+pub fn external_tool_definitions() -> Vec<Value> {
+    let mut tools: Vec<Value> = tool_definitions()
+        .into_iter()
+        .filter(|t| !BUILDER_ONLY_TOOLS.contains(&t["name"].as_str().unwrap_or("")))
+        .collect();
+    tools.insert(
+        0,
+        tool(GUIDE_TOOL, "How to build Alfred workflows: node types, edges, conventions. Read before create_workflow or update_workflow.", json!({}), &[]),
+    );
+    tools
+}
+
+/// Methods answered without app state, shared with the stdio bridge so an
+/// outside agent can connect even while the app is closed.
+pub fn stateless_result(method: &str, params: &Value, external: bool) -> Option<Value> {
+    Some(match method {
         "initialize" => json!({
             "protocolVersion": params
                 .get("protocolVersion")
@@ -128,10 +156,32 @@ fn handle_rpc(app: &AppHandle, message: Value) -> Option<Value> {
                 .unwrap_or("2025-06-18"),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "alfred", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "Alfred's internal API: create, edit, run and schedule workflows.",
+            "instructions": if external {
+                EXTERNAL_INSTRUCTIONS
+            } else {
+                "Alfred's internal API: create, edit, run and schedule workflows."
+            },
         }),
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tool_definitions() }),
+        "tools/list" => json!({
+            "tools": if external { external_tool_definitions() } else { tool_definitions() }
+        }),
+        _ => return None,
+    })
+}
+
+pub fn tool_text(text: String, is_error: bool) -> Value {
+    json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
+}
+
+fn handle_rpc(app: &AppHandle, message: Value) -> Option<Value> {
+    let id = message.get("id").cloned()?;
+    let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    if let Some(result) = stateless_result(method, &params, false) {
+        return Some(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+    }
+    let result = match method {
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params
@@ -145,7 +195,7 @@ fn handle_rpc(app: &AppHandle, message: Value) -> Option<Value> {
                 ),
                 Err(message) => (message, true),
             };
-            json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
+            tool_text(text, is_error)
         }
         _ => return Some(rpc_error(id, -32601, "Method not found")),
     };

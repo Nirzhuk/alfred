@@ -6,14 +6,16 @@ use uuid::Uuid;
 
 pub const FORMAT: &str = "alfred.workflow-template";
 /// Highest schema version this build writes. Version 2 added conditional
-/// connections; a template carrying one must not be read by a build that would
-/// ignore the condition and run every branch.
-pub const SCHEMA_VERSION: u16 = 2;
+/// connections; version 3 added machine-value condition subjects. A template
+/// carrying either must not be read by a build that would ignore it.
+pub const SCHEMA_VERSION: u16 = 3;
 /// Oldest version this build still reads. A v1 template simply has no
 /// conditions, so already-shared links keep working.
 pub const MIN_SCHEMA_VERSION: u16 = 1;
 /// The version a conditional connection requires.
 const CONDITIONAL_EDGE_SCHEMA_VERSION: u16 = 2;
+/// The version a condition on a machine value requires.
+const SYSTEM_CONDITION_SCHEMA_VERSION: u16 = 3;
 pub const MAX_BYTES: usize = 256 * 1024;
 pub const MAX_NODES: usize = 100;
 pub const MAX_EDGES: usize = 300;
@@ -65,6 +67,15 @@ pub struct TemplateEdgeCondition {
     pub operator: String,
     #[serde(default)]
     pub value: String,
+    /// Machine field for `source: "system"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// Environment variable name or file path for fields that need one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Upper bound for `between` / `notBetween`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value2: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub case_sensitive: bool,
 }
@@ -96,19 +107,6 @@ pub struct TemplateEdge {
     pub data: TemplateEdgeData,
 }
 
-/// Enumerated values the runner understands. An unknown value is rejected on
-/// import rather than coerced, so a template from a newer build fails loudly
-/// instead of quietly running the wrong branch.
-const EDGE_CONDITION_SOURCES: [&str; 3] = ["output", "context", "trigger"];
-const EDGE_CONDITION_OPERATORS: [&str; 7] = [
-    "contains",
-    "notContains",
-    "equals",
-    "notEquals",
-    "matches",
-    "isEmpty",
-    "isNotEmpty",
-];
 /// Matches `MAX_CONDITION_VALUE_BYTES` in `runner::conditions`.
 const MAX_EDGE_CONDITION_VALUE_BYTES: usize = 512;
 
@@ -950,7 +948,17 @@ pub fn export_workflow_with_starts(
         .collect::<Result<Vec<_>, TemplateError>>()?;
     // Emit the lowest version that can carry this graph, so a workflow with no
     // conditions stays readable by builds that predate them.
-    let schema_version = if template_edges.iter().any(|edge| edge.data.condition.is_some()) {
+    let schema_version = if template_edges.iter().any(|edge| {
+        edge.data
+            .condition
+            .as_ref()
+            .is_some_and(|condition| condition.source == "system")
+    }) {
+        SYSTEM_CONDITION_SCHEMA_VERSION
+    } else if template_edges
+        .iter()
+        .any(|edge| edge.data.condition.is_some())
+    {
         CONDITIONAL_EDGE_SCHEMA_VERSION
     } else {
         MIN_SCHEMA_VERSION
@@ -1002,6 +1010,15 @@ fn template_edge_condition(value: &Value) -> Result<TemplateEdgeCondition, Templ
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        field: object
+            .get("field")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        key: object.get("key").and_then(Value::as_str).map(str::to_owned),
+        value2: object
+            .get("value2")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         case_sensitive: object
             .get("caseSensitive")
             .and_then(Value::as_bool)
@@ -1012,22 +1029,42 @@ fn template_edge_condition(value: &Value) -> Result<TemplateEdgeCondition, Templ
 }
 
 fn validate_edge_condition(condition: &TemplateEdgeCondition) -> Result<(), TemplateError> {
-    if !EDGE_CONDITION_SOURCES.contains(&condition.source.as_str()) {
-        return Err(TemplateError::Invalid(
-            "edge condition source is not supported".into(),
-        ));
-    }
-    if !EDGE_CONDITION_OPERATORS.contains(&condition.operator.as_str()) {
-        return Err(TemplateError::Invalid(
-            "edge condition operator is not supported".into(),
-        ));
-    }
-    if condition.value.len() > MAX_EDGE_CONDITION_VALUE_BYTES {
+    if condition.value.len() > MAX_EDGE_CONDITION_VALUE_BYTES
+        || condition
+            .value2
+            .as_deref()
+            .is_some_and(|value| value.len() > MAX_EDGE_CONDITION_VALUE_BYTES)
+        || condition
+            .key
+            .as_deref()
+            .is_some_and(|value| value.len() > MAX_EDGE_CONDITION_VALUE_BYTES)
+    {
         return Err(TemplateError::Invalid(
             "edge condition value is out of bounds".into(),
         ));
     }
-    Ok(())
+    let source = crate::runner::conditions::ConditionSource::parse(&condition.source)
+        .ok_or_else(|| TemplateError::Invalid("edge condition source is not supported".into()))?;
+    let operator = crate::runner::conditions::ConditionOperator::parse(&condition.operator)
+        .ok_or_else(|| TemplateError::Invalid("edge condition operator is not supported".into()))?;
+    let field =
+        match condition.field.as_deref() {
+            Some(value) => Some(crate::system_facts::SystemField::parse(value).ok_or_else(
+                || TemplateError::Invalid("edge condition field is not supported".into()),
+            )?),
+            None => None,
+        };
+    let parsed = crate::runner::conditions::EdgeCondition {
+        source,
+        field,
+        key: condition.key.clone(),
+        operator,
+        value: condition.value.clone(),
+        value2: condition.value2.clone(),
+        case_sensitive: condition.case_sensitive,
+    };
+    crate::runner::conditions::validate_condition_values(&parsed)
+        .map_err(|message| TemplateError::Invalid(message.into()))
 }
 
 fn validate_template_inner(
@@ -1119,6 +1156,13 @@ fn validate_template_inner(
             if template.schema_version < CONDITIONAL_EDGE_SCHEMA_VERSION {
                 return Err(TemplateError::Invalid(
                     "conditional connections require a newer template version".into(),
+                ));
+            }
+            if condition.source == "system"
+                && template.schema_version < SYSTEM_CONDITION_SCHEMA_VERSION
+            {
+                return Err(TemplateError::Invalid(
+                    "machine-value conditions require a newer template version".into(),
                 ));
             }
             validate_edge_condition(condition)?;
@@ -2376,6 +2420,9 @@ mod tests {
             include_str!(
                 "../../../contracts/workflow-template/fixtures/invalid-edge-condition.json"
             ),
+            include_str!(
+                "../../../contracts/workflow-template/fixtures/invalid-system-condition-field.json"
+            ),
         ] {
             let value: Value = serde_json::from_str(raw).unwrap();
             let result = serde_json::from_value::<TemplateEnvelope>(value).and_then(|template| {
@@ -2438,6 +2485,120 @@ mod tests {
             imported.graph.edges[0].data.condition.as_ref(),
             Some(condition)
         );
+    }
+
+    #[test]
+    fn a_system_condition_template_validates_and_keeps_its_field() {
+        let value: Value = serde_json::from_str(include_str!(
+            "../../../contracts/workflow-template/fixtures/system-condition-edge.json"
+        ))
+        .unwrap();
+        let template: TemplateEnvelope = serde_json::from_value(value).unwrap();
+        assert_eq!(template.schema_version, SYSTEM_CONDITION_SCHEMA_VERSION);
+        validate_template(&template).unwrap();
+        let condition = template.graph.edges[1]
+            .data
+            .condition
+            .as_ref()
+            .expect("condition");
+        assert_eq!(condition.source, "system");
+        assert_eq!(condition.field.as_deref(), Some("weekday"));
+        assert_eq!(condition.operator, "isOneOf");
+        assert_eq!(condition.value, "Saturday, Sunday");
+    }
+
+    #[test]
+    fn system_conditions_survive_export_and_import() {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id":"a","type":"agent","data":{"label":"a","provider":"codex"},"position":{"x":0,"y":0}},
+                {"id":"b","type":"agent","data":{"label":"b","provider":"codex"},"position":{"x":200,"y":0}}
+            ],
+            "edges": [{
+                "id":"ab","source":"a","target":"b",
+                "data":{"condition":{
+                    "source":"system","field":"time","operator":"between",
+                    "value":"09:00","value2":"17:00","caseSensitive":false
+                }}
+            }]
+        });
+        let exported = export_graph("x", "", &graph).unwrap();
+        assert_eq!(exported.schema_version, SYSTEM_CONDITION_SCHEMA_VERSION);
+        let condition = exported.graph.edges[0]
+            .data
+            .condition
+            .as_ref()
+            .expect("condition");
+        assert_eq!(condition.field.as_deref(), Some("time"));
+        assert_eq!(condition.value2.as_deref(), Some("17:00"));
+
+        let imported = remap_graph_ids(&exported.graph);
+        assert_eq!(
+            imported.graph.edges[0].data.condition.as_ref(),
+            Some(condition)
+        );
+    }
+
+    #[test]
+    fn a_system_condition_requires_a_schema_v3_template() {
+        let mut value: Value = serde_json::from_str(include_str!(
+            "../../../contracts/workflow-template/fixtures/system-condition-edge.json"
+        ))
+        .unwrap();
+        value["schemaVersion"] = serde_json::json!(CONDITIONAL_EDGE_SCHEMA_VERSION);
+        let template: TemplateEnvelope = serde_json::from_value(value).unwrap();
+        assert!(validate_template(&template).is_err());
+    }
+
+    #[test]
+    fn a_system_condition_rejects_unknown_or_mismatched_fields() {
+        let mut value: Value = serde_json::from_str(include_str!(
+            "../../../contracts/workflow-template/fixtures/system-condition-edge.json"
+        ))
+        .unwrap();
+        value["graph"]["edges"][1]["data"]["condition"]["operator"] = serde_json::json!("before");
+        let template: TemplateEnvelope = serde_json::from_value(value).unwrap();
+        assert!(validate_template(&template).is_err());
+
+        let mut value: Value = serde_json::from_str(include_str!(
+            "../../../contracts/workflow-template/fixtures/system-condition-edge.json"
+        ))
+        .unwrap();
+        value["graph"]["edges"][1]["data"]["condition"]["field"] = serde_json::json!("phaseOfMoon");
+        let template: TemplateEnvelope = serde_json::from_value(value).unwrap();
+        assert!(validate_template(&template).is_err());
+    }
+
+    #[test]
+    fn a_path_condition_requires_a_key_and_valid_time() {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id":"a","type":"agent","data":{"label":"a","provider":"codex"},"position":{"x":0,"y":0}},
+                {"id":"b","type":"agent","data":{"label":"b","provider":"codex"},"position":{"x":200,"y":0}}
+            ],
+            "edges": [{
+                "id":"ab","source":"a","target":"b",
+                "data":{"condition":{
+                    "source":"system","field":"path","operator":"modifiedBefore",
+                    "value":"not-a-date"
+                }}
+            }]
+        });
+        assert!(export_graph("x", "", &graph).is_err());
+
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id":"a","type":"agent","data":{"label":"a","provider":"codex"},"position":{"x":0,"y":0}},
+                {"id":"b","type":"agent","data":{"label":"b","provider":"codex"},"position":{"x":200,"y":0}}
+            ],
+            "edges": [{
+                "id":"ab","source":"a","target":"b",
+                "data":{"condition":{
+                    "source":"system","field":"path","operator":"exists"
+                }}
+            }]
+        });
+        assert!(export_graph("x", "", &graph).is_err());
     }
 
     #[test]

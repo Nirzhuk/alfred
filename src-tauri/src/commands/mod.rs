@@ -96,6 +96,29 @@ pub fn validate_condition_pattern(pattern: String, case_sensitive: bool) -> Resu
 }
 
 #[tauri::command]
+pub fn preview_condition_subject(
+    db: State<'_, Db>,
+    workflow_id: String,
+    field: String,
+    key: Option<String>,
+) -> Result<crate::system_facts::FieldPreview, String> {
+    let field = crate::system_facts::SystemField::parse(&field)
+        .ok_or_else(|| "That condition subject is not supported.".to_string())?;
+    let working_directory = db
+        .get_workflow(&workflow_id)
+        .map_err(|error| error.to_string())?
+        .map(|workflow| workflow.working_directory)
+        .filter(|directory| !directory.trim().is_empty());
+    let clock = crate::system_facts::ClockFacts::now();
+    Ok(crate::system_facts::preview(
+        field,
+        key.as_deref(),
+        working_directory.as_deref().map(std::path::Path::new),
+        &clock,
+    ))
+}
+
+#[tauri::command]
 pub fn list_workflows(db: State<'_, Db>) -> Result<Vec<Workflow>, String> {
     let mut workflows = db.list_workflows().map_err(|e| e.to_string())?;
     for workflow in &mut workflows {

@@ -33,6 +33,7 @@ import type {
   ScheduleLayout,
   ScheduleListItem,
   Skill,
+  SystemField,
   Trigger,
   TriggerSource,
   Workflow,
@@ -61,6 +62,24 @@ export async function validateConditionPattern(
   } catch (error) {
     return typeof error === "string" ? error : "Unsupported pattern.";
   }
+}
+
+export type ConditionSubjectPreview = {
+  value: string | null;
+  detail: string | null;
+  unavailable: string | null;
+};
+
+/**
+ * Resolve one machine value with the same probes the runner uses. The editor
+ * shows this so an author can see what the condition would compare right now.
+ */
+export async function previewConditionSubject(
+  workflowId: string,
+  field: SystemField,
+  key?: string,
+): Promise<ConditionSubjectPreview> {
+  return invoke("preview_condition_subject", { workflowId, field, key });
 }
 
 export async function getWorkflow(id: string): Promise<Workflow | null> {
@@ -172,6 +191,19 @@ export async function getAgentUsage(
 /** Discover SKILL.md packages from project + user skill directories. */
 export async function listSkills(projectRoot?: string): Promise<Skill[]> {
   return invoke("list_skills", { projectRoot: projectRoot ?? null });
+}
+
+/** Open (or focus) the dedicated window that collects `{{ask:…}}` answers. */
+export async function openRunDialog(workflowId: string): Promise<void> {
+  return invoke("open_run_dialog", { workflowId });
+}
+
+/** Hand the run window's answers to the main window, which owns run state. */
+export async function submitRunDialog(
+  workflowId: string,
+  answers: Record<string, string>,
+): Promise<void> {
+  return invoke("submit_run_dialog", { workflowId, answers });
 }
 
 /** Always available — manually trigger a workflow automation. */

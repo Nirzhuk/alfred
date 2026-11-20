@@ -6,6 +6,7 @@
 //! (merged into the agent's `--mcp-config`); both live in `builder.json`.
 
 mod agent;
+pub mod bridge;
 pub mod chats;
 pub mod mcp;
 
@@ -101,6 +102,24 @@ fn enabled_default() -> bool {
 
 fn data_dir() -> Result<PathBuf, String> {
     crate::db::app_data_dir().map_err(|e| e.to_string())
+}
+
+fn endpoint_path() -> Result<PathBuf, String> {
+    Ok(data_dir()?.join("mcp-endpoint.json"))
+}
+
+/// Lets `Alfred mcp` (the stdio bridge outside agents launch) find this
+/// process's loopback port and token.
+pub fn write_endpoint(port: u16, token: &str) -> Result<(), String> {
+    write_private(&endpoint_path()?, json!({ "port": port, "token": token }).to_string())
+}
+
+/// Name, program and args an outside agent uses to launch the bridge.
+fn external_server() -> Result<(&'static str, PathBuf, Vec<String>), String> {
+    let name = if crate::app_identity::is_development() { "alfred-dev" } else { "alfred" };
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let endpoint = endpoint_path()?.to_string_lossy().into_owned();
+    Ok((name, exe, vec!["mcp".into(), endpoint]))
 }
 
 fn config_path() -> Result<PathBuf, String> {
@@ -244,7 +263,7 @@ pub fn mcp_config_json(port: u16, token: &str, config: &BuilderConfig) -> Value 
 }
 
 pub fn system_prompt(config: &BuilderConfig) -> String {
-    let mut prompt = String::from(BASE_PROMPT);
+    let mut prompt = format!("{BASE_PROMPT}{GRAPH_REFERENCE}");
     let rules: Vec<_> = config
         .rules
         .iter()
@@ -269,14 +288,17 @@ const BASE_PROMPT: &str = r#"You are Alfred, the user's personal assistant insid
 - The user can also add rules and MCP servers for you; use add_rule / add_mcp_server only when the user asks.
 - Be brief. Use markdown.
 
-# Workflow graph reference
+"#;
+
+/// Shared with outside agents through the stdio bridge's guide tool.
+pub const GRAPH_REFERENCE: &str = r#"# Workflow graph reference
 A graph is `{ "nodes": [...], "edges": [...] }`. Steps run in dependency order along edges; each step sees the accumulated context and the previous step's output.
 
 Node: `{ "id": "short-kebab-id", "type": <type>, "position": {"x": n, "y": n}, "data": {...} }`. For a new workflow omit every position so Alfred lays it out left→right. When updating, keep the positions from get_workflow and place a new step clear of the others. Missing data fields get defaults.
 Edge: `{ "id": "e-a-b", "source": "a", "target": "b" }`. Optional gate: `"data": {"condition": {"source": "output"|"context"|"trigger", "operator": "contains"|"notContains"|"equals"|"notEquals"|"matches"|"isEmpty"|"isNotEmpty", "value": "text", "caseSensitive": false}}` — the target runs only when the condition holds; otherwise it is skipped.
 
 Node types and their data:
-- `input` — instruction/context for downstream steps: `{label, prompt}`. Most workflows start with one. For a value that changes per run, write `{{ask:Name}}` (required) or `{{ask:Name|default}}` in `input` prompts or `template` text: the user is asked before a manual run. Scheduled and other unattended runs use the default or empty text, so give those workflows a default.
+- `input` — instruction/context for downstream steps: `{label, prompt}`. Most workflows start with one. For a value that changes per run, write `{{ask:Name}}` (required) or `{{ask:Name|default}}` in `input` prompts or `template` text: Alfred opens a dedicated run window for those values before a manual run. Scheduled and other unattended runs use the default or empty text, so give those workflows a default.
 - `agent` — runs a local AI CLI on the context: `{label, provider, model?, skillNames?: []}`. provider ∈ claude_code | codex | cursor | opencode | github_copilot | gemini | grok | pi | omp (use list_agents; prefer installed ones). model null = provider default. skillNames from list_skills.
 - `identity` — persona for the next agents: `{label, role, personality, instructions}`.
 - `chooseOutput` — final result sink: `{label, saveToMemory: true, pinMemory: false, asFinalResult: true, htmlReport: false}`. End most workflows with one.
@@ -312,6 +334,8 @@ pub struct BuilderInfo {
     pub agents: Vec<Value>,
     pub mcp_ready: bool,
     pub tools: Vec<Value>,
+    /// `{ name, command }` for registering Alfred in other agents.
+    pub external_mcp: Option<Value>,
 }
 
 #[tauri::command]
@@ -332,7 +356,44 @@ pub fn builder_info(state: State<'_, BuilderState>) -> BuilderInfo {
             .into_iter()
             .map(|tool| json!({ "name": tool["name"], "description": tool["description"] }))
             .collect(),
+        external_mcp: external_server().ok().map(|(name, exe, args)| {
+            let command = std::iter::once(exe.to_string_lossy().into_owned())
+                .chain(args)
+                .map(|part| if part.contains(' ') { format!("\"{part}\"") } else { part })
+                .collect::<Vec<_>>()
+                .join(" ");
+            json!({ "name": name, "command": command })
+        }),
     }
+}
+
+/// Registers the stdio bridge in Claude Code's user scope (all projects).
+/// Returns the server name. Re-running replaces an older registration.
+#[tauri::command]
+pub async fn builder_connect_claude() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let bin = agent::BuilderAgent::ClaudeCode
+            .binary()
+            .ok_or("Claude Code isn't installed: no `claude` on PATH.")?;
+        let (name, exe, args) = external_server()?;
+        let claude = || std::process::Command::new(&bin);
+        // `add` refuses to overwrite an existing name.
+        let _ = claude().args(["mcp", "remove", "--scope", "user", name]).output();
+        let out = claude()
+            .args(["mcp", "add", "--scope", "user", name, "--"])
+            .arg(&exe)
+            .args(&args)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(name.to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if stderr.is_empty() { "claude mcp add failed".into() } else { stderr })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// One image for the agent, already sized by the page.

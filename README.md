@@ -117,7 +117,7 @@ Schedules, file triggers, and webhooks only run while the app is open (including
 | Memories node | Select saved context for a workflow path, including linked memories from other workflows |
 | Agent node | Which CLI runs, with optional model + skill |
 | Choose output | Set execution-time save, pin, and final-result preferences for a result |
-| Run | Manually enqueue/execute the automation |
+| Run | Manually execute the automation; workflows with `{{ask:…}}` inputs open a dedicated window first |
 | Schedule | Optional cron that fires the same runner while the app is open, plus what to do about a time missed while Alfred was closed |
 
 The rules behind these (identity, memory settings, saving outputs, and lookup)

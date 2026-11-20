@@ -58,6 +58,7 @@ exactly, so existing workflows need no migration.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 053 | Conditional connections on the workflow canvas | P1 | M | Existing canvas, workflow store, and runner graph walk | IN PROGRESS — implemented and unit-tested; desktop visual/run verification pending |
+| 057 | Machine values as condition subjects | P1 | M | Plan 053 condition model and gate | IMPLEMENTED — checks green; desktop visual verification pending |
 
 [Plan 053](053-conditional-connections.md) defines the edge-level condition
 model, the three runner rules that gate execution and propagate skips, the
@@ -65,6 +66,12 @@ model, the three runner rules that gate execution and propagate skips, the
 that keeps shared workflows from importing with their conditions stripped. It
 adds no Condition node type, no expression language, and no failure-tolerant
 steps.
+
+[Plan 057](057-machine-value-conditions.md) adds the computer as a condition
+subject: clock, machine identity, power, network, files, environment variables,
+the frontmost app, and the clipboard. The clock is pinned at run start, live
+values are read at each gate, and a machine-value condition raises the shared
+template to schema version 3.
 
 ---
 

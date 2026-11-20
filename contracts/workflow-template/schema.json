@@ -7,7 +7,7 @@
   "required": ["format", "schemaVersion", "minAlfredVersion", "title", "description", "graph", "parameters", "requirements", "starts"],
   "properties": {
     "format": { "const": "alfred.workflow-template" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 3 },
     "minAlfredVersion": { "type": "string", "minLength": 1, "maxLength": 32 },
     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
     "description": { "type": "string", "maxLength": 2000 },
@@ -48,11 +48,14 @@
     },
     "edgeCondition": {
       "type": "object", "additionalProperties": false, "required": ["source", "operator"],
-      "description": "Gate on this connection. The branch behind it runs only when this is true.",
+      "description": "Gate on this connection. The branch behind it runs only when this is true. A system source requires a field; path and env also require a key.",
       "properties": {
-        "source": { "enum": ["output", "context", "trigger"] },
-        "operator": { "enum": ["contains", "notContains", "equals", "notEquals", "matches", "isEmpty", "isNotEmpty"] },
+        "source": { "enum": ["output", "context", "trigger", "system"] },
+        "operator": { "enum": ["contains", "notContains", "equals", "notEquals", "matches", "isEmpty", "isNotEmpty", "isOneOf", "isNotOneOf", "before", "after", "between", "notBetween", "atLeast", "atMost", "exists", "notExists", "isFile", "isDirectory", "modifiedBefore", "modifiedAfter"] },
+        "field": { "enum": ["weekday", "date", "time", "timezone", "os", "hostname", "username", "powerSource", "battery", "network", "path", "env", "frontmostApp", "clipboard"] },
+        "key": { "type": "string", "minLength": 1, "maxLength": 512 },
         "value": { "type": "string", "maxLength": 512 },
+        "value2": { "type": "string", "maxLength": 512 },
         "caseSensitive": { "type": "boolean" }
       }
     },

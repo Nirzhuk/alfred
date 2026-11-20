@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { AgentMark } from "../../../../components/agent-mark";
 import { Icon } from "../../../../components/icon/icon";
+import { connectClaudeCode } from "../../api";
 import type { BuilderAgentInfo, BuilderConfig, BuilderInfo, BuilderMcpServer, BuilderRule } from "../../api";
 
 /** Shell-like split: `npx -y "@scope/pkg name"` → ["npx", "-y", "@scope/pkg name"]. */
@@ -81,6 +82,16 @@ type Props = {
 export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [claude, setClaude] = useState<{ busy?: boolean; added?: string; error?: string }>({});
+
+  const addToClaude = async () => {
+    setClaude({ busy: true });
+    try {
+      setClaude({ added: await connectClaudeCode() });
+    } catch (e) {
+      setClaude({ error: String(e) });
+    }
+  };
 
   const editRule = (rule: BuilderRule) => setDraft({ kind: "rule", value: { ...rule } });
   const editServer = (server: BuilderMcpServer) =>
@@ -364,6 +375,40 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
           )}
           {draft?.kind === "mcp" && !draft.value.id ? <li>{mcpEditor}</li> : null}
         </ul>
+      </section>
+
+      <section className="builder-setup-section">
+        <h3 className="builder-setup-title">Use from other agents</h3>
+        <p className="builder-setup-empty">
+          Let Claude Code turn your work into workflows in any project. It reaches the same tools, minus rules and MCP
+          servers.
+        </p>
+        <button
+          type="button"
+          className="builder-connect"
+          disabled={!info?.externalMcp || claude.busy}
+          onClick={() => void addToClaude()}
+        >
+          <AgentMark provider="claude_code" size={16} />
+          {claude.busy ? "Adding…" : claude.added ? "Added to Claude Code" : "Add to Claude Code"}
+        </button>
+        {claude.added ? (
+          <p className="builder-editor-note" role="status">
+            Saved as <code>{claude.added}</code>. Start a new Claude Code session, or run <code>/mcp</code>, to load it.
+          </p>
+        ) : null}
+        {claude.error ? (
+          <p className="builder-setup-error" role="alert">
+            <Icon name="warning-circle" size={16} />
+            {claude.error}
+          </p>
+        ) : null}
+        {info?.externalMcp ? (
+          <p className="builder-editor-note">
+            Other MCP clients: add a stdio server named <code>{info.externalMcp.name}</code> that runs{" "}
+            <code className="builder-mono builder-connect-command user-select-text">{info.externalMcp.command}</code>
+          </p>
+        ) : null}
       </section>
 
       {error ? (

@@ -14,9 +14,9 @@ import { WorkflowCanvas } from "./features/workflow/components/workflow-canvas";
 import { ImportLinkDialog } from "./features/sharing";
 import { NativeHostApproval } from "./features/agent-accounts/components/native-host-approval";
 import { MissedSchedulesModal } from "./features/workflow/components/missed-schedules-modal";
-import { RunAskModal } from "./features/workflow/components/run-ask-modal";
 import {
   installOutputPersistenceEventBridge,
+  installRunDialogEventBridge,
   installRunEventBridge,
   installScheduleEventBridge,
   useWorkflowStore,
@@ -24,6 +24,7 @@ import {
 import { installAppMenu } from "./menu";
 import { checkForUpdates } from "./features/licensing/download-latest";
 import { prepareNotifications } from "./native";
+import { isSelectableTarget } from "./selection";
 import "./App.css";
 
 function App() {
@@ -33,8 +34,6 @@ function App() {
   const createWorkflow = useWorkflowStore((s) => s.createWorkflow);
   const saveActiveWorkflow = useWorkflowStore((s) => s.saveActiveWorkflow);
   const runActiveWorkflow = useWorkflowStore((s) => s.runActiveWorkflow);
-  const askRun = useWorkflowStore((s) => s.askRun);
-  const closeAskRun = useWorkflowStore((s) => s.closeAskRun);
   const shortcuts = useShortcutPreferences((s) => s.shortcuts);
   const [sharingLink, setSharingLink] = useState<string | null>(null);
   const [manualImportOpen, setManualImportOpen] = useState(false);
@@ -123,6 +122,7 @@ function App() {
     void prepareNotifications();
     if (!import.meta.env.DEV) void checkForUpdates({ silent: true });
     void installRunEventBridge();
+    void installRunDialogEventBridge();
     void installOutputPersistenceEventBridge();
     void installScheduleEventBridge();
     void syncQuickAccessPreference();
@@ -245,26 +245,16 @@ function App() {
   }, [createWorkflow, saveActiveWorkflow, runActiveWorkflow, shortcuts]);
 
   useEffect(() => {
-    const isEditable = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      if (!el?.closest) return false;
-      return Boolean(
-        el.closest(
-          'input, textarea, select, [contenteditable="true"], .user-select-text, .output-modal-body',
-        ),
-      );
-    };
-
     // Kill browser-y selection gestures outside editable/output surfaces.
     const onSelectStart = (e: Event) => {
-      if (!isEditable(e.target)) e.preventDefault();
+      if (!isSelectableTarget(e.target)) e.preventDefault();
     };
 
     // Avoid accidental image/text drags looking like a webpage.
     const onDragStart = (e: DragEvent) => {
-      const el = e.target as HTMLElement | null;
+      if (isSelectableTarget(e.target)) return;
+      const el = e.target instanceof Element ? e.target : null;
       if (!el?.closest) return;
-      if (isEditable(e.target)) return;
       if (el.closest(".workflow-card-grip")) return;
       if (el.closest(".react-flow__node, .react-flow__edge, .react-flow__handle")) {
         return;
@@ -274,7 +264,7 @@ function App() {
 
     // Disable the browser context menu on chrome; canvas uses its own menu.
     const onContextMenu = (e: MouseEvent) => {
-      if (isEditable(e.target)) return;
+      if (isSelectableTarget(e.target)) return;
       e.preventDefault();
     };
 
@@ -310,14 +300,6 @@ function App() {
             );
           }}
           onClose={() => setMissedDismissed(true)}
-        />
-      ) : null}
-      {askRun ? (
-        <RunAskModal
-          key={askRun.workflowId}
-          fields={askRun.fields}
-          onRun={(answers) => void runActiveWorkflow(askRun.workflowId, answers)}
-          onClose={closeAskRun}
         />
       ) : null}
       <NativeHostApproval />

@@ -1,0 +1,37 @@
+{
+  "format": "alfred.workflow-template",
+  "schemaVersion": 3,
+  "minAlfredVersion": "1.0.0",
+  "title": "Only on weekends",
+  "description": "Run the output step only when the run starts on a weekend, using the computer's clock.",
+  "graph": {
+    "nodes": [
+      { "id": "input", "type": "input", "data": { "label": "Check", "prompt": "Prepare the weekend report." }, "position": { "x": 0, "y": 0 } },
+      { "id": "agent", "type": "agent", "data": { "label": "Agent", "provider": "claude_code", "harness": "cli", "model": "sonnet", "skillNames": [] }, "position": { "x": 220, "y": 0 } },
+      { "id": "output", "type": "chooseOutput", "data": { "label": "Update", "saveToMemory": false, "pinMemory": false, "asFinalResult": true, "htmlReport": false, "includeFilesChanged": false }, "position": { "x": 440, "y": 0 } }
+    ],
+    "edges": [
+      { "id": "input-agent", "source": "input", "target": "agent" },
+      {
+        "id": "agent-output",
+        "source": "agent",
+        "target": "output",
+        "data": {
+          "condition": {
+            "source": "system",
+            "field": "weekday",
+            "operator": "isOneOf",
+            "value": "Saturday, Sunday",
+            "caseSensitive": false
+          }
+        }
+      }
+    ]
+  },
+  "parameters": [],
+  "requirements": [
+    { "kind": "agent", "name": "claude_code", "provider": "claude_code" },
+    { "kind": "harness", "name": "cli", "provider": "claude_code" }
+  ],
+  "starts": []
+}

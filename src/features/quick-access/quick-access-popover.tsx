@@ -10,6 +10,7 @@ import {
 } from "react";
 import { SelectControl } from "../../components/select-control";
 import * as api from "../workflow/api";
+import { askFields } from "../workflow/ask-fields";
 import { formatScheduleLabel } from "../workflow/schedule-label";
 import type {
   ActiveRunInfo,
@@ -357,6 +358,16 @@ export function QuickAccessPopover() {
 
   const runWorkflow = async (workflow: Workflow) => {
     if (activeWorkflowIds.has(workflow.id)) return;
+    const fields = askFields(workflow.graph?.nodes ?? []);
+    if (fields.length > 0) {
+      try {
+        await api.openRunDialog(workflow.id);
+        collapse();
+      } catch (error) {
+        setMessage(`Could not open the run window: ${String(error)}`);
+      }
+      return;
+    }
     setRunningId(workflow.id);
     setMessage(`Starting ${workflow.name}…`);
     try {

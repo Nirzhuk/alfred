@@ -1493,6 +1493,17 @@
   color: var(--muted);
 }
 
+.builder-connect {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.builder-connect-command {
+  overflow-wrap: anywhere;
+}
+
 .builder-editor-actions {
   display: flex;
   justify-content: flex-end;

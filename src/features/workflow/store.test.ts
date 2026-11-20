@@ -15,6 +15,7 @@ let resolutions: string[] = [];
 let resolveFailure: string | null = null;
 let savedScheduleInputs: unknown[] = [];
 let runRequests: Record<string, unknown>[] = [];
+let openedRunDialogs: Record<string, unknown>[] = [];
 
 const WORKFLOW = {
   id: "wf-1",
@@ -121,6 +122,9 @@ beforeEach(() => {
         mutations.push("deleteWorkflowTrigger");
         return;
       case "plugin:event|listen": return 1;
+      case "open_run_dialog":
+        openedRunDialogs.push(payload);
+        return;
       case "run_workflow":
         runRequests.push(payload);
         return { id: "run-1", workflowId: payload.workflowId, trigger: "manual", status: "pending", createdAt: "" };
@@ -267,10 +271,10 @@ describe("missed scheduled runs waiting on the user", () => {
 describe("{{ask:…}} placeholders on a manual run", () => {
   beforeEach(() => {
     runRequests = [];
+    openedRunDialogs = [];
     useWorkflowStore.setState({
       activeWorkflowId: "wf-1",
       dirty: false,
-      askRun: null,
       workflowRunStates: {},
       nodes: [
         {
@@ -283,16 +287,12 @@ describe("{{ask:…}} placeholders on a manual run", () => {
     });
   });
 
-  test("asks before running, then runs with the answers", async () => {
+  test("opens the run window before running, then runs with its answers", async () => {
     await useWorkflowStore.getState().runActiveWorkflow();
     expect(runRequests).toEqual([]);
-    expect(useWorkflowStore.getState().askRun).toEqual({
-      workflowId: "wf-1",
-      fields: [{ name: "Topic", defaultValue: "news" }],
-    });
+    expect(openedRunDialogs).toEqual([{ workflowId: "wf-1" }]);
 
     await useWorkflowStore.getState().runActiveWorkflow("wf-1", { Topic: "Rust" });
-    expect(useWorkflowStore.getState().askRun).toBeNull();
     expect(runRequests).toEqual([{ workflowId: "wf-1", answers: { Topic: "Rust" } }]);
   });
 
@@ -301,7 +301,7 @@ describe("{{ask:…}} placeholders on a manual run", () => {
       nodes: [{ id: "input", type: "input", position: { x: 0, y: 0 }, data: { label: "Input", prompt: "Hi" } }],
     });
     await useWorkflowStore.getState().runActiveWorkflow();
-    expect(useWorkflowStore.getState().askRun).toBeNull();
+    expect(openedRunDialogs).toEqual([]);
     expect(runRequests).toEqual([{ workflowId: "wf-1", answers: null }]);
   });
 });

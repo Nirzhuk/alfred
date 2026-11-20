@@ -36,6 +36,8 @@ export type BuilderInfo = {
   agents: BuilderAgentInfo[];
   mcpReady: boolean;
   tools: { name: string; description: string }[];
+  /** How other agents launch Alfred's stdio MCP bridge. */
+  externalMcp: { name: string; command: string } | null;
 };
 
 export type BuilderTurnResult = {
@@ -58,6 +60,11 @@ export function saveBuilderConfig(config: BuilderConfig): Promise<BuilderConfig>
 
 export function getBuilderInfo(): Promise<BuilderInfo> {
   return invoke("builder_info");
+}
+
+/** Registers Alfred in Claude Code (user scope). Resolves to the server name. */
+export function connectClaudeCode(): Promise<string> {
+  return invoke("builder_connect_claude");
 }
 
 export type BuilderImage = { mediaType: string; data: string };

@@ -4,7 +4,7 @@
 //! the active node.
 
 pub(crate) mod ask;
-mod conditions;
+pub(crate) mod conditions;
 pub use conditions::{
     compile_pattern as compile_condition_pattern, MAX_CONDITION_VALUE_BYTES,
 };
@@ -680,6 +680,50 @@ fn parse_skill_names(data: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Provider signatures that mean an account usage window is exhausted. Context
+/// and request-size limits are deliberately absent: they are task failures, not
+/// something waiting or switching models fixes.
+const USAGE_LIMIT_MARKERS: &[&str] = &[
+    "usage limit",
+    "usage_limit",
+    "session limit",
+    "session_limit",
+    "weekly limit",
+    "weekly_limit",
+    "rate limit",
+    "rate_limit",
+    "limit reached",
+    "limit_reached",
+    "too many requests",
+    "too_many_requests",
+    "quota",
+    "http 429",
+    "status 429",
+    "status: 429",
+    "status code 429",
+    "error 429",
+    "code 429",
+    "code: 429",
+    "(429)",
+    "429 rate",
+    "429 too many",
+];
+
+/// Used where a step error is read by the user. Raw provider output can hold
+/// credentials, so only this fixed sentence is surfaced.
+const USAGE_LIMIT_MESSAGE: &str =
+    "The agent hit its usage limit. Try again after it resets, or switch this step to another model.";
+
+fn usage_limit_reached(error: &AgentError) -> bool {
+    let AgentError::Message(message) = error else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    USAGE_LIMIT_MARKERS
+        .iter()
+        .any(|needle| message.contains(needle))
+}
+
 fn safe_agent_error(error: &AgentError) -> &'static str {
     match error {
         AgentError::Cancelled => "cancelled",
@@ -688,7 +732,18 @@ fn safe_agent_error(error: &AgentError) -> &'static str {
         AgentError::InvalidRequestMetadata => "invalid_agent_request_metadata",
         AgentError::InvalidModel => crate::agents::INVALID_AGENT_MODEL,
         AgentError::NativeRuntimeUnavailable => crate::agents::NATIVE_RUNTIME_UNAVAILABLE,
+        AgentError::Message(_) if usage_limit_reached(error) => "agent_usage_limit_reached",
         AgentError::Message(_) => "agent_execution_failed",
+    }
+}
+
+/// Step failures reach the banner, console, history, and Fix with Alfred, so the
+/// usage-limit case explains the cause instead of carrying a bare code.
+fn agent_failure_message(error: &AgentError) -> &'static str {
+    if usage_limit_reached(error) {
+        USAGE_LIMIT_MESSAGE
+    } else {
+        safe_agent_error(error)
     }
 }
 
@@ -700,31 +755,16 @@ fn fallback_model_eligible(error: &AgentError) -> bool {
     let AgentError::Message(message) = error else {
         return false;
     };
+    if usage_limit_reached(error) {
+        return true;
+    }
     let message = message.to_ascii_lowercase();
     [
-        "usage limit",
-        "session limit",
-        "weekly limit",
-        "rate limit",
-        "rate_limit",
-        "limit reached",
-        "too many requests",
-        "quota",
-        "http 429",
         "http 529",
-        "status 429",
         "status 529",
-        "status: 429",
         "status: 529",
-        "status code 429",
         "status code 529",
-        "error 429",
-        "code 429",
-        "code: 429",
-        "(429)",
         "(529)",
-        "429 rate",
-        "429 too many",
         "529 overloaded",
         "overloaded",
         "over capacity",
@@ -1455,6 +1495,11 @@ pub fn execute_run(
 
     let levels = execution_levels(&nodes, &edges);
     let incoming = conditions::incoming_edges(&nodes, &edges);
+    // Machine facts are read only for fields an edge condition actually names.
+    // The clock is pinned here, before the first step, so a run crossing
+    // midnight cannot change which branch fires.
+    let system_requirements = conditions::system_requirements(&edges);
+    let clock_facts = crate::system_facts::ClockFacts::now();
     let html_report_agents = nearest_html_report_agents(&nodes, &edges);
     // Per-node results. A condition on `S -> T` compares `S`'s own output;
     // `last_output` is a single shared value that any later step overwrites.
@@ -1575,12 +1620,18 @@ pub fn execute_run(
             for node in level {
                 let (node_id, node_type, _data, label) = describe_node(node);
                 let gate_context = entry.context_prompt.render_without_memory();
+                let gate_facts = crate::system_facts::resolve(
+                    &system_requirements,
+                    working_directory.as_deref().map(std::path::Path::new),
+                    &clock_facts,
+                );
                 if let Some(conditions::SkipReason(reason)) = conditions::skip_reason(
                     &node_id,
                     &incoming,
                     &node_outputs,
                     &gate_context,
                     &trigger_payload,
+                    &gate_facts,
                 ) {
                     record_skip(
                         app,
@@ -1629,6 +1680,13 @@ pub fn execute_run(
         // immediately in graph order; only runnable nodes fan out below.
         let mut runnable: Vec<&Value> = Vec::with_capacity(level.len());
         let entry_context = entry.context_prompt.render_without_memory();
+        // Every branch in a level gates before any of them runs, so one
+        // resolution serves the whole fan-out.
+        let gate_facts = crate::system_facts::resolve(
+            &system_requirements,
+            working_directory.as_deref().map(std::path::Path::new),
+            &clock_facts,
+        );
         for node in level {
             let (node_id, node_type, _data, label) = describe_node(node);
             if let Some(conditions::SkipReason(reason)) = conditions::skip_reason(
@@ -1637,6 +1695,7 @@ pub fn execute_run(
                 &node_outputs,
                 &entry_context,
                 &trigger_payload,
+                &gate_facts,
             ) {
                 record_skip(
                     app,
@@ -2588,7 +2647,7 @@ fn execute_level_node(
                         if step_auth_required.is_some() {
                             Err("agent_authentication_required".into())
                         } else {
-                            Err(safe_agent_error(&error).into())
+                            Err(agent_failure_message(&error).into())
                         }
                     }
                 }
@@ -4737,6 +4796,12 @@ mod tests {
             .collect();
         let incoming = conditions::incoming_edges(nodes, edges);
         let mut outputs: HashMap<String, String> = HashMap::new();
+        let clock = crate::system_facts::ClockFacts::at(
+            chrono::NaiveDate::from_ymd_opt(2026, 11, 20).expect("date"),
+            chrono::NaiveTime::from_hms_opt(9, 0, 0).expect("time"),
+            "UTC",
+        );
+        let facts = crate::system_facts::SystemFacts::new(clock);
         let mut ran = Vec::new();
         let mut skipped = Vec::new();
         for node in order {
@@ -4745,7 +4810,7 @@ mod tests {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            if conditions::skip_reason(&id, &incoming, &outputs, "", "").is_some() {
+            if conditions::skip_reason(&id, &incoming, &outputs, "", "", &facts).is_some() {
                 skipped.push(id);
                 continue;
             }
@@ -4823,6 +4888,24 @@ mod tests {
         let (ran, skipped) = simulate_walk(&nodes, &edges);
         assert_eq!(ran, vec!["gen"]);
         assert_eq!(skipped, vec!["codex", "slack", "out"]);
+    }
+
+    #[test]
+    fn a_machine_condition_gates_a_branch_against_the_run_clock() {
+        let nodes = vec![walk_node("gen"), walk_node("weekend")];
+        let mut edge = walk_edge("gen", "weekend", None);
+        edge["data"] = serde_json::json!({
+            "condition": {
+                "source": "system",
+                "field": "weekday",
+                "operator": "isOneOf",
+                "value": "Saturday, Sunday"
+            }
+        });
+        let (ran, skipped) = simulate_walk(&nodes, &[edge]);
+        // The walk fixture pins 2026-11-20, a Friday.
+        assert_eq!(ran, vec!["gen"]);
+        assert_eq!(skipped, vec!["weekend"]);
     }
 
     #[test]
@@ -5102,6 +5185,42 @@ mod tests {
             crate::agents::NATIVE_RUNTIME_UNAVAILABLE
         );
         assert!(safe_agent_error(&adversarial).len() < 64);
+    }
+
+    #[test]
+    fn usage_limit_failures_explain_themselves_without_provider_text() {
+        for message in [
+            "You've hit your session limit · resets 10:30am (Europe/Madrid)",
+            "Claude hit its five_hour usage limit. Try again after it resets.",
+            "Anthropic API rate limit reached",
+            "native_turnfailed:_usage_limit_reached",
+            "429 Too Many Requests",
+        ] {
+            let error = AgentError::Message(message.into());
+            assert_eq!(
+                safe_agent_error(&error),
+                "agent_usage_limit_reached",
+                "{message}"
+            );
+            assert_eq!(agent_failure_message(&error), USAGE_LIMIT_MESSAGE);
+        }
+        for message in [
+            "prompt is too long: context limit exceeded",
+            "native request exceeded the model context limit",
+            "native request exceeded the Anthropic request size limit",
+            "provider failed with sk-secret-value",
+            "error at src/main.rs:429: expected value",
+        ] {
+            let error = AgentError::Message(message.into());
+            assert_eq!(
+                safe_agent_error(&error),
+                "agent_execution_failed",
+                "{message}"
+            );
+            assert_eq!(agent_failure_message(&error), "agent_execution_failed");
+        }
+        assert_eq!(agent_failure_message(&AgentError::Cancelled), "cancelled");
+        assert!(!USAGE_LIMIT_MESSAGE.contains("sk-secret"));
     }
 
     #[test]

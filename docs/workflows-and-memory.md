@@ -19,6 +19,23 @@ the identity. Unconnected agents do not receive it.
 Connections blend from the source node's color to the destination node's color.
 Each connection handle uses its own node's color.
 
+## Runtime inputs
+
+Write `{{ask:Name}}` in an Input prompt or a Template to make a workflow ask for
+a value each time it is run manually. Pressing **Run** opens a separate run
+window with one field per name. `{{ask:Name|default}}` pre-fills that field;
+leaving an explicitly empty default (`{{ask:Name|}}`) keeps the input optional.
+
+One answer is applied to every occurrence of the same name, so a name is
+required when any occurrence has no default. The run window blocks the run
+until every required field has text. **Esc** cancels; **Cmd/Ctrl+Enter** runs.
+
+Scheduled, file-triggered, webhook, and tray runs never wait for input. They use
+the placeholder's default, or empty text when there is none.
+Give unattended workflows a default, or leave runtime inputs to workflows you
+start yourself. **Speak with Alfred** and the `run_workflow` MCP tool pass
+answers in the request and report missing required names instead of starting.
+
 The **Memory library** combines search, scope filters, sorting, and an editor.
 Start with a note, preference, decision, lesson, or constraint, then choose whether
 it belongs to this workflow, its workspace, or all your workflows. Pin memories

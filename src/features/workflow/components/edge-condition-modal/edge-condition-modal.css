@@ -41,3 +41,47 @@
   color: var(--danger);
   font-size: var(--text-sm);
 }
+
+.edge-condition-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.edge-condition-weekday {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: var(--control-height-compact);
+  padding: var(--space-1);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.edge-condition-weekday:has(input:checked) {
+  border-color: var(--accent-border-loud);
+  background: var(--accent-soft);
+}
+
+.edge-condition-weekday input {
+  pointer-events: none;
+}
+
+.edge-condition-range {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.edge-condition-range .field {
+  flex: 1 1 0;
+}
+
+.edge-condition-current {
+  color: var(--muted);
+}

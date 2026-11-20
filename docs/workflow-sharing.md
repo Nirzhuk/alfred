@@ -19,9 +19,10 @@ follow future publication edits.
 
 A template declares the oldest schema version that can carry its content.
 A workflow with [conditional connections](conditional-connections.md) declares
-version 2 and is refused by builds that predate them, because a build that
-ignored a condition would run every branch and look correct. Everything else
-still declares version 1 and imports anywhere.
+version 2, and one whose conditions read a machine value declares version 3.
+Both are refused by builds that predate them, because a build that ignored a
+condition would run every branch and look correct. Everything else still
+declares version 1 and imports anywhere.
 
 ## Local service
 
