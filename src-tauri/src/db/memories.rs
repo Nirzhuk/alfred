@@ -476,7 +476,6 @@ fn trusted_legacy_artifact_path(db: &Db, stored_path: &Path) -> Option<PathBuf> 
     trusted_artifact_target(&canonical_root, relative)
 }
 
-
 fn remove_artifact(db: &Db, path: Option<&str>) {
     let Some(path) = path.map(Path::new) else {
         return;

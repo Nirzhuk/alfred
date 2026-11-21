@@ -227,29 +227,54 @@ struct Frontmatter {
 }
 
 fn parse_frontmatter(content: &str) -> Frontmatter {
+    let mut meta = Frontmatter::default();
     let mut lines = content.lines();
     if lines.next().map(str::trim) != Some("---") {
-        return Frontmatter::default();
+        return meta;
     }
-
-    let mut meta = Frontmatter::default();
-    for line in lines {
-        let line = line.trim();
-        if line == "---" {
-            break;
+    let body: Vec<&str> = lines.take_while(|line| line.trim() != "---").collect();
+    let mut index = 0;
+    while index < body.len() {
+        let line = body[index];
+        let trimmed = line.trim();
+        if trimmed.is_empty() || line.starts_with(' ') || line.starts_with('\t') {
+            index += 1;
+            continue;
         }
-        if let Some((key, value)) = line.split_once(':') {
-            let key = key.trim();
-            let value = value
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
-            match key {
-                "name" => meta.name = Some(value),
-                "description" => meta.description = Some(value),
-                _ => {}
+        let Some((key, raw_value)) = trimmed.split_once(':') else {
+            index += 1;
+            continue;
+        };
+        let key = key.trim();
+        let raw_value = raw_value.trim();
+        let mut value = raw_value.to_string();
+        if raw_value.starts_with('>') || raw_value.starts_with('|') {
+            let literal = raw_value.starts_with('|');
+            let mut parts = Vec::new();
+            index += 1;
+            while index < body.len() {
+                let next = body[index];
+                if !next.starts_with(' ') && !next.starts_with('\t') && !next.trim().is_empty() {
+                    break;
+                }
+                parts.push(next.trim().to_string());
+                index += 1;
             }
+            value = if literal {
+                parts.join("\n")
+            } else {
+                parts.join(" ")
+            }
+            .trim()
+            .to_string();
+        } else {
+            value = raw_value.trim_matches('"').trim_matches('\'').to_string();
+            index += 1;
+        }
+        match key {
+            "name" => meta.name = Some(value),
+            "description" => meta.description = Some(value),
+            _ => {}
         }
     }
     meta
@@ -379,6 +404,26 @@ mod tests {
                 (Path::new("/project/.agents/skills"), None),
                 (Path::new("/project/.opencode/skills"), Some("opencode")),
             ]
+        );
+    }
+
+    #[test]
+    fn frontmatter_reads_folded_and_literal_descriptions() {
+        let folded = parse_frontmatter(
+            "---\nname: demo\ndescription: >\n  first line\n  second line\n---\nBody\n",
+        );
+        assert_eq!(folded.name.as_deref(), Some("demo"));
+        assert_eq!(
+            folded.description.as_deref(),
+            Some("first line second line")
+        );
+
+        let literal = parse_frontmatter(
+            "---\nname: demo\ndescription: |\n  first line\n  second line\n---\nBody\n",
+        );
+        assert_eq!(
+            literal.description.as_deref(),
+            Some("first line\nsecond line")
         );
     }
 }

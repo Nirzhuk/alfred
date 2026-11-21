@@ -17,4 +17,4 @@ Not sure which Mac you have? Apple menu → About This Mac: "Chip: Apple M…" m
 
 Alfred shells out to local agent CLIs (Claude Code, Cursor, Codex, OpenCode, GitHub Copilot, Gemini CLI, Grok Build). Install and authenticate those on the machine before running workflows.
 
-Alfred 1.2.0 and later update themselves: **Help -> Check for Updates...** (also checked at launch). Older installs update by downloading from this page.
+Alfred 1.2.0 and later update themselves: a small **Update** button appears at the top-left of the window when a new version is ready. Click it, or use **Help -> Check for Updates...**, to install and restart. Older installs update by downloading from this page.

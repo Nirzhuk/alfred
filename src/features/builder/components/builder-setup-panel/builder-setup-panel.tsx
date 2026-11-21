@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { AgentMark } from "../../../../components/agent-mark";
 import { Icon } from "../../../../components/icon/icon";
-import { connectClaudeCode } from "../../api";
-import type { BuilderAgentInfo, BuilderConfig, BuilderInfo, BuilderMcpServer, BuilderRule } from "../../api";
+import { SelectControl } from "../../../../components/select-control";
+import { checkMcpServer, connectClaudeCode } from "../../api";
+import type { BuilderAgentInfo, BuilderConfig, BuilderInfo, BuilderMcpServer, BuilderRule, McpCheck } from "../../api";
+import { MCP_PATH_TOKEN, MCP_PRESETS, presetToServer } from "../../mcp-presets";
 
 /** Shell-like split: `npx -y "@scope/pkg name"` → ["npx", "-y", "@scope/pkg name"]. */
 export function splitCommand(line: string): string[] {
@@ -71,18 +73,48 @@ const emptyServer = (): BuilderMcpServer => ({
   headers: {},
 });
 
+function serverFromDraft(draft: Extract<Draft, { kind: "mcp" }>): BuilderMcpServer {
+  const [command = "", ...args] = splitCommand(draft.commandLine);
+  return {
+    ...draft.value,
+    command: draft.value.transport === "stdio" ? command : "",
+    args: draft.value.transport === "stdio" ? args : [],
+    env: draft.value.transport === "stdio" ? parsePairs(draft.envText, "=") : {},
+    url: draft.value.transport === "http" ? draft.value.url.trim() : "",
+    headers: draft.value.transport === "http" ? parsePairs(draft.headersText, ":") : {},
+  };
+}
+
+function hasPlaceholderArgument(draft: Extract<Draft, { kind: "mcp" }>): boolean {
+  return splitCommand(draft.commandLine).some(
+    (argument) => argument === MCP_PATH_TOKEN || /^<[^>]+>$/.test(argument),
+  );
+}
+
+type SetupSection = "agent" | "rules" | "mcp" | "connect";
+
+const ALL_SECTIONS: SetupSection[] = ["agent", "rules", "mcp", "connect"];
+
 type Props = {
   info: BuilderInfo | null;
   agent: BuilderAgentInfo | undefined;
   config: BuilderConfig;
   error: string | null;
   onSave: (config: BuilderConfig) => Promise<boolean>;
+  /** Which sections to render. Defaults to all of them. */
+  sections?: SetupSection[];
+  /** Folder used by path-based presets when the context knows one. */
+  suggestedPath?: string | null;
 };
 
-export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props) {
+export function BuilderSetupPanel({ info, agent, config, error, onSave, sections, suggestedPath }: Props) {
+  const visible = new Set(sections ?? ALL_SECTIONS);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [claude, setClaude] = useState<{ busy?: boolean; added?: string; error?: string }>({});
+  const [testResult, setTestResult] = useState<McpCheck | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
 
   const addToClaude = async () => {
     setClaude({ busy: true });
@@ -103,6 +135,43 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
       headersText: formatPairs(server.headers, ": "),
     });
 
+  const applyPreset = (id: string) => {
+    const preset = MCP_PRESETS.find((candidate) => candidate.id === id);
+    if (!preset) return;
+    const server = presetToServer(preset, suggestedPath);
+    setDraft({
+      kind: "mcp",
+      value: server,
+      commandLine: joinCommand(server),
+      envText: formatPairs(server.env, "="),
+      headersText: formatPairs(server.headers, ": "),
+    });
+    setTestResult(null);
+  };
+
+  const mcpDraft = draft?.kind === "mcp" ? draft : null;
+  const placeholderArgument = mcpDraft ? hasPlaceholderArgument(mcpDraft) : false;
+  const draftFingerprint = mcpDraft
+    ? `${mcpDraft.commandLine}\n${mcpDraft.envText}\n${mcpDraft.headersText}\n${mcpDraft.value.transport}\n${mcpDraft.value.url}`
+    : (draft?.kind ?? "");
+
+  useEffect(() => {
+    setTestResult(null);
+  }, [draftFingerprint]);
+
+  const testDraft = async () => {
+    if (!mcpDraft) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult(await checkMcpServer(serverFromDraft(mcpDraft)));
+    } catch (error) {
+      setTestResult({ ok: false, detail: String(error) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const upsert = <T extends { id: string }>(items: T[], item: T) =>
     item.id && items.some((i) => i.id === item.id)
       ? items.map((i) => (i.id === item.id ? item : i))
@@ -115,16 +184,8 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
     if (draft.kind === "rule") {
       next = { ...config, rules: upsert(config.rules, draft.value) };
     } else {
-      const [command = "", ...args] = splitCommand(draft.commandLine);
-      const server: BuilderMcpServer = {
-        ...draft.value,
-        command: draft.value.transport === "stdio" ? command : "",
-        args: draft.value.transport === "stdio" ? args : [],
-        env: draft.value.transport === "stdio" ? parsePairs(draft.envText, "=") : {},
-        url: draft.value.transport === "http" ? draft.value.url.trim() : "",
-        headers: draft.value.transport === "http" ? parsePairs(draft.headersText, ":") : {},
-      };
-      next = { ...config, mcpServers: upsert(config.mcpServers, server) };
+      if (hasPlaceholderArgument(draft)) return;
+      next = { ...config, mcpServers: upsert(config.mcpServers, serverFromDraft(draft)) };
     }
     if (await onSave(next)) setDraft(null);
   };
@@ -218,12 +279,38 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
             />
           </>
         )}
-        <p className="builder-editor-note">Stored on this Mac in Alfred's data folder, readable only by you.</p>
+        <p className="builder-editor-note">Stored locally.</p>
+        {placeholderArgument ? (
+          <p className="builder-editor-note builder-editor-warning">
+            Replace <code>{MCP_PATH_TOKEN}</code> with a real folder before saving.
+          </p>
+        ) : null}
+        {testResult ? (
+          <p
+            className={`builder-test ${testResult.ok ? "is-ok" : "is-error"}`}
+            role="status"
+          >
+            {testResult.detail}
+          </p>
+        ) : null}
         <div className="builder-editor-actions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={testing}
+            onClick={() => void testDraft()}
+          >
+            {testing ? "Testing…" : "Test"}
+          </button>
+          <span className="builder-editor-spacer" />
           <button type="button" className="ghost" onClick={() => setDraft(null)}>
             Cancel
           </button>
-          <button type="submit" className="primary" disabled={!draft.value.name.trim()}>
+          <button
+            type="submit"
+            className="primary"
+            disabled={!draft.value.name.trim() || placeholderArgument}
+          >
             Save server
           </button>
         </div>
@@ -232,6 +319,7 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
 
   return (
     <div className="builder-setup" aria-label="Agent setup">
+      {visible.has("agent") ? (
       <section className="builder-setup-section">
         <h3 className="builder-setup-title">Agent</h3>
         <div className="builder-agent-card">
@@ -265,7 +353,9 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
           </ul>
         ) : null}
       </section>
+      ) : null}
 
+      {visible.has("rules") ? (
       <section className="builder-setup-section">
         <div className="builder-setup-head">
           <h3 className="builder-setup-title">Rules</h3>
@@ -314,7 +404,9 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
           {draft?.kind === "rule" && !draft.value.id ? <li>{ruleEditor}</li> : null}
         </ul>
       </section>
+      ) : null}
 
+      {visible.has("mcp") ? (
       <section className="builder-setup-section">
         <div className="builder-setup-head">
           <h3 className="builder-setup-title">MCP servers</h3>
@@ -331,8 +423,24 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
             <Icon name="plus" size={16} />
           </button>
         </div>
+        <SelectControl
+          containerClassName="builder-preset-select"
+          aria-label="Add MCP server from preset"
+          value=""
+          disabled={draft !== null}
+          onChange={(event) => {
+            if (event.target.value) applyPreset(event.target.value);
+          }}
+        >
+          <option value="">Add from preset…</option>
+          {MCP_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </SelectControl>
         {config.mcpServers.length === 0 && draft?.kind !== "mcp" ? (
-          <p className="builder-setup-empty">Give the agent more tools: GitHub, Linear, a database, your own server.</p>
+          <p className="builder-setup-empty">No MCP servers.</p>
         ) : null}
         <ul className="builder-setup-list">
           {config.mcpServers.map((server) =>
@@ -376,25 +484,28 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
           {draft?.kind === "mcp" && !draft.value.id ? <li>{mcpEditor}</li> : null}
         </ul>
       </section>
+      ) : null}
 
+      {visible.has("connect") ? (
       <section className="builder-setup-section">
         <h3 className="builder-setup-title">Use from other agents</h3>
-        <p className="builder-setup-empty">
-          Let Claude Code turn your work into workflows in any project. It reaches the same tools, minus rules and MCP
-          servers.
-        </p>
-        <button
-          type="button"
-          className="builder-connect"
-          disabled={!info?.externalMcp || claude.busy}
-          onClick={() => void addToClaude()}
-        >
-          <AgentMark provider="claude_code" size={16} />
-          {claude.busy ? "Adding…" : claude.added ? "Added to Claude Code" : "Add to Claude Code"}
-        </button>
+        <div className="builder-transfer-row">
+          <div className="builder-transfer-copy">
+            <strong>Claude Code</strong>
+            <span>Bridge + MCP servers</span>
+          </div>
+          <button
+            type="button"
+            className="ghost"
+            disabled={!info?.externalMcp || claude.busy}
+            onClick={() => void addToClaude()}
+          >
+            {claude.busy ? "Syncing…" : "Sync"}
+          </button>
+        </div>
         {claude.added ? (
           <p className="builder-editor-note" role="status">
-            Saved as <code>{claude.added}</code>. Start a new Claude Code session, or run <code>/mcp</code>, to load it.
+            Registered <code>{claude.added}</code>.
           </p>
         ) : null}
         {claude.error ? (
@@ -403,13 +514,46 @@ export function BuilderSetupPanel({ info, agent, config, error, onSave }: Props)
             {claude.error}
           </p>
         ) : null}
-        {info?.externalMcp ? (
-          <p className="builder-editor-note">
-            Other MCP clients: add a stdio server named <code>{info.externalMcp.name}</code> that runs{" "}
-            <code className="builder-mono builder-connect-command user-select-text">{info.externalMcp.command}</code>
-          </p>
+
+        {info?.externalMcp?.config ? (
+          <details className="builder-config">
+            <summary>Other clients</summary>
+            {info.externalMcp ? (
+              <p className="builder-editor-note">
+                Bridge: <code>{info.externalMcp.name}</code>
+              </p>
+            ) : null}
+            {info.externalMcp ? (
+              <p className="builder-editor-note builder-connect-command user-select-text">
+                <code>{info.externalMcp.command}</code>
+              </p>
+            ) : null}
+            <div className="builder-config-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  const text = JSON.stringify(info.externalMcp?.config, null, 2);
+                  void navigator.clipboard
+                    ?.writeText(text)
+                    .then(() => {
+                      setCopiedConfig(true);
+                      window.setTimeout(() => setCopiedConfig(false), 1500);
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                {copiedConfig ? "Copied" : "Copy JSON"}
+              </button>
+            </div>
+            <pre className="builder-mono builder-config-json user-select-text">
+              {JSON.stringify(info.externalMcp.config, null, 2)}
+            </pre>
+          </details>
         ) : null}
+
       </section>
+      ) : null}
 
       {error ? (
         <p className="builder-setup-error" role="alert">

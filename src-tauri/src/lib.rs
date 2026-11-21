@@ -26,15 +26,15 @@ mod triggers;
 
 use agent_accounts::{AgentAccountResolver, AgentAccountsState};
 use agents::native::{
-    DenyAllToolExecutor, HostApprovalBroker, MemoryLookupToolExecutor,
-    NativeExecutionRouter, NativeRuntimeMemoryLookupContextAllowance, NativeRuntimeRegistry,
+    DenyAllToolExecutor, HostApprovalBroker, MemoryLookupToolExecutor, NativeExecutionRouter,
+    NativeRuntimeMemoryLookupContextAllowance, NativeRuntimeRegistry,
 };
 use commands::managed_runtime::ManagedRuntimeControlPlane;
 use db::Db;
 use integrations::IntegrationsState;
 use licensing::LicensingState;
-use std::sync::{Arc, OnceLock};
 use std::sync::Mutex;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, State, WindowEvent};
 use triggers::app::AppEventRuntime;
@@ -73,9 +73,8 @@ pub(crate) fn native_release_binding_is_eligible(
     manifest: &agents::capability_manifest::AgentCapabilityManifest,
     descriptor: &agents::native::NativeRuntimeDescriptor,
 ) -> bool {
-    matching_native_release_entry(manifest, descriptor).is_some_and(|entry| {
-        entry.permits_execution(manifest.platform, manifest.build_kind)
-    })
+    matching_native_release_entry(manifest, descriptor)
+        .is_some_and(|entry| entry.permits_execution(manifest.platform, manifest.build_kind))
 }
 
 impl StartupTrace {
@@ -264,9 +263,9 @@ fn initialize_app_state(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     let lookup_trace_sink = Arc::new(runner::lookup_trace::DbMemoryLookupTraceSink::new(
         Arc::clone(&resolver_db),
     ));
-    let lookup_context_allowance = Arc::new(
-        NativeRuntimeMemoryLookupContextAllowance::new(Arc::clone(&native_registry)),
-    );
+    let lookup_context_allowance = Arc::new(NativeRuntimeMemoryLookupContextAllowance::new(
+        Arc::clone(&native_registry),
+    ));
     let memory_lookup_executor = Arc::new(MemoryLookupToolExecutor::new(
         lookup_service,
         // Alfred-executed tools stay deny-all until a native runtime supplies
@@ -597,6 +596,9 @@ pub fn run() {
             commands::get_license_status,
             commands::validate_condition_pattern,
             commands::preview_condition_subject,
+            builder::builder_check_mcp_server,
+            builder::skill_sync::builder_sync_claude_skills,
+            builder::skill_sync::builder_alfred_skills,
             commands::agent_accounts::list_agent_account_providers,
             commands::agent_accounts::list_agent_accounts,
             commands::agent_accounts::get_agent_account,

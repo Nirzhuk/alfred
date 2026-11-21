@@ -33,11 +33,23 @@ export type BuilderAgentInfo = {
 };
 
 export type BuilderInfo = {
+  /** Which identity this build runs as: isolated data dir and MCP name. */
+  build: "development" | "production";
+  dataDir: string | null;
   agents: BuilderAgentInfo[];
   mcpReady: boolean;
   tools: { name: string; description: string }[];
   /** How other agents launch Alfred's stdio MCP bridge. */
-  externalMcp: { name: string; command: string } | null;
+  externalMcp: {
+    name: string;
+    command: string;
+    config: { mcpServers: Record<string, unknown> } | null;
+  } | null;
+};
+
+export type McpCheck = {
+  ok: boolean;
+  detail: string;
 };
 
 export type BuilderTurnResult = {
@@ -65,6 +77,34 @@ export function getBuilderInfo(): Promise<BuilderInfo> {
 /** Registers Alfred in Claude Code (user scope). Resolves to the server name. */
 export function connectClaudeCode(): Promise<string> {
   return invoke("builder_connect_claude");
+}
+
+/** Check a draft server without saving it or starting it. */
+export function checkMcpServer(server: BuilderMcpServer): Promise<McpCheck> {
+  return invoke("builder_check_mcp_server", { server });
+}
+
+export type SkillSyncResult = {
+  linked: number;
+  copied: number;
+  removed: number;
+  skipped: string[];
+};
+
+export type AlfredSkill = {
+  name: string;
+  path: string;
+  linked: boolean;
+};
+
+/** The shared .agents/skills library and its Claude Code link state. */
+export function listAlfredSkills(): Promise<AlfredSkill[]> {
+  return invoke("builder_alfred_skills");
+}
+
+/** Link Alfred's shared .agents/skills into Claude Code's user skills folder. */
+export function syncAlfredSkills(): Promise<SkillSyncResult> {
+  return invoke("builder_sync_claude_skills");
 }
 
 export type BuilderImage = { mediaType: string; data: string };

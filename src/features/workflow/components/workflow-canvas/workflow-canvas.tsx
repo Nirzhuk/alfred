@@ -8,7 +8,13 @@ import { AppTitlebar } from "../app-title-bar";
 import { ConfirmDialog } from "../../../../components/confirm-dialog";
 import { Icon } from "../../../../components/icon";
 import { WorkflowResourcesPanel } from "../workflow-resources-panel/workflow-resources-panel";
-import { checkForUpdates } from "../../../licensing/download-latest";
+import {
+  checkForUpdates,
+  findUpdate,
+  installUpdate,
+  UPDATE_CHECK_INTERVAL_MS,
+  type AvailableUpdate,
+} from "../../../licensing/download-latest";
 import { SettingsPage } from "../../../settings/components/settings-page";
 import {
   SettingsSidebar,
@@ -259,6 +265,9 @@ export function WorkflowCanvas() {
   >(null);
   const [historyRunId, setHistoryRunId] = useState<string | null>(null);
   const [runPanelMounted, setRunPanelMounted] = useState(runPanelOpen);
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(
+    null,
+  );
   const [view, setSidebarView] = useState<SidebarView>("canvas");
   const setView = useCallback((nextView: SidebarView) => {
     if (nextView !== "canvas") {
@@ -397,6 +406,29 @@ export function WorkflowCanvas() {
     return () => window.clearTimeout(timeout);
   }, [canvasNotice]);
 
+  // Quietly learn whether a newer signed build exists; never install it here.
+  // The titlebar offers it as a button, and an explicit menu check confirms.
+  useEffect(() => {
+    if (!isTauri() || import.meta.env.DEV) return;
+    let active = true;
+    const probe = async () => {
+      const update = await findUpdate();
+      if (!active || !update) return;
+      setAvailableUpdate((current) =>
+        current?.version === update.version ? current : update,
+      );
+    };
+    void probe();
+    const interval = window.setInterval(
+      () => void probe(),
+      UPDATE_CHECK_INTERVAL_MS,
+    );
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     const openSchedule = () => {
       cancelPendingMemoryNavigation();
@@ -516,8 +548,10 @@ export function WorkflowCanvas() {
         window.alert("Run a workflow first to open the activity panel.");
       }
     };
-    const downloadLatest = () => {
-      void checkForUpdates();
+    const checkUpdates = () => {
+      void checkForUpdates().then((update) => {
+        if (update) setAvailableUpdate(update);
+      });
     };
     const openWorkflow = (event: Event) => {
       const workflowId = (event as CustomEvent<{ workflowId?: string }>).detail
@@ -589,7 +623,7 @@ export function WorkflowCanvas() {
     window.addEventListener("alfred:rename-workflow", renameWorkflow);
     window.addEventListener("alfred:toggle-sidebar", toggleSidebar);
     window.addEventListener("alfred:toggle-activity", toggleActivity);
-    window.addEventListener("alfred:download-latest", downloadLatest);
+    window.addEventListener("alfred:check-for-updates", checkUpdates);
     window.addEventListener("alfred:open-workflow", openWorkflow);
     window.addEventListener("alfred:open-activity", openActivity);
     window.addEventListener("alfred:open-run-output", openRunOutput);
@@ -611,7 +645,7 @@ export function WorkflowCanvas() {
       window.removeEventListener("alfred:rename-workflow", renameWorkflow);
       window.removeEventListener("alfred:toggle-sidebar", toggleSidebar);
       window.removeEventListener("alfred:toggle-activity", toggleActivity);
-      window.removeEventListener("alfred:download-latest", downloadLatest);
+      window.removeEventListener("alfred:check-for-updates", checkUpdates);
       window.removeEventListener("alfred:open-workflow", openWorkflow);
       window.removeEventListener("alfred:open-activity", openActivity);
       window.removeEventListener("alfred:open-run-output", openRunOutput);
@@ -674,6 +708,10 @@ export function WorkflowCanvas() {
         activityEnabled={canOpenActivity}
         activityRunning={activityRunning}
         activityEventCount={activityEventCount}
+        updateVersion={availableUpdate?.version ?? null}
+        onInstallUpdate={() => {
+          if (availableUpdate) void installUpdate(availableUpdate);
+        }}
         onToggleSidebar={() => setSidebarOpen(sidebarCollapsed)}
         onToggleActivity={() => {
           if (runPanelOpen) closeRunPanel();

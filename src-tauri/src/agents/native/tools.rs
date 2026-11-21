@@ -267,7 +267,6 @@ pub trait AlfredToolExecutor: Send + Sync {
     }
 
     fn finish_turn(&self, _context: &AlfredToolExecutionContext) {}
-
 }
 
 pub struct DenyAllToolExecutor;

@@ -2647,7 +2647,11 @@ mod tests {
         let template: TemplateEnvelope = serde_json::from_value(fixture()).unwrap();
         assert_eq!(template.schema_version, MIN_SCHEMA_VERSION);
         validate_template(&template).unwrap();
-        assert!(template.graph.edges.iter().all(|e| e.data.condition.is_none()));
+        assert!(template
+            .graph
+            .edges
+            .iter()
+            .all(|e| e.data.condition.is_none()));
     }
 
     #[test]

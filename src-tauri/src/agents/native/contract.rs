@@ -60,7 +60,6 @@ pub struct NativeCapabilities {
     pub supports_memory_lookup: bool,
 }
 
-
 impl Default for NativeCapabilities {
     fn default() -> Self {
         Self {

@@ -13,9 +13,9 @@ use crate::db::{
     HistorySearchInput, ListMemoryCandidatesInput, Memory, MemoryCandidate, MemoryEvidenceItem,
     MemoryReviewJob, MemoryReviewSettings, MemoryWithOrigin, OnMissed, OutputReceipt,
     RunHistoryDetail, RunHistoryItem, Schedule, ScheduleEnabledGuard, ScheduleLayout,
-    ScheduleListItem, Trigger,
-    UpdateMemoryCandidateInput, UpdateMemoryInput, UpdateMemoryReviewSettingsInput,
-    UpdateWorkflowInput, UpsertTriggerInput, Workflow, WorkflowFolder, WorkflowMemoryReview,
+    ScheduleListItem, Trigger, UpdateMemoryCandidateInput, UpdateMemoryInput,
+    UpdateMemoryReviewSettingsInput, UpdateWorkflowInput, UpsertTriggerInput, Workflow,
+    WorkflowFolder, WorkflowMemoryReview,
 };
 use crate::integrations::events::{
     AppTriggerConfig, NormalizedAppEvent, NORMALIZED_APP_EVENT_SCHEMA_VERSION,
@@ -89,7 +89,11 @@ pub fn validate_condition_pattern(pattern: String, case_sensitive: bool) -> Resu
                 .to_string()
                 .lines()
                 .map(str::trim)
-                .find(|line| !line.is_empty() && !line.starts_with('^') && !line.contains("regex parse error"))
+                .find(|line| {
+                    !line.is_empty()
+                        && !line.starts_with('^')
+                        && !line.contains("regex parse error")
+                })
                 .unwrap_or("Unsupported pattern.")
                 .to_string()
         })
@@ -588,8 +592,8 @@ pub fn resolve_missed_schedule(
     schedule_id: String,
     decision: scheduler::MissedDecision,
 ) -> Result<(), String> {
-    let started = scheduler::resolve_missed(&app, &db, &schedule_id, decision)
-        .map_err(|e| e.to_string())?;
+    let started =
+        scheduler::resolve_missed(&app, &db, &schedule_id, decision).map_err(|e| e.to_string())?;
     crate::tray::refresh(&app);
     if started {
         let _ = app.emit("scheduler://fired", 1);

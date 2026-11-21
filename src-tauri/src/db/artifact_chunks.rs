@@ -193,7 +193,9 @@ pub(crate) fn index_legacy_artifact_file_conn(
             break;
         }
     }
-    if total != expected_length || format!("{:x}", full_digest.finalize()) != expected_content_digest {
+    if total != expected_length
+        || format!("{:x}", full_digest.finalize()) != expected_content_digest
+    {
         return Ok(false);
     }
 
@@ -304,10 +306,7 @@ pub(crate) fn trusted_artifact_target(root: &Path, relative: &Path) -> Option<st
 /// Validate an output-owned artifact without trusting any parent directory or
 /// filename supplied by a legacy row. Output artifacts use the generated
 /// `outputs/output-<UUID>.txt` shape beneath the trusted root.
-pub(crate) fn trusted_output_artifact_path(
-    root: &Path,
-    path: &Path,
-) -> Option<std::path::PathBuf> {
+pub(crate) fn trusted_output_artifact_path(root: &Path, path: &Path) -> Option<std::path::PathBuf> {
     let canonical_root = fs::canonicalize(root).ok()?;
     let candidate = if path.is_absolute() {
         path.to_path_buf()
@@ -438,18 +437,21 @@ pub(crate) fn load_artifact_chunk_manifest_range_conn(
               ORDER BY chunk_index ASC",
         )?;
         chunks = statement
-            .query_map(params![memory_id, first_chunk as i64, last_chunk as i64], |row| {
-                Ok(ArtifactChunkDigest {
-                    index: row.get::<_, i64>(0)?.try_into().map_err(|_| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            0,
-                            rusqlite::types::Type::Integer,
-                            "negative artifact chunk index".into(),
-                        )
-                    })?,
-                    digest: row.get(1)?,
-                })
-            })?
+            .query_map(
+                params![memory_id, first_chunk as i64, last_chunk as i64],
+                |row| {
+                    Ok(ArtifactChunkDigest {
+                        index: row.get::<_, i64>(0)?.try_into().map_err(|_| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                0,
+                                rusqlite::types::Type::Integer,
+                                "negative artifact chunk index".into(),
+                            )
+                        })?,
+                        digest: row.get(1)?,
+                    })
+                },
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         if chunks.len() != last_chunk - first_chunk + 1
             || chunks

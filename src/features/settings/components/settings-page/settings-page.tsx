@@ -24,6 +24,7 @@ import {
 import { useWorkflowStore } from "../../../workflow/store";
 import type { AgentProviderId } from "../../../workflow/types";
 import { ShortcutSettings } from "../shortcut-settings";
+import { McpSkillsSettings } from "../mcp-skills-settings";
 import {
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
@@ -321,6 +322,8 @@ export function SettingsPage({ activeSection }: Props) {
         ) : null}
 
         {activeSection === "native-agents" ? <NativeAgentSettings /> : null}
+
+        {activeSection === "mcp-skills" ? <McpSkillsSettings /> : null}
 
         {activeSection === "license-billing" ? <LicenseSettings /> : null}
 

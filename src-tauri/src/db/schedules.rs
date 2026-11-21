@@ -167,7 +167,11 @@ impl Db {
     }
 
     fn list_schedule_items(&self, enabled_only: bool) -> Result<Vec<ScheduleListItem>, DbError> {
-        let filter = if enabled_only { "WHERE s.enabled = 1" } else { "" };
+        let filter = if enabled_only {
+            "WHERE s.enabled = 1"
+        } else {
+            ""
+        };
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(&format!(
                 "SELECT s.id, s.workflow_id, w.name, s.cron, s.enabled,
@@ -305,9 +309,7 @@ impl Db {
                 Some(_) => Err(DbError::Other(
                     "schedule changed while it was being updated — reopen it and try again".into(),
                 )),
-                None => Err(DbError::Other(format!(
-                    "schedule not found: {schedule_id}"
-                ))),
+                None => Err(DbError::Other(format!("schedule not found: {schedule_id}"))),
             };
         }
 
@@ -345,9 +347,7 @@ impl Db {
         y: f64,
     ) -> Result<ScheduleLayout, DbError> {
         if self.get_schedule(schedule_id)?.is_none() {
-            return Err(DbError::Other(format!(
-                "schedule not found: {schedule_id}"
-            )));
+            return Err(DbError::Other(format!("schedule not found: {schedule_id}")));
         }
         let updated_at = now();
         self.with_conn(|conn| {
@@ -430,7 +430,8 @@ mod tests {
     fn a_layout_write_never_recreates_a_removed_schedule() {
         let db = Db::open_in_memory().unwrap();
         let schedule = scheduled_workflow(&db, "Removed");
-        db.delete_schedule_for_workflow(&schedule.workflow_id).unwrap();
+        db.delete_schedule_for_workflow(&schedule.workflow_id)
+            .unwrap();
 
         assert!(db.set_schedule_layout(&schedule.id, 10.0, 10.0).is_err());
         assert!(db.get_schedule(&schedule.id).unwrap().is_none());
@@ -443,7 +444,8 @@ mod tests {
         let schedule = scheduled_workflow(&db, "Cascade");
         db.set_schedule_layout(&schedule.id, 12.0, 24.0).unwrap();
 
-        db.delete_schedule_for_workflow(&schedule.workflow_id).unwrap();
+        db.delete_schedule_for_workflow(&schedule.workflow_id)
+            .unwrap();
 
         let remaining: i64 = db
             .with_conn(|conn| {

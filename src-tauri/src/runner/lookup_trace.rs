@@ -1,17 +1,14 @@
 use crate::agents::native::{
-    MemoryLookupTraceSink, NativeMemoryLookupDelivery, NativeMemoryLookupTrace, NativeErrorCode,
+    MemoryLookupTraceSink, NativeErrorCode, NativeMemoryLookupDelivery, NativeMemoryLookupTrace,
     NativeRuntimeError,
 };
 use crate::db::agent_memory_lookup::{
     LookupSourceKind, LookupSourceState, LookupToolName, LookupTraceClassification,
 };
-use crate::db::lookup_trace::{
-    insert_lookup_trace, LookupTraceInput, LookupTraceSourceInput,
-};
+use crate::db::lookup_trace::{insert_lookup_trace, LookupTraceInput, LookupTraceSourceInput};
 use crate::db::Db;
 use chrono::Utc;
 use std::sync::Arc;
-
 
 /// Persists the body-free identity of every native memory lookup after the
 /// executor has applied its delivery contract. The sink deliberately receives

@@ -34,9 +34,11 @@
 | **Official builds** | **Free** | Maintainer-built, CI-tested installers from GitHub Releases. macOS builds are Developer ID signed, notarized, and stapled; the Windows installer is an unsigned beta |
 | [Build from source](docs/building-from-source.md) | **Free** | A local build you compile yourself, with every feature |
 
-Alfred updates itself from version 1.2.0 on. It checks at launch and from
-**Help → Check for Updates…** (also in the tray/menu-bar menu), asks before
-installing, then restarts. Installs older than 1.2.0, and 1.2.0 `.deb`/`.rpm`
+Alfred updates itself from version 1.2.0 on. It checks quietly in the
+background at launch and every few hours. When a newer version exists, an
+**Update** button appears at the top-left of the window; click it, or use
+**Help → Check for Updates…** (also in the tray/menu-bar menu), to install and
+restart. Installs older than 1.2.0, and 1.2.0 `.deb`/`.rpm`
 installs, update manually once from the GitHub releases page. Your workflows, runs,
 schedules, and memories are local and survive an upgrade.
 
@@ -57,7 +59,10 @@ services are separate from Alfred in every case. See
 ### Describe a workflow instead of drawing it
 
 **Speak with Alfred** is a chat that designs, builds, runs, and schedules
-workflows for you, using Claude Code or Codex.
+workflows for you, using Claude Code or Codex. MCP servers, the Claude Code
+bridge, and skills live in **Settings → MCP & Skills**; the development and
+stable builds keep separate MCP configs. See
+[MCP servers and skills](docs/mcp-and-skills.md).
 
 ![Speak with Alfred: a chat page with suggested requests such as a morning repo digest and a ship review](docs/images/speak-with-alfred.png)
 

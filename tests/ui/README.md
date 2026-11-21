@@ -4,7 +4,12 @@ Run the existing Vite development server, then open:
 
 `http://localhost:1420/tests/ui/search-controls.html`
 
-This entry point imports `App.css` and the real components. Its eleven scenarios cover the library and nested link modal, Memories node, canvas Add step menu, Settings sidebar, History page, Agent skill picker, Activity panel, Resources panel, and action/trigger resource selectors. Scenarios retain the containing modal, menu, sidebar, field, and panel classes that can affect the CSS cascade.
+This entry point imports `App.css` and the real components. Its twelve
+scenarios cover the library and nested link modal, Memories node, canvas Add
+step menu, Settings sidebar, MCP & Skills settings, History page, Agent skill
+picker, Activity panel, Resources panel, and action/trigger resource selectors.
+Scenarios retain the containing modal, menu, sidebar, field, and panel classes
+that can affect the CSS cascade.
 
 The fixture uses the official Tauri IPC mocks and in-memory workflow/integration stores. All supported read commands return fixture data. Unknown commands fail closed and are recorded in `searchFixture.unhandled`; nothing falls through to the native backend. It does not read or modify a user's database, credentials, or workflows.
 
@@ -13,7 +18,7 @@ Use the scenario menu for visual inspection. The browser console also exposes:
 ```js
 await searchFixture.show('library');
 searchFixture.setTheme('dark');
-await runSearchAudit(); // all eleven consumers, both themes, empty/query/focus + clear/refocus
+await runSearchAudit(); // all twelve consumers, both themes, empty/query/focus + clear/refocus
 await runSearchStateAudit(); // disabled/readOnly and narrow reference controls
 await runSearchOrderAudit(); // shared CSS moved first and last, restored afterward
 await proveModalRegressionIsCaught(); // inject the original modal bug; must report detected:true

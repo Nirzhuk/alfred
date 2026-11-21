@@ -593,7 +593,9 @@ pub(crate) fn lookup_trace_evidence_inputs_conn(
         let version: String = row.get(6)?;
         let state: String = row.get(7)?;
         let page: Option<i64> = row.get(8)?;
-        let page = page.map(|value| value.to_string()).unwrap_or_else(|| "none".into());
+        let page = page
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".into());
         let text = format!(
             "lookup source={source_kind}:{source_id} version={version} state={state} \
              reference={reference} page={page}"

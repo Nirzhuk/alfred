@@ -5,9 +5,7 @@
 
 pub(crate) mod ask;
 pub(crate) mod conditions;
-pub use conditions::{
-    compile_pattern as compile_condition_pattern, MAX_CONDITION_VALUE_BYTES,
-};
+pub use conditions::{compile_pattern as compile_condition_pattern, MAX_CONDITION_VALUE_BYTES};
 mod identity;
 pub(crate) mod lookup_trace;
 pub(crate) mod memory_context;
@@ -443,11 +441,7 @@ fn sensitive_header_name(name: &str) -> bool {
     let name = name.trim().to_ascii_lowercase();
     matches!(
         name.as_str(),
-        "authorization"
-            | "proxy-authorization"
-            | "cookie"
-            | "set-cookie"
-            | "x-api-key"
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie" | "x-api-key"
     ) || ["token", "secret", "password", "credential"]
         .iter()
         .any(|part| name.contains(part))
@@ -2337,11 +2331,8 @@ fn execute_level_node(
                     model.as_deref(),
                 )
                 .map_err(|error| safe_agent_error(&error).to_owned())?;
-                let primary_metadata = SafeAgentRunMetadata::identity(
-                    provider,
-                    harness,
-                    resolved_model.as_deref(),
-                );
+                let primary_metadata =
+                    SafeAgentRunMetadata::identity(provider, harness, resolved_model.as_deref());
                 step_agent_metadata = Some(primary_metadata.clone());
                 let account_ref = if harness == AgentHarness::Alfred {
                     data.get("accountRef")
@@ -4947,8 +4938,7 @@ mod tests {
         assert!(headers.contains("X-Api-Key: [redacted]"));
         assert!(!headers.contains("Bearer secret"));
 
-        let (url, url_redacted) =
-            redact_url_query("https://hooks.example.test/send?token=secret");
+        let (url, url_redacted) = redact_url_query("https://hooks.example.test/send?token=secret");
         assert!(url_redacted);
         assert_eq!(url, "https://hooks.example.test/send?[redacted]");
     }
@@ -4962,10 +4952,7 @@ mod tests {
         assert!(captured.len() <= MAX_LIVE_STEP_INPUT_BYTES);
         assert!(captured.starts_with('🙂'));
         assert!(captured.is_char_boundary(captured.len()));
-        assert_eq!(
-            snapshot["originalBytes"].as_u64(),
-            Some(text.len() as u64)
-        );
+        assert_eq!(snapshot["originalBytes"].as_u64(), Some(text.len() as u64));
     }
 
     #[test]

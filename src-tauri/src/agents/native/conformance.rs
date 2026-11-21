@@ -149,13 +149,11 @@ impl AlfredToolExecutor for ReservingToolExecutor {
         cancellation: &NativeCancellation,
     ) -> Result<AlfredToolResult, NativeRuntimeError> {
         if request.kind == AlfredToolKind::Shell {
-            self.allowance
-                .reserve_bytes(context, self.reserved_bytes)?;
+            self.allowance.reserve_bytes(context, self.reserved_bytes)?;
         }
         self.execute(request, cancellation)
     }
 }
-
 
 struct CancelAfterReleaseAllowance {
     inner: Arc<FakeMemoryLookupContextAllowance>,
@@ -1694,11 +1692,8 @@ fn memory_lookup_native_boundary_chains_scoped_sqlite_results() {
         account_ref: Some(account_ref),
         model: Some("fake-model".into()),
         working_directory: Some(workspace.to_string_lossy().into_owned()),
-        request_metadata: AgentRequestMetadata::new(
-            "native_lookup_run",
-            "native_lookup_node",
-        )
-        .unwrap(),
+        request_metadata: AgentRequestMetadata::new("native_lookup_run", "native_lookup_node")
+            .unwrap(),
     };
     let result = router
         .run(
@@ -1799,11 +1794,8 @@ fn memory_lookup_native_boundary_chains_scoped_sqlite_results() {
         .continue_after_tool_error
         .store(true, std::sync::atomic::Ordering::SeqCst);
     let forged_target = AgentExecutionTarget {
-        request_metadata: AgentRequestMetadata::new(
-            "forged_lookup_run",
-            "native_lookup_node",
-        )
-        .unwrap(),
+        request_metadata: AgentRequestMetadata::new("forged_lookup_run", "native_lookup_node")
+            .unwrap(),
         ..target.clone()
     };
     let forged_activities = std::sync::Mutex::new(Vec::<AgentActivity>::new());
@@ -1853,10 +1845,7 @@ fn memory_lookup_requires_opt_in_verified_availability_and_context_capacity() {
     *runtime.request_tool.lock().unwrap() = Some(memory_lookup_tool(
         "lookup_permission",
         "memory.search",
-        json!({"query": "needle"})
-            .as_object()
-            .unwrap()
-            .clone(),
+        json!({"query": "needle"}).as_object().unwrap().clone(),
     ));
 
     request.permission_profile.memory_lookup = NativeApprovalPolicy::Deny;
@@ -1918,7 +1907,9 @@ fn memory_lookup_requires_opt_in_verified_availability_and_context_capacity() {
         .memory_lookup_available
         .store(true, std::sync::atomic::Ordering::SeqCst);
     let allowance = Arc::new(FakeMemoryLookupContextAllowance::new(1_024));
-    allowance.unknown.store(true, std::sync::atomic::Ordering::SeqCst);
+    allowance
+        .unknown
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let executor = MemoryLookupToolExecutor::new(
         Arc::new(AgentMemoryLookupService::new(
             Arc::new(Db::open_in_memory().unwrap()),
@@ -1931,10 +1922,7 @@ fn memory_lookup_requires_opt_in_verified_availability_and_context_capacity() {
     *runtime.request_tool.lock().unwrap() = Some(memory_lookup_tool(
         "lookup_unknown_capacity",
         "memory.search",
-        json!({"query": "needle"})
-            .as_object()
-            .unwrap()
-            .clone(),
+        json!({"query": "needle"}).as_object().unwrap().clone(),
     ));
     assert_eq!(
         registry
@@ -1964,10 +1952,7 @@ fn router_disables_lookup_for_unknown_capacity_without_aborting_turn() {
     *runtime.request_tool.lock().unwrap() = Some(memory_lookup_tool(
         "unknown_capacity",
         "memory.search",
-        json!({"query": "ignored"})
-            .as_object()
-            .unwrap()
-            .clone(),
+        json!({"query": "ignored"}).as_object().unwrap().clone(),
     ));
     registry.register(runtime.clone()).unwrap();
     let resolver = Arc::new(FakeAccountResolver::new(account_ref.clone(), provider));
@@ -1995,10 +1980,12 @@ fn router_disables_lookup_for_unknown_capacity_without_aborting_turn() {
             && descriptor.runtime_id == "fake-native-runtime"
             && descriptor.runtime_version == "1.0.0"
     }));
-    assert!(!router
-        .memory_lookup_availability(provider)
-        .unwrap()
-        .available);
+    assert!(
+        !router
+            .memory_lookup_availability(provider)
+            .unwrap()
+            .available
+    );
     router
         .run(
             &AgentExecutionTarget {
@@ -2007,8 +1994,7 @@ fn router_disables_lookup_for_unknown_capacity_without_aborting_turn() {
                 account_ref: Some(account_ref),
                 model: Some("fake-model".into()),
                 working_directory: None,
-                request_metadata: AgentRequestMetadata::new("unknown_run", "unknown_node")
-                    .unwrap(),
+                request_metadata: AgentRequestMetadata::new("unknown_run", "unknown_node").unwrap(),
             },
             AgentRequest {
                 prompt: "continue normally".into(),
@@ -2309,7 +2295,10 @@ fn cancelled_after_lookup_result_rejects_trace_and_restores_capacity() {
 
 #[test]
 fn failed_tool_calls_emit_terminal_statuses_without_dangling_starts() {
-    for error in [NativeRuntimeError::cancelled(), NativeRuntimeError::timed_out()] {
+    for error in [
+        NativeRuntimeError::cancelled(),
+        NativeRuntimeError::timed_out(),
+    ] {
         let (registry, runtime, resolver, account_ref) = fixture();
         *runtime.request_tool.lock().unwrap() = Some(shell_tool(vec!["pwd".into()]));
         let mut request = fake_request(AgentProvider::Codex, account_ref);
@@ -2341,16 +2330,14 @@ fn failed_tool_calls_emit_terminal_statuses_without_dangling_starts() {
             .filter(|event| event.kind == NativeEventKind::ToolCompleted)
             .collect::<Vec<_>>();
         assert_eq!(completed.len(), 1);
-        assert!(
-            completed[0]
-                .tool_output
-                .as_deref()
-                .is_some_and(|output| output.contains(match error_code {
-                    NativeErrorCode::Cancelled => "cancelled",
-                    NativeErrorCode::TimedOut => "timed out",
-                    _ => "failed",
-                }))
-        );
+        assert!(completed[0]
+            .tool_output
+            .as_deref()
+            .is_some_and(|output| output.contains(match error_code {
+                NativeErrorCode::Cancelled => "cancelled",
+                NativeErrorCode::TimedOut => "timed out",
+                _ => "failed",
+            })));
     }
 }
 
@@ -2411,18 +2398,12 @@ fn router_gates_lookup_advertisement_on_trusted_workflow_permission() {
         memory_lookup_tool(
             "router_lookup_enabled",
             "memory.search",
-            json!({"query": "router"})
-                .as_object()
-                .unwrap()
-                .clone(),
+            json!({"query": "router"}).as_object().unwrap().clone(),
         ),
         memory_lookup_tool(
             "router_lookup_revoked",
             "memory.search",
-            json!({"query": "router"})
-                .as_object()
-                .unwrap()
-                .clone(),
+            json!({"query": "router"}).as_object().unwrap().clone(),
         ),
     ];
     let executor = Arc::new(MemoryLookupToolExecutor::new(
@@ -2505,7 +2486,12 @@ fn router_gates_lookup_advertisement_on_trusted_workflow_permission() {
         harness: AgentHarness::Alfred,
         account_ref: Some(account_ref.clone()),
         model: Some("fake-model".into()),
-        working_directory: Some(std::env::current_dir().unwrap().to_string_lossy().into_owned()),
+        working_directory: Some(
+            std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        ),
         request_metadata: AgentRequestMetadata::new(run_id, "router_node").unwrap(),
     };
     runtime
@@ -2542,8 +2528,8 @@ fn router_gates_lookup_advertisement_on_trusted_workflow_permission() {
     assert_eq!(enabled_rows.len(), 1);
     assert_eq!(enabled_rows[0].delivery, "delivered");
     assert_eq!(executor.active_turns(), 0);
-    assert!(db
-        .with_conn(|conn| {
+    assert!(
+        db.with_conn(|conn| {
             Ok(conn.query_row(
                 "SELECT memory_lookup_enabled FROM workflows WHERE id = ?1",
                 [&workflow.id],
@@ -2551,7 +2537,8 @@ fn router_gates_lookup_advertisement_on_trusted_workflow_permission() {
             )?)
         })
         .unwrap()
-        == false);
+            == false
+    );
 }
 
 #[test]
@@ -2591,16 +2578,22 @@ fn shared_registry_routers_report_only_their_installed_lookup_executor() {
         Arc::new(DenyAllToolExecutor),
         Arc::new(DenyAllApprovalHandler),
     );
-    assert!(lookup_router
-        .memory_lookup_availability(provider)
-        .unwrap()
-        .available);
-    assert!(!deny_router
-        .memory_lookup_availability(provider)
-        .unwrap()
-        .available);
-    assert!(registry
-        .memory_lookup_availability(provider)
-        .unwrap()
-        .available);
+    assert!(
+        lookup_router
+            .memory_lookup_availability(provider)
+            .unwrap()
+            .available
+    );
+    assert!(
+        !deny_router
+            .memory_lookup_availability(provider)
+            .unwrap()
+            .available
+    );
+    assert!(
+        registry
+            .memory_lookup_availability(provider)
+            .unwrap()
+            .available
+    );
 }

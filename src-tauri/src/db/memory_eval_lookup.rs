@@ -14,8 +14,8 @@ use crate::db::agent_memory_lookup::{
 };
 use crate::db::artifact_chunks::persist_artifact_chunk_manifest_conn;
 use crate::db::history::index_run_step;
-use crate::db::memory_validity::artifact_content_digest;
 use crate::db::memories::{write_canonical_memory, CanonicalMemoryRecord};
+use crate::db::memory_validity::artifact_content_digest;
 use crate::db::output_persistence::{
     insert_output_receipt, OutputDisposition, OutputReceiptKey, OutputReceiptSeed,
     OutputStorageIdentity,
@@ -27,8 +27,8 @@ use crate::runner::memory_context::{
     compose_agent_memory_at, AutomaticMemoryCandidate, PromptValue, TextOrigin,
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use rusqlite::{params, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -40,8 +40,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 const FIXTURE: &str = include_str!("../../../tests/fixtures/memory-quality/lookup-v1.json");
-const FIXTURE_SHA256: &str =
-    "6deeb417343762984b13f568764abf643a014932d25814ba9609aa8a497edfc6";
+const FIXTURE_SHA256: &str = "6deeb417343762984b13f568764abf643a014932d25814ba9609aa8a497edfc6";
 const REPORT_ENV: &str = "ALFRED_MEMORY_LOOKUP_EVAL_REPORT";
 const INITIAL_MEMORY_LIMIT: usize = 12_000;
 const INCREMENTAL_LOOKUP_LIMIT: usize = 16_000;
@@ -321,7 +320,8 @@ struct EvalTempDir {
 
 impl EvalTempDir {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("alfred-memory-lookup-eval-{}", Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("alfred-memory-lookup-eval-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).expect("create lookup evaluation temporary root");
         Self { path }
     }
@@ -349,16 +349,30 @@ struct SeededCase {
 }
 
 impl SeededCase {
-    fn add_alias(&mut self, alias: impl Into<String>, source_id: impl Into<String>, body: Option<String>) {
+    fn add_alias(
+        &mut self,
+        alias: impl Into<String>,
+        source_id: impl Into<String>,
+        body: Option<String>,
+    ) {
         let alias = alias.into();
         let source_id = source_id.into();
-        assert!(self.aliases.insert(alias.clone(), source_id.clone()).is_none(), "duplicate source alias {alias}");
-        assert!(self.reverse_aliases.insert(source_id.clone(), alias).is_none(), "duplicate source id {source_id}");
+        assert!(
+            self.aliases
+                .insert(alias.clone(), source_id.clone())
+                .is_none(),
+            "duplicate source alias {alias}"
+        );
+        assert!(
+            self.reverse_aliases
+                .insert(source_id.clone(), alias)
+                .is_none(),
+            "duplicate source id {source_id}"
+        );
         if let Some(body) = body {
             self.bodies.insert(source_id, body);
         }
     }
-
 
     fn alias_for(&self, source_id: &str) -> String {
         self.reverse_aliases
@@ -591,7 +605,8 @@ fn verify_artifact_page(
             .map_err(DbError::from)
         })
         .expect("read lookup fixture artifact manifest");
-    let Some((content_digest, digest_version, byte_length, chunk_size, chunk_count, state)) = manifest
+    let Some((content_digest, digest_version, byte_length, chunk_size, chunk_count, state)) =
+        manifest
     else {
         artifact_violations.push(format!("artifact_manifest_missing:{index}"));
         return;
@@ -648,7 +663,6 @@ fn verify_artifact_page(
     }
 }
 
-
 fn validate_get_body(
     seeded: &SeededCase,
     alias: &str,
@@ -704,13 +718,7 @@ fn validate_get_body(
             artifact_violations,
         );
     }
-    page_expectations.insert(
-        alias.to_owned(),
-        PageExpectation {
-            page,
-            next_offset,
-        },
-    );
+    page_expectations.insert(alias.to_owned(), PageExpectation { page, next_offset });
 }
 
 fn parse_evidence_origin(value: &str) -> EvidenceOrigin {
@@ -733,10 +741,7 @@ fn seed_history_record(
 ) -> Result<(), DbError> {
     match record.kind.as_str() {
         "run_step" => {
-            let workflow_id = record
-                .workflow_id
-                .as_deref()
-                .unwrap_or(&case.workflow_id);
+            let workflow_id = record.workflow_id.as_deref().unwrap_or(&case.workflow_id);
             let run_id = record.run_id.as_deref().unwrap_or(&case.run_id);
             let node_id = record.node_id.as_deref().unwrap_or("report");
             let body = history_body(record);
@@ -744,10 +749,12 @@ fn seed_history_record(
             let input = json!({"fixture": case.id, "kind": "synthetic"});
             let output = json!({"text": body});
             seeded.db.with_conn(|conn| {
-                let input_json = serde_json::to_string(&input)
-                    .map_err(|_| DbError::Other("lookup fixture input serialization failed".into()))?;
-                let output_json = serde_json::to_string(&output)
-                    .map_err(|_| DbError::Other("lookup fixture output serialization failed".into()))?;
+                let input_json = serde_json::to_string(&input).map_err(|_| {
+                    DbError::Other("lookup fixture input serialization failed".into())
+                })?;
+                let output_json = serde_json::to_string(&output).map_err(|_| {
+                    DbError::Other("lookup fixture output serialization failed".into())
+                })?;
                 conn.execute(
                     "INSERT INTO run_steps
                      (id, run_id, node_id, agent_provider, status, input_json, output_json,
@@ -778,19 +785,14 @@ fn seed_history_record(
             }
             let key = OutputReceiptKey::new(run_id, node_id)
                 .map_err(|error| DbError::Other(error.to_string()))?;
-            let seed = OutputReceiptSeed::new(
-                key,
-                &step_id,
-                OutputDisposition::default(),
-                &body,
-            )
-            .map_err(|error| DbError::Other(error.to_string()))?;
+            let seed = OutputReceiptSeed::new(key, &step_id, OutputDisposition::default(), &body)
+                .map_err(|error| DbError::Other(error.to_string()))?;
             let storage = match record.storage_id.as_deref() {
                 Some(value) => OutputStorageIdentity::parse(value)
                     .map_err(|error| DbError::Other(error.to_string()))?,
-                None => seed
-                    .storage_identity()
-                    .ok_or_else(|| DbError::Other("lookup fixture receipt lacks storage identity".into()))?,
+                None => seed.storage_identity().ok_or_else(|| {
+                    DbError::Other("lookup fixture receipt lacks storage identity".into())
+                })?,
             };
             let artifact_path = storage.artifact_relative_path();
             let artifact_absolute_path = seeded._root.path.join(&artifact_path);
@@ -892,7 +894,10 @@ fn seed_history_record(
                     step_id: None,
                     node_id: record.node_id.clone(),
                     origin: parse_evidence_origin(
-                        record.origin.as_deref().unwrap_or("host_recorded_observation"),
+                        record
+                            .origin
+                            .as_deref()
+                            .unwrap_or("host_recorded_observation"),
                     ),
                     producer_identity: Some("lookup-v1-synthetic".into()),
                     source_label: record.source_label.clone(),
@@ -912,7 +917,9 @@ fn seed_history_record(
             );
             Ok(())
         }
-        other => Err(DbError::Other(format!("unknown lookup history kind {other}"))),
+        other => Err(DbError::Other(format!(
+            "unknown lookup history kind {other}"
+        ))),
     }
 }
 
@@ -946,22 +953,27 @@ fn seed_case(case: &FixtureCase) -> SeededCase {
             if workflow_id != case.workflow_id {
                 extra_workflows
                     .entry(workflow_id.to_owned())
-                    .or_insert_with(|| format!("{}/history/{}", case.working_directory, workflow_id));
+                    .or_insert_with(|| {
+                        format!("{}/history/{}", case.working_directory, workflow_id)
+                    });
             }
         }
     }
     for workflow_id in extra_workflows.keys() {
-        insert_workflow(&db, workflow_id, &extra_workflows[workflow_id], false, false)
-            .expect("seed lookup evaluation extra workflow");
+        insert_workflow(
+            &db,
+            workflow_id,
+            &extra_workflows[workflow_id],
+            false,
+            false,
+        )
+        .expect("seed lookup evaluation extra workflow");
     }
 
     let mut run_workflows = HashMap::<String, String>::new();
     run_workflows.insert(case.run_id.clone(), case.workflow_id.clone());
     for record in &case.history_records {
-        let workflow_id = record
-            .workflow_id
-            .as_deref()
-            .unwrap_or(&case.workflow_id);
+        let workflow_id = record.workflow_id.as_deref().unwrap_or(&case.workflow_id);
         let run_id = record.run_id.as_deref().unwrap_or(&case.run_id);
         if let Some(previous) = run_workflows.insert(run_id.to_owned(), workflow_id.to_owned()) {
             assert_eq!(previous, workflow_id, "fixture run must have one workflow");
@@ -987,7 +999,11 @@ fn seed_case(case: &FixtureCase) -> SeededCase {
     memories.sort_by_key(|memory| usize::from(memory.supersedes_id.is_some()));
     for memory in memories {
         insert_fixture_memory(&seeded.db, case, memory).expect("seed lookup evaluation memory");
-        seeded.add_alias(memory.id.clone(), memory.id.clone(), Some(memory.body.clone()));
+        seeded.add_alias(
+            memory.id.clone(),
+            memory.id.clone(),
+            Some(memory.body.clone()),
+        );
     }
     for record in &case.history_records {
         seed_history_record(&mut seeded, case, record)
@@ -1062,10 +1078,12 @@ fn expected_source_set(case: &FixtureCase) -> HashSet<String> {
     case.expected_recovered_ids.iter().cloned().collect()
 }
 
-
 fn source_kind_matches(expected: &str, sources: &[LookupSourceKind]) -> bool {
     if sources.is_empty() {
-        return matches!(expected, "empty" | "memory" | "run_step" | "evidence" | "mixed");
+        return matches!(
+            expected,
+            "empty" | "memory" | "run_step" | "evidence" | "mixed"
+        );
     }
     if expected == "mixed" {
         let distinct = [
@@ -1091,7 +1109,10 @@ fn state_matches(expected: &str, states: &[LookupSourceState]) -> bool {
         return states.is_empty();
     }
     if expected == "historical" {
-        return !states.is_empty() && states.iter().all(|state| *state == LookupSourceState::Historical);
+        return !states.is_empty()
+            && states
+                .iter()
+                .all(|state| *state == LookupSourceState::Historical);
     }
     let expected = match expected {
         "current" => LookupSourceState::Current,
@@ -1146,15 +1167,31 @@ fn check_trace(
         violations.push("trace_tool".into());
     }
     if trace.returned_bytes != output.len() {
-        violations.push(format!("trace_bytes:{}!={}", trace.returned_bytes, output.len()));
+        violations.push(format!(
+            "trace_bytes:{}!={}",
+            trace.returned_bytes,
+            output.len()
+        ));
     }
-    if trace.sources.iter().any(|source| source.reference.trim().is_empty()) {
+    if trace
+        .sources
+        .iter()
+        .any(|source| source.reference.trim().is_empty())
+    {
         violations.push("trace_source_reference".into());
     }
-    if trace.sources.iter().any(|source| source.source_id.trim().is_empty()) {
+    if trace
+        .sources
+        .iter()
+        .any(|source| source.source_id.trim().is_empty())
+    {
         violations.push("trace_source_identity".into());
     }
-    if trace.sources.iter().any(|source| source.version.trim().is_empty()) {
+    if trace
+        .sources
+        .iter()
+        .any(|source| source.version.trim().is_empty())
+    {
         violations.push("trace_source_version".into());
     }
 }
@@ -1224,19 +1261,25 @@ fn execute_lookup_action(
         Ok((output, trace)) => {
             response_bytes = output.len();
             returned_bytes = trace.returned_bytes;
-            if response_bytes > match tool {
-                LookupToolName::MemorySearch | LookupToolName::HistorySearch => SEARCH_RESPONSE_LIMIT,
-                LookupToolName::MemoryGet | LookupToolName::HistoryGet => GET_RESPONSE_LIMIT,
-            } {
+            if response_bytes
+                > match tool {
+                    LookupToolName::MemorySearch | LookupToolName::HistorySearch => {
+                        SEARCH_RESPONSE_LIMIT
+                    }
+                    LookupToolName::MemoryGet | LookupToolName::HistoryGet => GET_RESPONSE_LIMIT,
+                }
+            {
                 violations.push(format!("response_size:{index}"));
             }
             check_trace(tool, &output, &trace, violations);
             trace_value = Some(trace_report(seeded, &trace));
             match tool {
                 LookupToolName::MemorySearch | LookupToolName::HistorySearch => {
-                    let response: LookupSearchResponse = serde_json::from_str(&output)
-                        .expect("lookup search response must parse");
-                    response.validate().expect("lookup search response validates");
+                    let response: LookupSearchResponse =
+                        serde_json::from_str(&output).expect("lookup search response must parse");
+                    response
+                        .validate()
+                        .expect("lookup search response validates");
                     if response.tool != tool {
                         violations.push(format!("response_tool:{index}"));
                     }
@@ -1315,8 +1358,8 @@ fn execute_lookup_action(
                     returned_source_ids = response_source_aliases;
                 }
                 LookupToolName::MemoryGet | LookupToolName::HistoryGet => {
-                    let response: LookupGetResponse = serde_json::from_str(&output)
-                        .expect("lookup get response must parse");
+                    let response: LookupGetResponse =
+                        serde_json::from_str(&output).expect("lookup get response must parse");
                     response.validate().expect("lookup get response validates");
                     if response.tool != tool {
                         violations.push(format!("response_tool:{index}"));
@@ -1385,7 +1428,11 @@ fn execute_lookup_action(
                     if !source_kind_matches(&action.expected_source_kind, &[response.source]) {
                         violations.push(format!("get_kind:{index}"));
                     }
-                    if response.body.as_ref().is_some_and(|body| body.len() > BODY_PAGE_LIMIT) {
+                    if response
+                        .body
+                        .as_ref()
+                        .is_some_and(|body| body.len() > BODY_PAGE_LIMIT)
+                    {
                         artifact_violations.push(format!("body_page_size:{index}"));
                     }
                     if action
@@ -1677,7 +1724,13 @@ fn evaluate_case(case: &FixtureCase, now: DateTime<Utc>) -> LookupCaseReport {
             (spec.expected_state == "permission_denied"
                 && spec.expected_error.is_some()
                 && action.error.as_deref() == spec.expected_error.as_deref())
-            .then(|| format!("{}:{}", action.index, action.error.as_deref().unwrap_or("error")))
+            .then(|| {
+                format!(
+                    "{}:{}",
+                    action.index,
+                    action.error.as_deref().unwrap_or("error")
+                )
+            })
         })
         .collect::<Vec<_>>();
     if !expected_recovered.is_empty() && lookup_recovered_ids.is_empty() {
@@ -1793,7 +1846,10 @@ fn aggregate(reports: &[LookupCaseReport]) -> LookupAggregateReport {
             .iter()
             .map(|report| report.unexpected_errors.len())
             .sum(),
-        initial_errors: reports.iter().map(|report| report.initial_errors.len()).sum(),
+        initial_errors: reports
+            .iter()
+            .map(|report| report.initial_errors.len())
+            .sum(),
         trace_violations: reports
             .iter()
             .map(|report| report.trace_violations.len())
@@ -1892,12 +1948,14 @@ fn write_draft_report(report: &LookupEvaluationReport) {
         return;
     };
     let path = PathBuf::from(path);
-    assert!(path.is_absolute(), "{REPORT_ENV} must be an absolute draft path");
+    assert!(
+        path.is_absolute(),
+        "{REPORT_ENV} must be an absolute draft path"
+    );
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create lookup draft parent");
     }
-    let rendered =
-        serde_json::to_string_pretty(report).expect("serialize lookup draft") + "\n";
+    let rendered = serde_json::to_string_pretty(report).expect("serialize lookup draft") + "\n";
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -1914,10 +1972,16 @@ fn assert_fixture_contract(fixture: &Fixture) {
     assert_eq!(fixture.lookup_contract_version, LOOKUP_CONTRACT_VERSION);
     assert_eq!(fixture_digest(), FIXTURE_SHA256);
     assert_eq!(fixture.limits.initial_memory_bytes, INITIAL_MEMORY_LIMIT);
-    assert_eq!(fixture.limits.incremental_lookup_bytes, INCREMENTAL_LOOKUP_LIMIT);
+    assert_eq!(
+        fixture.limits.incremental_lookup_bytes,
+        INCREMENTAL_LOOKUP_LIMIT
+    );
     assert_eq!(fixture.limits.lookup_calls, LOOKUP_CALL_LIMIT);
     assert_eq!(fixture.limits.body_page_bytes, BODY_PAGE_LIMIT);
-    assert_eq!(fixture.limits.search_results, LOOKUP_LIMITS_V1.search_results);
+    assert_eq!(
+        fixture.limits.search_results,
+        LOOKUP_LIMITS_V1.search_results
+    );
     assert_eq!(fixture.cases.len(), 12);
 
     let mut ids = HashSet::new();
@@ -1947,16 +2011,30 @@ fn assert_fixture_contract(fixture: &Fixture) {
             empty += 1;
         }
         for memory in &case.memories {
-            assert!(memory_ids.insert(&memory.id), "duplicate memory id {}", memory.id);
+            assert!(
+                memory_ids.insert(&memory.id),
+                "duplicate memory id {}",
+                memory.id
+            );
             assert!(!memory.title.trim().is_empty());
             assert!(!memory.body.trim().is_empty());
-            assert!(matches!(memory.scope_type.as_str(), "user" | "workspace" | "workflow"));
-            assert!(matches!(memory.status.as_str(), "active" | "superseded" | "retracted"));
+            assert!(matches!(
+                memory.scope_type.as_str(),
+                "user" | "workspace" | "workflow"
+            ));
+            assert!(matches!(
+                memory.status.as_str(),
+                "active" | "superseded" | "retracted"
+            ));
             assert!(memory.confidence.unwrap_or(0.9) >= 0.0);
             assert!(memory.confidence.unwrap_or(0.9) <= 1.0);
         }
         for record in &case.history_records {
-            assert!(aliases.insert(&record.alias), "duplicate historical alias {}", record.alias);
+            assert!(
+                aliases.insert(&record.alias),
+                "duplicate historical alias {}",
+                record.alias
+            );
             match record.kind.as_str() {
                 "run_step" => {
                     assert!(record.output_text.is_some());
@@ -1977,7 +2055,11 @@ fn assert_fixture_contract(fixture: &Fixture) {
             .memories
             .iter()
             .map(|memory| memory.id.as_str())
-            .chain(case.history_records.iter().map(|record| record.alias.as_str()))
+            .chain(
+                case.history_records
+                    .iter()
+                    .map(|record| record.alias.as_str()),
+            )
             .collect::<HashSet<_>>();
         for source_id in case
             .initial_required_ids
@@ -1988,7 +2070,11 @@ fn assert_fixture_contract(fixture: &Fixture) {
             .chain(case.lookup_forbidden_ids.iter())
             .chain(case.lookup_allowed_historical_ids.iter())
         {
-            assert!(known.contains(source_id.as_str()), "unknown fixture source {source_id} in {}", case.id);
+            assert!(
+                known.contains(source_id.as_str()),
+                "unknown fixture source {source_id} in {}",
+                case.id
+            );
         }
         for action in &case.lookup_actions {
             let tool = parse_tool(&action.tool);
@@ -2001,7 +2087,11 @@ fn assert_fixture_contract(fixture: &Fixture) {
                 }
             }
             for source_id in &action.expected_source_ids {
-                assert!(known.contains(source_id.as_str()), "unknown action source {source_id} in {}", case.id);
+                assert!(
+                    known.contains(source_id.as_str()),
+                    "unknown action source {source_id} in {}",
+                    case.id
+                );
             }
             if action.expected_error.is_some() {
                 assert!(
@@ -2027,18 +2117,16 @@ fn assert_fixture_contract(fixture: &Fixture) {
             "non-empty evidence case {} must label a source",
             case.id
         );
-        has_automatic_off_lookup_recovery |=
-            case.lookup_enabled
-                && !case.automatic_retrieval_enabled
-                && !case.expected_recovered_ids.is_empty();
-        has_automatic_on_lookup_off |=
-            !case.lookup_enabled
-                && case.automatic_retrieval_enabled
-                && !case.initial_required_ids.is_empty()
-                && case
-                    .lookup_actions
-                    .iter()
-                    .any(|action| action.expected_error.as_deref() == Some("invalid_scope"));
+        has_automatic_off_lookup_recovery |= case.lookup_enabled
+            && !case.automatic_retrieval_enabled
+            && !case.expected_recovered_ids.is_empty();
+        has_automatic_on_lookup_off |= !case.lookup_enabled
+            && case.automatic_retrieval_enabled
+            && !case.initial_required_ids.is_empty()
+            && case
+                .lookup_actions
+                .iter()
+                .any(|action| action.expected_error.as_deref() == Some("invalid_scope"));
         has_both_off_abstention |=
             !case.lookup_enabled && !case.automatic_retrieval_enabled && case.expected_no_evidence;
     }
@@ -2063,7 +2151,10 @@ fn assert_fixture_contract(fixture: &Fixture) {
         .find(|case| case.category == "shared_budget_and_calls")
         .expect("budget fixture case");
     assert_eq!(budget_case.lookup_actions.len(), LOOKUP_CALL_LIMIT);
-    assert_eq!(budget_case.budget_expectation.as_ref().unwrap().calls_used, LOOKUP_CALL_LIMIT);
+    assert_eq!(
+        budget_case.budget_expectation.as_ref().unwrap().calls_used,
+        LOOKUP_CALL_LIMIT
+    );
 }
 
 #[cfg(test)]
@@ -2088,13 +2179,16 @@ mod tests {
             .filter(|case| !case.trace_violations.is_empty())
             .map(|case| (case.id.as_str(), &case.trace_violations))
             .collect::<Vec<_>>();
-        for aggregate in [&first.current_runtime, &first.development, &first.validation] {
+        for aggregate in [
+            &first.current_runtime,
+            &first.development,
+            &first.validation,
+        ] {
             assert_eq!(aggregate.initial_errors, 0);
             assert_eq!(aggregate.unexpected_errors, 0);
             assert_eq!(aggregate.wrong_memory_uses, 0);
             assert_eq!(
-                aggregate.trace_violations,
-                0,
+                aggregate.trace_violations, 0,
                 "trace violations by case: {trace_diagnostics:?}"
             );
             assert_eq!(aggregate.artifact_violations, 0);
@@ -2168,7 +2262,10 @@ mod tests {
         assert_eq!(first.current_runtime.lookup_errors, 4);
         assert!(first.timing_excluded_from_repeatability);
         write_draft_report(&first);
-        println!("{}", serde_json::to_string_pretty(&first).expect("serialize lookup evaluation"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&first).expect("serialize lookup evaluation")
+        );
     }
 
     #[test]
@@ -2187,7 +2284,10 @@ mod tests {
             assert_eq!(action.returned_source_ids.len(), 1);
             assert!(action.error.is_none());
 
-            assert!(action.trace.as_ref().is_some_and(|trace| trace.sources.len() == 1));
+            assert!(action
+                .trace
+                .as_ref()
+                .is_some_and(|trace| trace.sources.len() == 1));
         }
 
         let revoked = report
@@ -2241,12 +2341,10 @@ mod tests {
                 parse_clock(&fixture),
             )
             .expect("start interleaved budget session");
-        let memory_request =
-            serde_json::to_vec(&json!({"query": "shipping window", "limit": 1}))
-                .expect("serialize memory budget request");
-        let history_request =
-            serde_json::to_vec(&json!({"query": "shipping window", "limit": 1}))
-                .expect("serialize history budget request");
+        let memory_request = serde_json::to_vec(&json!({"query": "shipping window", "limit": 1}))
+            .expect("serialize memory budget request");
+        let history_request = serde_json::to_vec(&json!({"query": "shipping window", "limit": 1}))
+            .expect("serialize history budget request");
         for index in 0..LOOKUP_CALL_LIMIT {
             let (tool, request) = if index % 2 == 0 {
                 (LookupToolName::MemorySearch, memory_request.as_slice())
@@ -2274,7 +2372,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn lookup_report_keeps_live_usefulness_and_cost_unproven() {
         let report = evaluate(&load_fixture());
@@ -2287,6 +2384,8 @@ mod tests {
             .iter()
             .any(|limitation| limitation.contains("live usefulness/cost")));
         assert!(report.timing_excluded_from_repeatability);
-        assert!(report.cases.iter().all(|case| case.lookup_recall.is_none_or(|value| (0.0..=1.0).contains(&value))));
+        assert!(report.cases.iter().all(|case| case
+            .lookup_recall
+            .is_none_or(|value| (0.0..=1.0).contains(&value))));
     }
 }

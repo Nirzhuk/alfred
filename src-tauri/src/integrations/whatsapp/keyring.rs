@@ -169,5 +169,4 @@ mod tests {
             Err(KeyCustodyError::Key(CryptoError::MalformedKey))
         ));
     }
-
 }

@@ -81,7 +81,11 @@ pub fn run(
     let dir = data_dir()?;
     let workspace = dir.join("builder-workspace");
     std::fs::create_dir_all(&workspace).map_err(|e| e.to_string())?;
-    let model = input.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
+    let model = input
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty());
     let session = input.session_id.as_deref().filter(|s| !s.is_empty());
 
     // Claude takes images inline on stdin; Codex takes file paths.
@@ -140,13 +144,17 @@ pub fn run(
         };
         let events = match agent {
             BuilderAgent::ClaudeCode => vec![raw],
-            BuilderAgent::Codex => codex.lock().unwrap_or_else(|e| e.into_inner()).translate(&raw),
+            BuilderAgent::Codex => codex
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .translate(&raw),
         };
         for event in events {
             match event.get("type").and_then(Value::as_str) {
                 Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
                     if let Some(id) = event.get("session_id").and_then(Value::as_str) {
-                        *session_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
+                        *session_id.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(id.to_string());
                     }
                 }
                 // Hook chatter from the user's own agent settings is noise here.
@@ -164,7 +172,8 @@ pub fn run(
                             .get("result")
                             .and_then(Value::as_str)
                             .unwrap_or("The agent stopped with an error.");
-                        *result_error.lock().unwrap_or_else(|e| e.into_inner()) = Some(text.to_string());
+                        *result_error.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(text.to_string());
                     }
                     if !result_seen.swap(true, Ordering::SeqCst) {
                         let (control, exited) = (control.clone(), Arc::clone(&exited));
@@ -191,7 +200,11 @@ pub fn run(
         Some(control),
         Some(&on_line),
         &stdin,
-        if agent == BuilderAgent::Codex { &envs } else { &[] },
+        if agent == BuilderAgent::Codex {
+            &envs
+        } else {
+            &[]
+        },
     );
     exited.store(true, Ordering::SeqCst);
     // A turn that already reported its result finished, even if its lingering
@@ -219,7 +232,9 @@ pub fn run(
         Err(message) if !cancelled => error = Some(message),
         _ => {}
     }
-    emit(json!({ "type": "alfred", "subtype": "finished", "cancelled": cancelled, "error": error }));
+    emit(
+        json!({ "type": "alfred", "subtype": "finished", "cancelled": cancelled, "error": error }),
+    );
     Ok(BuilderTurnResult {
         session_id,
         cancelled,
@@ -363,7 +378,10 @@ fn codex_args(
         codex_mcp_servers(port, config),
         // Replaces the user's developer_instructions for this turn only.
         "-c".into(),
-        format!("developer_instructions={}", toml_str(&system_prompt(config))),
+        format!(
+            "developer_instructions={}",
+            toml_str(&system_prompt(config))
+        ),
     ];
     if let Some(model) = model {
         args.extend(["-m".into(), model.into()]);
@@ -372,7 +390,11 @@ fn codex_args(
         args.push("resume".into());
     }
     // `--image=` takes exactly one path; a bare `-i` would swallow the prompt.
-    args.extend(images.iter().map(|path| format!("--image={}", path.display())));
+    args.extend(
+        images
+            .iter()
+            .map(|path| format!("--image={}", path.display())),
+    );
     args.push("--".into());
     if let Some(session) = session {
         args.push(session.into());
@@ -400,7 +422,10 @@ impl CodexTranslator {
                 item.get("arguments").cloned().unwrap_or_else(|| json!({})),
             ),
             "command_execution" => ("Bash".into(), json!({ "command": str_of(item, "command") })),
-            "web_search" => ("WebSearch".into(), json!({ "query": str_of(item, "query") })),
+            "web_search" => (
+                "WebSearch".into(),
+                json!({ "query": str_of(item, "query") }),
+            ),
             "file_change" => (
                 "Edit".into(),
                 json!({ "file_path": item.pointer("/changes/0/path").and_then(Value::as_str).unwrap_or("") }),
@@ -526,10 +551,30 @@ mod tests {
             .flat_map(|l| t.translate(&serde_json::from_str(l).unwrap()))
             .collect();
         let kinds: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
-        assert_eq!(kinds, ["system", "assistant", "user", "assistant", "user", "assistant", "result"]);
-        assert_eq!(events[0]["session_id"], "01a142c3-b5f8-7820-8198-a91b40df32b6");
-        assert_eq!(events[1]["message"]["content"][0]["name"], "mcp__alfred__create_workflow");
-        assert_eq!(events[2]["message"]["content"][0]["content"], "{\"id\":\"wf\"}");
+        assert_eq!(
+            kinds,
+            [
+                "system",
+                "assistant",
+                "user",
+                "assistant",
+                "user",
+                "assistant",
+                "result"
+            ]
+        );
+        assert_eq!(
+            events[0]["session_id"],
+            "01a142c3-b5f8-7820-8198-a91b40df32b6"
+        );
+        assert_eq!(
+            events[1]["message"]["content"][0]["name"],
+            "mcp__alfred__create_workflow"
+        );
+        assert_eq!(
+            events[2]["message"]["content"][0]["content"],
+            "{\"id\":\"wf\"}"
+        );
         assert_eq!(events[3]["message"]["content"][0]["name"], "Bash");
         assert_eq!(events[4]["message"]["content"][0]["content"], "a\n");
         assert_eq!(events[5]["message"]["content"][0]["text"], "Done.");
@@ -538,7 +583,8 @@ mod tests {
     #[test]
     fn failed_turns_become_error_results() {
         let mut t = CodexTranslator::default();
-        let event = t.translate(&json!({ "type": "turn.failed", "error": { "message": "usage limit" } }));
+        let event =
+            t.translate(&json!({ "type": "turn.failed", "error": { "message": "usage limit" } }));
         assert_eq!(event[0]["is_error"], true);
         assert_eq!(event[0]["result"], "usage limit");
     }
@@ -567,10 +613,20 @@ mod tests {
     #[test]
     fn codex_resume_takes_images_then_separator_id_and_prompt() {
         let images = [PathBuf::from("/w/a.png")];
-        let args = codex_args("-hi", 1, &BuilderConfig::default(), Some("gpt-5"), Some("abc"), &images);
+        let args = codex_args(
+            "-hi",
+            1,
+            &BuilderConfig::default(),
+            Some("gpt-5"),
+            Some("abc"),
+            &images,
+        );
         let resume = args.iter().position(|a| a == "resume").unwrap();
         assert!(args.iter().position(|a| a == "--json").unwrap() < resume);
-        assert_eq!(&args[resume + 1..], ["--image=/w/a.png", "--", "abc", "-hi"]);
+        assert_eq!(
+            &args[resume + 1..],
+            ["--image=/w/a.png", "--", "abc", "-hi"]
+        );
         let fresh = codex_args("hi", 1, &BuilderConfig::default(), None, None, &images);
         assert_eq!(&fresh[fresh.len() - 3..], ["--image=/w/a.png", "--", "hi"]);
     }
@@ -579,12 +635,18 @@ mod tests {
     fn claude_images_go_inline_before_the_text() {
         let line = claude_image_message(
             "what is this?",
-            &[BuilderImage { media_type: "image/png".into(), data: "AAAA".into() }],
+            &[BuilderImage {
+                media_type: "image/png".into(),
+                data: "AAAA".into(),
+            }],
         );
         assert!(line.ends_with('\n'));
         let value: Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(value["type"], "user");
-        assert_eq!(value["message"]["content"][0]["source"]["media_type"], "image/png");
+        assert_eq!(
+            value["message"]["content"][0]["source"]["media_type"],
+            "image/png"
+        );
         assert_eq!(value["message"]["content"][1]["text"], "what is this?");
         let args = claude_args(None, Path::new("/m.json"), "sys", None, None);
         assert_eq!(&args[..3], ["-p", "--input-format", "stream-json"]);

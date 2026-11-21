@@ -105,7 +105,12 @@ fn status_title(snap: &TraySnapshot) -> String {
 }
 
 fn status_tooltip(app: &AppHandle, snap: &TraySnapshot) -> String {
-    let mut lines = vec![app.config().product_name.as_deref().unwrap_or("Alfred").to_string()];
+    let mut lines = vec![app
+        .config()
+        .product_name
+        .as_deref()
+        .unwrap_or("Alfred")
+        .to_string()];
     if snap.active.is_empty() {
         lines.push("No active runs".into());
     } else {
@@ -154,9 +159,9 @@ fn build_menu(app: &AppHandle, snap: &TraySnapshot) -> tauri::Result<Menu<Wry>> 
         None::<&str>,
     )?;
     let settings = MenuItem::with_id(app, "tray-settings", "Settings", true, None::<&str>)?;
-    let download_latest = MenuItem::with_id(
+    let check_for_updates = MenuItem::with_id(
         app,
-        "tray-download-latest",
+        "tray-check-for-updates",
         "Check for Updates…",
         true,
         None::<&str>,
@@ -261,7 +266,7 @@ fn build_menu(app: &AppHandle, snap: &TraySnapshot) -> tauri::Result<Menu<Wry>> 
     }
     items.push(&sep2);
     items.push(&settings);
-    items.push(&download_latest);
+    items.push(&check_for_updates);
     items.push(&sep3);
     items.push(&quit);
 
@@ -306,9 +311,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             show_main_window(app);
             let _ = app.emit("app://open-settings", ());
         }
-        "tray-download-latest" => {
+        "tray-check-for-updates" => {
             show_main_window(app);
-            let _ = app.emit("app://download-latest", ());
+            let _ = app.emit("app://check-for-updates", ());
         }
         "tray-quit" => app.exit(0),
         other if other.starts_with("tray-stop:") => {

@@ -22,7 +22,6 @@ import {
   useWorkflowStore,
 } from "./features/workflow/store";
 import { installAppMenu } from "./menu";
-import { checkForUpdates } from "./features/licensing/download-latest";
 import { prepareNotifications } from "./native";
 import { isSelectableTarget } from "./selection";
 import "./App.css";
@@ -120,7 +119,6 @@ function App() {
     void loadWorkflows();
     void loadMissedSchedules();
     void prepareNotifications();
-    if (!import.meta.env.DEV) void checkForUpdates({ silent: true });
     void installRunEventBridge();
     void installRunDialogEventBridge();
     void installOutputPersistenceEventBridge();
@@ -141,8 +139,8 @@ function App() {
     void listen("app://open-schedules", () => {
       window.dispatchEvent(new Event("alfred:open-schedules"));
     }).then((u) => unsubs.push(u));
-    void listen("app://download-latest", () => {
-      window.dispatchEvent(new Event("alfred:download-latest"));
+    void listen("app://check-for-updates", () => {
+      window.dispatchEvent(new Event("alfred:check-for-updates"));
     }).then((u) => unsubs.push(u));
     void listen<string>("app://open-workflow", (event) => {
       window.dispatchEvent(
@@ -222,8 +220,8 @@ function App() {
         onFitCanvas: () => {
           window.dispatchEvent(new Event("alfred:fit-canvas"));
         },
-        onDownloadLatest: () => {
-          window.dispatchEvent(new Event("alfred:download-latest"));
+        onCheckForUpdates: () => {
+          window.dispatchEvent(new Event("alfred:check-for-updates"));
         },
         onImportWorkflow: () => {
           window.dispatchEvent(new Event("alfred:open-sharing-import"));

@@ -21,10 +21,12 @@ test("renders rules, servers and the built-in API", () => {
   const html = renderToStaticMarkup(
     <BuilderSetupPanel
       info={{
+        build: "production",
+        dataDir: "/Users/me/Library/Application Support/alfred",
         agents: [],
         mcpReady: true,
         tools: [{ name: "create_workflow", description: "d" }],
-        externalMcp: { name: "alfred", command: "/Applications/Alfred.app/Contents/MacOS/alfred mcp /tmp/e.json" },
+        externalMcp: { name: "alfred", command: "/Applications/Alfred.app/Contents/MacOS/alfred mcp /tmp/e.json", config: { mcpServers: { alfred: { command: "/Applications/Alfred.app/Contents/MacOS/alfred", args: ["mcp", "/tmp/e.json"] } } } },
       }}
       agent={{ id: "codex", label: "Codex", installed: true }}
       config={{
@@ -44,6 +46,61 @@ test("renders rules, servers and the built-in API", () => {
   expect(html).toContain("github");
   expect(html).toContain('aria-label="Use MCP server github"');
   expect(html).toContain('aria-checked="false"');
-  expect(html).toContain("Add to Claude Code");
+  expect(html).toContain("Bridge + MCP servers");
   expect(html).toContain("alfred mcp /tmp/e.json");
+  expect(html).toContain("Other clients");
+});
+
+test("renders only the requested setup sections", () => {
+  const html = renderToStaticMarkup(
+    <BuilderSetupPanel
+      sections={["mcp"]}
+      info={{
+        build: "development",
+        dataDir: "/tmp/alfred-dev",
+        agents: [],
+        mcpReady: true,
+        tools: [],
+        externalMcp: { name: "alfred-dev", command: "/tmp/alfred mcp /tmp/e.json", config: { mcpServers: { "alfred-dev": { command: "/tmp/alfred", args: ["mcp", "/tmp/e.json"] } } } },
+      }}
+      agent={{ id: "codex", label: "Codex", installed: true }}
+      config={{
+        rules: [{ id: "r", name: "House style", body: "b", enabled: true }],
+        mcpServers: [
+          { id: "m", name: "github", enabled: true, transport: "stdio", command: "npx", args: [], env: {}, url: "", headers: {} },
+        ],
+      }}
+      error={null}
+      onSave={async () => true}
+    />,
+  );
+  expect(html).toContain("MCP servers");
+  expect(html).toContain("github");
+  expect(html).not.toContain("House style");
+  expect(html).not.toContain("Ready on this Mac");
+  expect(html).not.toContain("Use from other agents");
+});
+
+test("can render the bridge section without the server list", () => {
+  const html = renderToStaticMarkup(
+    <BuilderSetupPanel
+      sections={["connect"]}
+      info={{
+        build: "production",
+        dataDir: "/tmp/alfred",
+        agents: [],
+        mcpReady: true,
+        tools: [],
+        externalMcp: { name: "alfred", command: "/tmp/alfred mcp /tmp/e.json", config: { mcpServers: { alfred: { command: "/tmp/alfred", args: ["mcp", "/tmp/e.json"] } } } },
+      }}
+      agent={undefined}
+      config={{ rules: [], mcpServers: [] }}
+      error={null}
+      onSave={async () => true}
+    />,
+  );
+  expect(html).toContain("Bridge + MCP servers");
+  expect(html).toContain("alfred mcp /tmp/e.json");
+  expect(html).toContain("Other clients");
+  expect(html).not.toContain('aria-label="Add MCP server"');
 });

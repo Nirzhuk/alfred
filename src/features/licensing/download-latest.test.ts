@@ -5,8 +5,11 @@ import {
   LATEST_RELEASES_URL,
   UP_TO_DATE_MESSAGE,
   checkForUpdates,
+  findUpdate,
+  installUpdate,
   openLatestDownload,
   updateAvailableMessage,
+  type AvailableUpdate,
 } from "./download-latest";
 
 function collect(opener?: (url: string) => Promise<void>) {
@@ -60,86 +63,125 @@ describe("download latest version action", () => {
   });
 });
 
+type HarnessOptions = {
+  update?: { version: string; currentVersion: string } | null;
+  checkFails?: boolean;
+  installFails?: boolean;
+  accept?: boolean;
+};
+
 function updateHarness({
-  update = null as { version: string; currentVersion: string } | null,
+  update = null,
   checkFails = false,
   installFails = false,
   accept = true,
-  silent = false,
-} = {}) {
+}: HarnessOptions = {}) {
   const calls: string[] = [];
   const notified: string[] = [];
   const confirmed: string[] = [];
-  const run = () =>
-    checkForUpdates({
-      silent,
-      notify: (message) => notified.push(message),
-      open: async (url) => {
-        calls.push(`open ${url}`);
-      },
-      confirm: (message) => {
-        confirmed.push(message);
-        return accept;
-      },
-      checkUpdate: async () => {
-        if (checkFails) throw new Error("offline");
-        return update
-          ? {
-              ...update,
-              downloadAndInstall: async () => {
-                calls.push("install");
-                if (installFails) throw new Error("bad signature");
-              },
-            }
-          : null;
-      },
-      restart: async () => {
-        calls.push("restart");
-      },
-    });
-  return { calls, notified, confirmed, run };
+  const available: AvailableUpdate | null = update
+    ? {
+        ...update,
+        downloadAndInstall: async () => {
+          calls.push("install");
+          if (installFails) throw new Error("bad signature");
+        },
+      }
+    : null;
+  const deps = {
+    notify: (message: string) => notified.push(message),
+    open: async (url: string) => {
+      calls.push(`open ${url}`);
+    },
+    confirm: (message: string) => {
+      confirmed.push(message);
+      return accept;
+    },
+    checkUpdate: async (): Promise<AvailableUpdate | null> => {
+      if (checkFails) throw new Error("offline");
+      return available;
+    },
+    restart: async () => {
+      calls.push("restart");
+    },
+  };
+  return { calls, notified, confirmed, available, deps };
 }
 
-describe("check for updates", () => {
-  const available = { version: "1.2.0", currentVersion: "1.1.0" };
+const available = { version: "1.2.0", currentVersion: "1.1.0" };
 
+describe("quiet update probe", () => {
+  test("reports a newer version without prompting or installing", async () => {
+    const ctx = updateHarness({ update: available });
+
+    await expect(findUpdate(ctx.deps.checkUpdate)).resolves.toMatchObject(
+      available,
+    );
+    expect(ctx.confirmed).toEqual([]);
+    expect(ctx.calls).toEqual([]);
+    expect(ctx.notified).toEqual([]);
+  });
+
+  test("returns nothing when the app is current", async () => {
+    const ctx = updateHarness();
+    await expect(findUpdate(ctx.deps.checkUpdate)).resolves.toBeNull();
+    expect(ctx.notified).toEqual([]);
+  });
+
+  test("swallows an offline check so the launch stays quiet", async () => {
+    const ctx = updateHarness({ checkFails: true });
+    await expect(findUpdate(ctx.deps.checkUpdate)).resolves.toBeNull();
+    expect(ctx.calls).toEqual([]);
+    expect(ctx.notified).toEqual([]);
+  });
+});
+
+describe("install an available update", () => {
   test("installs and restarts after the user accepts", async () => {
     const ctx = updateHarness({ update: available });
-    await ctx.run();
+    await expect(installUpdate(ctx.available!, ctx.deps)).resolves.toBe(true);
+
     expect(ctx.confirmed).toEqual([updateAvailableMessage("1.2.0", "1.1.0")]);
     expect(ctx.calls).toEqual(["install", "restart"]);
   });
 
   test("does nothing when the user declines", async () => {
     const ctx = updateHarness({ update: available, accept: false });
-    await ctx.run();
+    await expect(installUpdate(ctx.available!, ctx.deps)).resolves.toBe(false);
     expect(ctx.calls).toEqual([]);
   });
 
-  test("reports up to date only when asked from the menu", async () => {
-    const manual = updateHarness();
-    await manual.run();
-    expect(manual.notified).toEqual([UP_TO_DATE_MESSAGE]);
-
-    const startup = updateHarness({ silent: true });
-    await startup.run();
-    expect(startup.notified).toEqual([]);
-  });
-
-  test("a failed check falls back to the releases page, but never at startup", async () => {
-    const manual = updateHarness({ checkFails: true });
-    await manual.run();
-    expect(manual.calls).toEqual([`open ${LATEST_RELEASES_URL}`]);
-
-    const startup = updateHarness({ checkFails: true, silent: true });
-    await startup.run();
-    expect(startup.calls).toEqual([]);
-    expect(startup.notified).toEqual([]);
-  });
-
-  test("a failed install falls back to the releases page without restarting", async () => {
+  test("falls back to the releases page without restarting when install fails", async () => {
     const ctx = updateHarness({ update: available, installFails: true });
-    await ctx.run();
+    await expect(installUpdate(ctx.available!, ctx.deps)).resolves.toBe(false);
     expect(ctx.calls).toEqual(["install", `open ${LATEST_RELEASES_URL}`]);
+  });
+});
+
+describe("check for updates", () => {
+  test("reports up to date from an explicit check", async () => {
+    const ctx = updateHarness();
+    await expect(checkForUpdates(ctx.deps)).resolves.toBeNull();
+    expect(ctx.notified).toEqual([UP_TO_DATE_MESSAGE]);
+  });
+
+  test("offers and installs a found update", async () => {
+    const ctx = updateHarness({ update: available });
+    await expect(checkForUpdates(ctx.deps)).resolves.toMatchObject(available);
+
+    expect(ctx.confirmed).toEqual([updateAvailableMessage("1.2.0", "1.1.0")]);
+    expect(ctx.calls).toEqual(["install", "restart"]);
+  });
+
+  test("returns the found update when the user declines so the titlebar can keep it", async () => {
+    const ctx = updateHarness({ update: available, accept: false });
+    await expect(checkForUpdates(ctx.deps)).resolves.toMatchObject(available);
+    expect(ctx.calls).toEqual([]);
+  });
+
+  test("a failed explicit check falls back to the releases page", async () => {
+    const ctx = updateHarness({ checkFails: true });
+    await expect(checkForUpdates(ctx.deps)).resolves.toBeNull();
+    expect(ctx.calls).toEqual([`open ${LATEST_RELEASES_URL}`]);
   });
 });

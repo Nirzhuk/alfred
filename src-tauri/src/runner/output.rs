@@ -75,7 +75,9 @@ pub(crate) fn retry_output_persistence(
         Ok(outcome) => outcome,
         Err(error) => {
             if let Err(requeue_error) = db.requeue_output_recovery_item(&key) {
-                return Err(format!("{error}; failed to defer recovery: {requeue_error}"));
+                return Err(format!(
+                    "{error}; failed to defer recovery: {requeue_error}"
+                ));
             }
             return Err(error.to_string());
         }
@@ -103,11 +105,7 @@ pub(crate) fn recover_output_persistence(app: &AppHandle, db: &Db) -> Result<usi
     let mut processed = 0usize;
     loop {
         let (outcomes, has_more) = db
-            .recover_and_persist_output_snapshot_batch(
-                RECOVERY_BATCH_SIZE,
-                &artifacts,
-                Some(&sink),
-            )
+            .recover_and_persist_output_snapshot_batch(RECOVERY_BATCH_SIZE, &artifacts, Some(&sink))
             .map_err(|error| error.to_string())?;
         processed = processed.saturating_add(outcomes.len());
         if !has_more {

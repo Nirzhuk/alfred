@@ -7,6 +7,7 @@ export const searchConsumerSources = {
   "action-options": "src/features/integrations/app-action-settings.tsx",
   "trigger-options": "src/features/workflow/components/triggers-modal/triggers-modal.tsx",
   settings: "src/features/settings/components/settings-sidebar/settings-sidebar.tsx",
+  "mcp-skills": "src/features/settings/components/mcp-skills-settings/mcp-skills-settings.tsx",
   history: "src/features/workflow/components/history-page/history-page.tsx",
   activity: "src/features/workflow/components/run-activity-panel/run-activity-panel.tsx",
   resources: "src/features/workflow/components/workflow-resources-panel/workflow-resources-panel.tsx",

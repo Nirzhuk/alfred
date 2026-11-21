@@ -1,0 +1,180 @@
+/* MCP & Skills settings: build identity, MCP servers, and Alfred's shared skills. */
+
+.mcp-build-badge {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.mcp-build-dot {
+  flex-shrink: 0;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--muted);
+}
+
+.mcp-build-dot.is-on {
+  background: var(--success);
+}
+
+.mcp-build-identity {
+  min-width: 0;
+}
+
+.mcp-build-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mcp-skills-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mcp-skills-root {
+  display: block;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-skills-builder {
+  padding: var(--space-4);
+}
+
+.mcp-skills-builder .builder-setup {
+  gap: var(--space-4);
+}
+
+.mcp-skills-builder .builder-setup-section + .builder-setup-section {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.mcp-skills-loading {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.mcp-skills-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mcp-skills-filter {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.mcp-alfred-skill-list {
+  max-height: 20rem;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  overflow: auto;
+  list-style: none;
+}
+
+.mcp-skill-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}
+
+.mcp-skill-row + .mcp-skill-row {
+  border-top: 1px solid var(--line);
+}
+
+.mcp-skill-name {
+  flex-shrink: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.mcp-skill-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.mcp-skill-state.is-on {
+  color: var(--success);
+}
+
+.mcp-skill-reveal {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  padding: 0;
+  color: var(--muted);
+}
+
+.mcp-skill-reveal:hover {
+  color: var(--ink);
+}
+
+.mcp-skills-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--success);
+  font-size: var(--text-sm);
+}
+
+.mcp-skill-skipped summary {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.mcp-skill-sync-list {
+  margin: 0;
+  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-6);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-default);
+}
+
+.mcp-skills-empty {
+  margin: 0;
+  padding: var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.mcp-skills-error {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 720px) {
+  .mcp-skills-heading-actions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+}

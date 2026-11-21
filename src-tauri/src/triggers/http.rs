@@ -22,7 +22,13 @@ pub fn configured_port() -> u16 {
     std::env::var("ALFRED_HTTP_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or_else(|| if crate::app_identity::is_development() { 8788 } else { 8787 })
+        .unwrap_or_else(|| {
+            if crate::app_identity::is_development() {
+                8788
+            } else {
+                8787
+            }
+        })
 }
 
 /// Bind the listener and serve it on a background thread. Returns the bound port.

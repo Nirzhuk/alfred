@@ -20,6 +20,8 @@ type Props = {
   activityEnabled: boolean;
   activityRunning: boolean;
   activityEventCount?: number;
+  updateVersion: string | null;
+  onInstallUpdate: () => void;
   onToggleSidebar: () => void;
   onToggleActivity: () => void;
   onSelectTab: (id: string) => void;
@@ -77,6 +79,8 @@ export function AppTitlebar({
   activityEnabled,
   activityRunning,
   activityEventCount = 0,
+  updateVersion,
+  onInstallUpdate,
   onToggleSidebar,
   onToggleActivity,
   onSelectTab,
@@ -146,6 +150,20 @@ export function AppTitlebar({
     >
       <div className="titlebar-leading" data-tauri-drag-region>
         <p className="titlebar-brand">{productName}</p>
+        {updateVersion ? (
+          <button
+            type="button"
+            className="titlebar-update"
+            title={`Alfred ${updateVersion} is available. Install it and restart Alfred.`}
+            aria-label={`Update available: Alfred ${updateVersion}. Install it and restart Alfred.`}
+            onClick={onInstallUpdate}
+          >
+            <span className="titlebar-update-dot" aria-hidden />
+            <span className="titlebar-update-label">
+              Update {updateVersion}
+            </span>
+          </button>
+        ) : null}
         <button
           type="button"
           className="ghost titlebar-icon-btn"

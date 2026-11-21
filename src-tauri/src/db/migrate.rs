@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 
 use super::artifact_chunks::{
-    create_artifact_chunk_schema, ARTIFACT_CHUNK_SIZE, ARTIFACT_CHUNK_DIGEST_VERSION,
+    create_artifact_chunk_schema, ARTIFACT_CHUNK_DIGEST_VERSION, ARTIFACT_CHUNK_SIZE,
     ARTIFACT_VERIFICATION_LEGACY_UNVERIFIED,
 };
 use super::history::{index_memory, index_run_step};
@@ -86,7 +86,12 @@ pub fn apply_migrations(conn: &Connection) -> Result<(), DbError> {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_workflow_unique ON schedules(workflow_id);",
     )?;
     // Existing schedules keep today's behaviour: catch up as soon as Alfred opens.
-    ensure_column(conn, "schedules", "on_missed", "TEXT NOT NULL DEFAULT 'run'")?;
+    ensure_column(
+        conn,
+        "schedules",
+        "on_missed",
+        "TEXT NOT NULL DEFAULT 'run'",
+    )?;
     // Canvas position of the schedule node. Display-only, and cascades with the
     // schedule row so a removed schedule cannot leave an orphan position.
     conn.execute_batch(

@@ -167,6 +167,51 @@ html[data-platform="macos"] .app-frame:has(.app-titlebar.is-fullscreen)::after {
   white-space: nowrap;
 }
 
+/* Update offer: a small actionable tag next to the wordmark. The wording
+   carries the action, so the accent color is never the only signal. */
+.titlebar-update {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  flex-shrink: 0;
+  max-width: 11rem;
+  height: var(--control-height-compact);
+  padding: 0 var(--space-2-5);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: color-mix(in srgb, var(--accent-strong) 82%, var(--muted));
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  overflow: hidden;
+}
+
+.titlebar-update-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar-update-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.titlebar-update:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.titlebar-update:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  transform: none;
+}
+
 .titlebar-icon-btn {
   width: auto;
   height: auto;

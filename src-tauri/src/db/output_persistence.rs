@@ -727,7 +727,6 @@ fn output_attempt_active_conn(
     .map_err(Into::into)
 }
 
-
 fn enqueue_output_cleanup_journal_conn(
     conn: &Connection,
     storage: OutputStorageIdentity,
@@ -774,8 +773,6 @@ fn cleanup_generation_conn(
     .optional()
     .map_err(Into::into)
 }
-
-
 
 pub(crate) fn create_output_persistence_schema(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(OUTPUT_PERSISTENCE_SCHEMA)?;
@@ -1094,11 +1091,7 @@ impl Db {
             let storage_identity = receipt.storage_identity.ok_or_else(|| {
                 DbError::Other("claimed output receipt has no storage identity".into())
             })?;
-            mark_output_attempt_active_conn(
-                &transaction,
-                storage_identity,
-                attempt_identity,
-            )?;
+            mark_output_attempt_active_conn(&transaction, storage_identity, attempt_identity)?;
             let output_json: Option<String> = transaction
                 .query_row(
                     "SELECT output_json FROM run_steps WHERE id = ?1 AND run_id = ?2",
@@ -1133,11 +1126,7 @@ impl Db {
                         attempt_identity.to_string(),
                     ],
                 )?;
-                clear_output_attempt_active_conn(
-                    &transaction,
-                    storage_identity,
-                    attempt_identity,
-                )?;
+                clear_output_attempt_active_conn(&transaction, storage_identity, attempt_identity)?;
                 let failed = load_output_receipt_conn(&transaction, key)?
                     .ok_or_else(|| DbError::Other("failed output receipt disappeared".into()))?;
                 transaction.commit()?;
@@ -1218,12 +1207,7 @@ impl Db {
                     SET state = 'failed', saving_started_at = NULL, error_code = ?1,
                         claim_id = NULL, updated_at = ?2
                   WHERE run_id = ?3 AND node_id = ?4 AND state = 'pending'",
-                params![
-                    error_code.as_str(),
-                    now(),
-                    key.run_id(),
-                    key.node_id(),
-                ],
+                params![error_code.as_str(), now(), key.run_id(), key.node_id(),],
             )?;
             if changed == 1 {
                 load_output_receipt_conn(conn, key)
@@ -1236,7 +1220,6 @@ impl Db {
         }
         Ok(receipt)
     }
-
 
     /// Capture the exact pending and saving work that existed before startup
     /// recovery. Saving rows retain their claim identity so a later worker
@@ -1496,8 +1479,6 @@ impl Db {
         }
     }
 
-
-
     fn recover_captured_output_saves(
         &self,
         limit: usize,
@@ -1655,13 +1636,9 @@ impl Db {
                 }
                 let generation = match cleanup_generation_conn(conn, storage, attempt)? {
                     Some(generation) => generation,
-                    None => enqueue_output_cleanup_journal_conn(
-                        conn,
-                        storage,
-                        attempt,
-                        false,
-                        &now(),
-                    )?,
+                    None => {
+                        enqueue_output_cleanup_journal_conn(conn, storage, attempt, false, &now())?
+                    }
                 };
                 return Ok(Some(OutputDeletionCleanup::stage_only_with_generation(
                     storage,
@@ -1677,11 +1654,7 @@ impl Db {
                 {
                     let cleanup = cleanup_generation_conn(conn, storage, attempt)?
                         .map(|generation| {
-                            OutputDeletionCleanup::with_generation(
-                                storage,
-                                attempt,
-                                generation,
-                            )
+                            OutputDeletionCleanup::with_generation(storage, attempt, generation)
                         })
                         .unwrap_or_else(|| OutputDeletionCleanup::new(storage, attempt));
                     Ok(Some(cleanup))
@@ -1695,11 +1668,7 @@ impl Db {
                     if !run_exists {
                         let cleanup = cleanup_generation_conn(conn, storage, attempt)?
                             .map(|generation| {
-                                OutputDeletionCleanup::with_generation(
-                                    storage,
-                                    attempt,
-                                    generation,
-                                )
+                                OutputDeletionCleanup::with_generation(storage, attempt, generation)
                             })
                             .unwrap_or_else(|| OutputDeletionCleanup::new(storage, attempt));
                         Ok(Some(cleanup))
@@ -1831,10 +1800,9 @@ impl Db {
         match write {
             Ok(receipt) => {
                 artifacts.remove_claim_staging(&claim);
-                if let Err(error) = self.clear_output_attempt_active(
-                    claim.storage_identity()?,
-                    claim.attempt_identity,
-                ) {
+                if let Err(error) = self
+                    .clear_output_attempt_active(claim.storage_identity()?, claim.attempt_identity)
+                {
                     eprintln!("failed to clear output save attempt marker: {error}");
                 }
                 self.notify_output_persistence(sink, &receipt);
@@ -1868,16 +1836,15 @@ impl Db {
                 match artifacts.remove_recovered_staging(recovered) {
                     Ok(()) => {
                         if let Some(cleanup) = recovered.cleanup() {
-                        if let Some(attempt) = cleanup.abandoned_attempt {
-                            if let Err(error) = self.clear_output_attempt_active(
-                                cleanup.storage,
-                                attempt,
-                            ) {
-                                eprintln!(
-                                    "failed to clear recovered output attempt marker: {error}"
-                                );
+                            if let Some(attempt) = cleanup.abandoned_attempt {
+                                if let Err(error) =
+                                    self.clear_output_attempt_active(cleanup.storage, attempt)
+                                {
+                                    eprintln!(
+                                        "failed to clear recovered output attempt marker: {error}"
+                                    );
+                                }
                             }
-                        }
                             if let Err(error) = self.acknowledge_output_cleanup(cleanup) {
                                 eprintln!(
                                     "failed to acknowledge recovered output staging cleanup: {error}"
@@ -1896,12 +1863,8 @@ impl Db {
                     }
                 }
             }
-            match self.persist_output_receipt(
-                &item.key,
-                OutputClaimMode::Initial,
-                artifacts,
-                sink,
-            ) {
+            match self.persist_output_receipt(&item.key, OutputClaimMode::Initial, artifacts, sink)
+            {
                 Ok(outcome) => outcomes.push(outcome),
                 Err(error) => {
                     match self.record_output_save_failure_without_claim(
@@ -2100,7 +2063,6 @@ pub(crate) fn mark_output_receipt_saved(
     Ok(())
 }
 
-
 pub(crate) fn tombstone_output_receipt_for_memory(
     conn: &Connection,
     memory_id: &str,
@@ -2296,15 +2258,14 @@ impl OutputArtifactStore {
             .map_err(OutputArtifactError::StageIo)?;
         ensure_owned_output_directory(&self.root, &artifact_relative)
             .map_err(OutputArtifactError::StageIo)?;
-        let stage_path = trusted_artifact_target(&self.root, &stage_relative)
-            .ok_or_else(|| {
-                OutputArtifactError::StageIo(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "output staging path is not owned by the artifact root",
-                ))
-            })?;
-        let artifact_path = trusted_artifact_target(&self.root, &artifact_relative)
-            .ok_or_else(|| {
+        let stage_path = trusted_artifact_target(&self.root, &stage_relative).ok_or_else(|| {
+            OutputArtifactError::StageIo(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "output staging path is not owned by the artifact root",
+            ))
+        })?;
+        let artifact_path =
+            trusted_artifact_target(&self.root, &artifact_relative).ok_or_else(|| {
                 OutputArtifactError::FinalizeIo(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "output artifact path is not owned by the artifact root",
@@ -2324,11 +2285,8 @@ impl OutputArtifactStore {
         match write_new_stage(&stage_path, claim.output_body.as_bytes()) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                match verify_file_digest(
-                    &stage_path,
-                    expected_digest,
-                    OutputArtifactError::StageIo,
-                ) {
+                match verify_file_digest(&stage_path, expected_digest, OutputArtifactError::StageIo)
+                {
                     Ok(()) => {}
                     Err(OutputArtifactError::ContentMismatch) => {
                         remove_owned_file_checked(&self.root, &stage_relative)
@@ -2341,11 +2299,7 @@ impl OutputArtifactStore {
             }
             Err(error) => return Err(OutputArtifactError::StageIo(error)),
         }
-        verify_file_digest(
-            &stage_path,
-            expected_digest,
-            OutputArtifactError::StageIo,
-        )?;
+        verify_file_digest(&stage_path, expected_digest, OutputArtifactError::StageIo)?;
         match fs::hard_link(&stage_path, &artifact_path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -2376,22 +2330,16 @@ impl OutputArtifactStore {
 
     /// Remove the exact abandoned staging file returned by one bounded
     /// recovery transition.
-    pub fn remove_recovered_staging(
-        &self,
-        recovered: &RecoveredOutputSave,
-    ) -> io::Result<()> {
-        let staging_identity = recovered.staging_identity().map_err(|error| {
-            io::Error::new(io::ErrorKind::InvalidData, error.to_string())
-        })?;
+    pub fn remove_recovered_staging(&self, recovered: &RecoveredOutputSave) -> io::Result<()> {
+        let staging_identity = recovered
+            .staging_identity()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
         remove_owned_file_checked(&self.root, &staging_identity.relative_path())
     }
 
     /// Remove final and temporary files only after a transaction returns proof
     /// that their receipt is deliberately deleted.
-    pub fn remove_deleted_files_checked(
-        &self,
-        cleanup: OutputDeletionCleanup,
-    ) -> io::Result<()> {
+    pub fn remove_deleted_files_checked(&self, cleanup: OutputDeletionCleanup) -> io::Result<()> {
         if cleanup.remove_final {
             remove_owned_output_file_checked(&self.root, cleanup.storage)?;
         }
@@ -2427,9 +2375,11 @@ fn remove_owned_file_checked(root: &Path, relative: &Path) -> io::Result<()> {
 
 fn ensure_owned_output_directory(root: &Path, relative: &Path) -> io::Result<()> {
     let canonical_root = fs::canonicalize(root)?;
-    let Component::Normal(directory) = relative.components().next().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "empty output path")
-    })? else {
+    let Component::Normal(directory) = relative
+        .components()
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty output path"))?
+    else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "output path has non-normal component",
@@ -2471,9 +2421,11 @@ fn ensure_owned_output_directory(root: &Path, relative: &Path) -> io::Result<()>
 
 fn owned_output_directory_missing(root: &Path, relative: &Path) -> io::Result<bool> {
     let canonical_root = fs::canonicalize(root)?;
-    let Component::Normal(directory) = relative.components().next().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "empty output path")
-    })? else {
+    let Component::Normal(directory) = relative
+        .components()
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty output path"))?
+    else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "output path has non-normal component",
@@ -2494,10 +2446,7 @@ fn owned_output_directory_missing(root: &Path, relative: &Path) -> io::Result<bo
         Err(error) => Err(error),
     }
 }
-fn remove_owned_output_file_checked(
-    root: &Path,
-    storage: OutputStorageIdentity,
-) -> io::Result<()> {
+fn remove_owned_output_file_checked(root: &Path, storage: OutputStorageIdentity) -> io::Result<()> {
     let relative = storage.artifact_relative_path();
     if owned_output_directory_missing(root, &relative)? {
         return Ok(());
@@ -3646,7 +3595,9 @@ mod tests {
 
         db.delete_workflow("workflow-1").unwrap();
         assert!(db.get_memory(&storage.memory_id()).unwrap().is_some());
-        let stage = store.root.join(claim.staging_identity().unwrap().relative_path());
+        let stage = store
+            .root
+            .join(claim.staging_identity().unwrap().relative_path());
         fs::write(&stage, "abandoned stage").unwrap();
         assert!(db
             .deletion_cleanup_for_lost_claim(&claim)
@@ -3804,12 +3755,8 @@ mod tests {
             OutputDisposition::default(),
         );
         assert!(matches!(
-            db.claim_output_save_at(
-                &fresh_key,
-                OutputClaimMode::Initial,
-                "2026-01-01T00:00:02Z",
-            )
-            .unwrap(),
+            db.claim_output_save_at(&fresh_key, OutputClaimMode::Initial, "2026-01-01T00:00:02Z",)
+                .unwrap(),
             OutputClaimOutcome::Claimed(_)
         ));
 
@@ -3880,11 +3827,9 @@ mod tests {
         assert_eq!(recovery.receipt.claim_identity, None);
         let journal_count: i64 = db
             .with_conn(|conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get(0),
-                )
+                conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                    row.get(0)
+                })
                 .map_err(Into::into)
             })
             .unwrap();
@@ -3896,11 +3841,11 @@ mod tests {
         db.acknowledge_output_cleanup(cleanup).unwrap();
         let journal_count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get(0),
-                )?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                        row.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(journal_count, 1);
@@ -3909,11 +3854,11 @@ mod tests {
         db.acknowledge_output_cleanup(cleanup).unwrap();
         let journal_count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get(0),
-                )?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                        row.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(journal_count, 0);
@@ -4474,20 +4419,10 @@ mod tests {
         let (first, second) = db
             .with_conn(|conn| {
                 create_output_persistence_schema(conn)?;
-                let first = enqueue_output_cleanup_journal_conn(
-                    conn,
-                    storage,
-                    attempt,
-                    true,
-                    "t1",
-                )?;
-                let second = enqueue_output_cleanup_journal_conn(
-                    conn,
-                    storage,
-                    attempt,
-                    false,
-                    "t2",
-                )?;
+                let first =
+                    enqueue_output_cleanup_journal_conn(conn, storage, attempt, true, "t1")?;
+                let second =
+                    enqueue_output_cleanup_journal_conn(conn, storage, attempt, false, "t2")?;
                 Ok((first, second))
             })
             .unwrap();
@@ -4543,11 +4478,9 @@ mod tests {
         assert!(!stage_path.exists());
         let remaining: i64 = db
             .with_conn(|conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get(0),
-                )
+                conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                    row.get(0)
+                })
                 .map_err(Into::into)
             })
             .unwrap();
@@ -4574,7 +4507,9 @@ mod tests {
         };
         let storage = claim.storage_identity().unwrap();
         let store = db.output_artifact_store();
-        let stage_path = store.root.join(claim.staging_identity().unwrap().relative_path());
+        let stage_path = store
+            .root
+            .join(claim.staging_identity().unwrap().relative_path());
         fs::create_dir_all(stage_path.parent().unwrap()).unwrap();
         fs::write(&stage_path, "writer-owned stage").unwrap();
 
@@ -4589,15 +4524,16 @@ mod tests {
             .unwrap();
         assert!(db.output_cleanup_is_active(cleanup).unwrap());
         crate::db::memories::remove_output_deletion_files(&db, &store, [cleanup]);
-        assert!(stage_path.exists(), "active writer stage must remain durable");
+        assert!(
+            stage_path.exists(),
+            "active writer stage must remain durable"
+        );
         fs::write(&stage_path, "late writer output").unwrap();
         let journal_count: i64 = db
             .with_conn(|conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get(0),
-                )
+                conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                    row.get(0)
+                })
                 .map_err(Into::into)
             })
             .unwrap();
@@ -4617,11 +4553,9 @@ mod tests {
         assert!(!final_path.exists());
         assert_eq!(
             db.with_conn(|conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
+                conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                    row.get::<_, i64>(0)
+                })
                 .map_err(Into::into)
             })
             .unwrap(),
@@ -4668,11 +4602,11 @@ mod tests {
         assert!(stages.into_iter().all(|path| !path.exists()));
         let journal_count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row(
-                    "SELECT COUNT(*) FROM output_cleanup_journal",
-                    [],
-                    |row| row.get(0),
-                )?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM output_cleanup_journal", [], |row| {
+                        row.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(journal_count, 0);

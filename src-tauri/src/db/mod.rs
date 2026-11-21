@@ -1,11 +1,11 @@
-pub(crate) mod artifact_chunks;
 mod agent_accounts;
-pub(crate) mod lookup_trace;
 pub(crate) mod agent_memory_lookup;
 mod app_connections;
 mod app_events;
+pub(crate) mod artifact_chunks;
 mod history;
 mod license;
+pub(crate) mod lookup_trace;
 mod memories;
 mod memory_conflicts;
 mod memory_curation;
@@ -118,10 +118,8 @@ impl Db {
         let canonical = artifact_chunks::trusted_artifact_path(&root, stored_path)?;
         let canonical_root = fs::canonicalize(root).ok()?;
         let mut components = canonical.strip_prefix(canonical_root).ok()?.components();
-        matches!(components.next(), Some(std::path::Component::Normal(_)))
-            .then_some(())?;
-        matches!(components.next(), Some(std::path::Component::Normal(_)))
-            .then_some(())?;
+        matches!(components.next(), Some(std::path::Component::Normal(_))).then_some(())?;
+        matches!(components.next(), Some(std::path::Component::Normal(_))).then_some(())?;
         components.next().is_none().then_some(canonical)
     }
     /// Repair legacy artifact proof in a small startup batch. This is the only
@@ -200,7 +198,6 @@ impl Db {
         Self::open_in_memory_with_artifact_root(root)
     }
 }
-
 
 pub(crate) fn initialize_app_data_dir(tauri_root: &Path) -> Result<(), DbError> {
     let root = resolve_app_data_dir(tauri_root, crate::app_identity::is_development())?;

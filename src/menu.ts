@@ -14,7 +14,7 @@ export type MenuActions = {
   onToggleSidebar: () => void;
   onToggleActivity: () => void;
   onFitCanvas: () => void;
-  onDownloadLatest: () => void;
+  onCheckForUpdates: () => void;
   onImportWorkflow: () => void;
   onShowShortcuts: () => void;
 };
@@ -174,9 +174,9 @@ export async function installAppMenu(
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
-        id: "help-download-latest",
+        id: "help-check-updates",
         text: "Check for Updates…",
-        action: () => actions.onDownloadLatest(),
+        action: () => actions.onCheckForUpdates(),
       }),
     ],
   });

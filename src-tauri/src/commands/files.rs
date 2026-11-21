@@ -72,14 +72,10 @@ fn temp_sibling(target: &Path) -> Result<PathBuf, String> {
 
 /// Replaces the file atomically, so a failed save leaves the original intact.
 /// `expected_modified_ms` is what the editor loaded; `None` overwrites anyway.
-fn write_text(
-    path: &str,
-    content: &str,
-    expected_modified_ms: Option<u64>,
-) -> Result<u64, String> {
+fn write_text(path: &str, content: &str, expected_modified_ms: Option<u64>) -> Result<u64, String> {
     // Resolve symlinks so the save replaces the real file, not the link.
-    let target = fs::canonicalize(absolute(path)?)
-        .map_err(|e| format!("Could not find this file: {e}"))?;
+    let target =
+        fs::canonicalize(absolute(path)?).map_err(|e| format!("Could not find this file: {e}"))?;
     let meta = fs::metadata(&target).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err("This is not a regular file.".into());
@@ -93,7 +89,10 @@ fn write_text(
 
     let temp = temp_sibling(&target)?;
     let replace = || -> std::io::Result<()> {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
         fs::set_permissions(&temp, meta.permissions())?;
@@ -132,10 +131,7 @@ mod tests {
     use super::*;
 
     fn scratch(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "alfred-files-{test}-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("alfred-files-{test}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -184,10 +180,14 @@ mod tests {
         fs::write(&latin1, [0xe9u8]).unwrap();
 
         assert!(read_text(&text(&dir)).unwrap_err().contains("folder"));
-        assert!(read_text(&text(&binary)).unwrap_err().contains("not a text"));
+        assert!(read_text(&text(&binary))
+            .unwrap_err()
+            .contains("not a text"));
         assert!(read_text(&text(&latin1)).unwrap_err().contains("UTF-8"));
         assert!(read_text("relative.txt").unwrap_err().contains("absolute"));
-        assert!(write_text("relative.txt", "x", None).unwrap_err().contains("absolute"));
+        assert!(write_text("relative.txt", "x", None)
+            .unwrap_err()
+            .contains("absolute"));
     }
 
     #[test]
@@ -199,7 +199,9 @@ mod tests {
         permissions.set_readonly(true);
         fs::set_permissions(&file, permissions).unwrap();
 
-        assert!(write_text(&text(&file), "x", None).unwrap_err().contains("read-only"));
+        assert!(write_text(&text(&file), "x", None)
+            .unwrap_err()
+            .contains("read-only"));
         assert_eq!(fs::read_to_string(&file).unwrap(), "keep");
     }
 
@@ -216,7 +218,10 @@ mod tests {
 
         write_text(&text(&link), "new", None).unwrap();
 
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         assert_eq!(fs::read_to_string(&real).unwrap(), "new");
         let mode = fs::metadata(&real).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o750);

@@ -3,9 +3,9 @@ use super::output_persistence::{tombstone_output_receipts_for_workflow, OutputAr
 use super::{Db, DbError};
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
-use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::Path;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,9 +234,7 @@ impl Db {
                 statement
                     .query_row(params![&workflow_id], row_to_workflow)
                     .optional()?
-                    .ok_or_else(|| {
-                        DbError::Other(format!("workflow not found: {workflow_id}"))
-                    })?
+                    .ok_or_else(|| DbError::Other(format!("workflow not found: {workflow_id}")))?
             };
             transaction.commit()?;
             Ok(updated)
@@ -392,7 +390,10 @@ mod tests {
         assert_eq!(reloaded.name, "Concurrent");
         assert_eq!(reloaded.description, "Keep me");
         assert_eq!(reloaded.working_directory, "/tmp/project");
-        assert_eq!(reloaded.graph, json!({"nodes": [{"id": "keep"}], "edges": []}));
+        assert_eq!(
+            reloaded.graph,
+            json!({"nodes": [{"id": "keep"}], "edges": []})
+        );
     }
 
     #[test]

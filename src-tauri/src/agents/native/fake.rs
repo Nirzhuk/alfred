@@ -5,8 +5,8 @@ use crate::db::agent_memory_lookup::LOOKUP_LIMITS_V1;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub(crate) struct FakeAccountResolver {
     pub account_ref: OpaqueAgentAccountRef,
@@ -97,7 +97,9 @@ impl FakeNativeRuntime {
             delay_ms: AtomicU64::new(0),
             memory_lookup_available: AtomicBool::new(true),
             observed_memory_lookup: AtomicBool::new(false),
-            memory_lookup_context_allowance: Arc::new(FakeMemoryLookupContextAllowance::new(16_000)),
+            memory_lookup_context_allowance: Arc::new(FakeMemoryLookupContextAllowance::new(
+                16_000,
+            )),
         }
     }
 
@@ -164,10 +166,8 @@ impl NativeAgentRuntime for FakeNativeRuntime {
         request: &NativeTurnRequest,
         host: &mut dyn NativeTurnHost,
     ) -> Result<NativeTurnOutcome, NativeRuntimeError> {
-        self.observed_memory_lookup.store(
-            request.tool_capabilities.memory_lookup,
-            Ordering::SeqCst,
-        );
+        self.observed_memory_lookup
+            .store(request.tool_capabilities.memory_lookup, Ordering::SeqCst);
         host.cancellation().checkpoint()?;
         let delay_ms = self.delay_ms.load(Ordering::SeqCst);
         for _ in 0..delay_ms {
@@ -178,11 +178,7 @@ impl NativeAgentRuntime for FakeNativeRuntime {
             return Err(error);
         }
         host.emit(NativeEvent::new(0, NativeEventKind::TurnStarted))?;
-        let mut tools = self
-            .request_tools
-            .lock()
-            .expect("fake tools lock")
-            .clone();
+        let mut tools = self.request_tools.lock().expect("fake tools lock").clone();
         if tools.is_empty() {
             if let Some(tool) = self.request_tool.lock().expect("fake tool lock").clone() {
                 tools.push(tool);
@@ -219,11 +215,7 @@ impl NativeAgentRuntime for FakeNativeRuntime {
                 }
                 let result = match host.invoke_tool(tool) {
                     Ok(result) => result,
-                    Err(_error)
-                        if self
-                            .continue_after_tool_error
-                            .swap(false, Ordering::SeqCst) =>
-                    {
+                    Err(_error) if self.continue_after_tool_error.swap(false, Ordering::SeqCst) => {
                         continue;
                     }
                     Err(error) => return Err(error),
@@ -256,9 +248,7 @@ impl NativeAgentRuntime for FakeNativeRuntime {
             .unknown
             .load(Ordering::SeqCst)
         {
-            NativeLookupAvailability::unavailable(
-                "fake runtime cannot verify remaining context",
-            )
+            NativeLookupAvailability::unavailable("fake runtime cannot verify remaining context")
         } else if self.memory_lookup_available.load(Ordering::SeqCst) {
             NativeLookupAvailability::available()
         } else {
@@ -267,9 +257,7 @@ impl NativeAgentRuntime for FakeNativeRuntime {
             )
         }
     }
-    fn memory_lookup_context_allowance(
-        &self,
-    ) -> Option<Arc<dyn MemoryLookupContextAllowance>> {
+    fn memory_lookup_context_allowance(&self) -> Option<Arc<dyn MemoryLookupContextAllowance>> {
         Some(Arc::clone(&self.memory_lookup_context_allowance)
             as Arc<dyn MemoryLookupContextAllowance>)
     }
@@ -312,7 +300,6 @@ fn update_lookup_chain_state(
         .and_then(Value::as_str)
         .map(str::to_owned);
 }
-
 
 /// A runtime that declares no model catalog. It still executes turns with an
 /// explicitly selected, bounded model.
@@ -486,11 +473,13 @@ impl MemoryLookupTraceSink for FakeMemoryLookupTraceSink {
         }
         self.traces
             .lock()
-            .map_err(|_| NativeRuntimeError::new(
-                NativeErrorCode::ProviderUnavailable,
-                "fake lookup trace sink is unavailable",
-                true,
-            ))?
+            .map_err(|_| {
+                NativeRuntimeError::new(
+                    NativeErrorCode::ProviderUnavailable,
+                    "fake lookup trace sink is unavailable",
+                    true,
+                )
+            })?
             .push(trace.clone());
         Ok(())
     }
@@ -531,9 +520,7 @@ impl FakeMemoryLookupContextAllowance {
 impl MemoryLookupContextAllowance for FakeMemoryLookupContextAllowance {
     fn availability(&self) -> NativeLookupAvailability {
         if self.unknown.load(Ordering::SeqCst) {
-            NativeLookupAvailability::unavailable(
-                "fake runtime cannot verify remaining context",
-            )
+            NativeLookupAvailability::unavailable("fake runtime cannot verify remaining context")
         } else {
             NativeLookupAvailability::available()
         }

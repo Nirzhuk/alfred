@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const NOT_RUNNING: &str = "Alfred isn't running. Ask the user to open the Alfred app, then try again.";
+const NOT_RUNNING: &str =
+    "Alfred isn't running. Ask the user to open the Alfred app, then try again.";
 
 pub fn run(endpoint: PathBuf) {
     let client = reqwest::blocking::Client::builder()
@@ -46,7 +47,9 @@ fn reply(line: &str, endpoint: &Path, client: &reqwest::blocking::Client) -> Opt
     let id = message.get("id").cloned()?;
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     let params = message.get("params").cloned().unwrap_or(Value::Null);
-    let ok = |result: Value| Some(serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_string());
+    let ok = |result: Value| {
+        Some(serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_string())
+    };
     if let Some(result) = mcp::stateless_result(method, &params, true) {
         return ok(result);
     }
@@ -55,7 +58,10 @@ fn reply(line: &str, endpoint: &Path, client: &reqwest::blocking::Client) -> Opt
     }
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     if name == GUIDE_TOOL {
-        return ok(tool_text(format!("{}\n{}", mcp::EXTERNAL_GUIDE, super::GRAPH_REFERENCE), false));
+        return ok(tool_text(
+            format!("{}\n{}", mcp::EXTERNAL_GUIDE, super::GRAPH_REFERENCE),
+            false,
+        ));
     }
     if mcp::BUILDER_ONLY_TOOLS.contains(&name) {
         return ok(tool_text(format!("unknown tool: {name}"), true));
@@ -96,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn outside_agents_get_the_guide_but_not_builder_setup_tools() {
+    fn outside_agents_get_setup_context_but_not_builder_writes() {
         let tools = call(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
         let names: Vec<&str> = tools["result"]["tools"]
             .as_array()
@@ -105,23 +111,40 @@ mod tests {
             .map(|t| t["name"].as_str().unwrap())
             .collect();
         assert!(names.contains(&GUIDE_TOOL) && names.contains(&"create_workflow"));
-        assert!(!names.iter().any(|n| mcp::BUILDER_ONLY_TOOLS.contains(n)));
+        assert!(names.contains(&"list_rules"));
+        assert!(names.contains(&"list_mcp_servers"));
+        assert!(names.contains(&"get_skill"));
+        assert!(!names.contains(&"add_rule"));
+        assert!(!names.contains(&"add_mcp_server"));
 
-        let guide = call(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_workflow_guide"}}"#);
-        assert!(guide["result"]["content"][0]["text"].as_str().unwrap().contains("Node types"));
+        let guide = call(
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_workflow_guide"}}"#,
+        );
+        assert!(guide["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Node types"));
 
-        let hidden = call(r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add_rule"}}"#);
+        let hidden =
+            call(r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add_rule"}}"#);
         assert_eq!(hidden["result"]["isError"], true);
     }
 
     #[test]
     fn closed_app_is_a_readable_tool_error_and_notifications_stay_silent() {
-        let init = call(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
+        let init = call(
+            r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+        );
         assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
 
-        let run = call(r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_workflows"}}"#);
+        let run = call(
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_workflows"}}"#,
+        );
         assert_eq!(run["id"], 4);
-        assert!(run["result"]["content"][0]["text"].as_str().unwrap().contains("isn't running"));
+        assert!(run["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("isn't running"));
 
         let client = reqwest::blocking::Client::new();
         let note = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;

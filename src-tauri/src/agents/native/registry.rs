@@ -72,7 +72,10 @@ impl NativeCapabilityReport {
             ("patch", descriptor.capabilities.supports_patch),
             ("mcp", descriptor.capabilities.supports_mcp),
             ("subagents", descriptor.capabilities.supports_subagents),
-            ("memory_lookup", descriptor.capabilities.supports_memory_lookup),
+            (
+                "memory_lookup",
+                descriptor.capabilities.supports_memory_lookup,
+            ),
         ];
         Self {
             provider: descriptor.provider,
@@ -158,7 +161,6 @@ impl NativeRuntimeMemoryLookupContextAllowance {
         self.registry.runtime(context.provider)
     }
 
-
     fn pinned_allowance(
         &self,
         context: &AlfredToolExecutionContext,
@@ -179,16 +181,13 @@ impl NativeRuntimeMemoryLookupContextAllowance {
             return Ok(allowance);
         }
         let resolved = self.runtime_allowance(context)?;
-        let mut pinned = self
-            .pinned
-            .lock()
-            .map_err(|_| {
-                NativeRuntimeError::new(
-                    NativeErrorCode::ProviderUnavailable,
-                    "native context allowance is unavailable",
-                    true,
-                )
-            })?;
+        let mut pinned = self.pinned.lock().map_err(|_| {
+            NativeRuntimeError::new(
+                NativeErrorCode::ProviderUnavailable,
+                "native context allowance is unavailable",
+                true,
+            )
+        })?;
         Ok(pinned
             .entry(context.turn_id.clone())
             .or_insert(resolved)
@@ -232,10 +231,7 @@ impl MemoryLookupContextAllowance for NativeRuntimeMemoryLookupContextAllowance 
         Ok(())
     }
 
-    fn bind_turn(
-        &self,
-        context: &AlfredToolExecutionContext,
-    ) -> Result<(), NativeRuntimeError> {
+    fn bind_turn(&self, context: &AlfredToolExecutionContext) -> Result<(), NativeRuntimeError> {
         self.pinned_allowance(context).map(|_| ())
     }
 
@@ -372,9 +368,8 @@ impl NativeRuntimeRegistry {
             .as_deref()
             .is_none_or(|reason| reason.trim().is_empty())
         {
-            availability.reason = Some(
-                "native runtime has no verified Alfred memory lookup transport".into(),
-            );
+            availability.reason =
+                Some("native runtime has no verified Alfred memory lookup transport".into());
         }
         availability.reason = availability.reason.map(|reason| redact_text(&reason));
         Ok(availability)
@@ -490,9 +485,9 @@ impl NativeRuntimeRegistry {
             if !availability.available {
                 return Err(NativeRuntimeError::new(
                     NativeErrorCode::CapabilityUnsupported,
-                    availability.reason.unwrap_or_else(|| {
-                        "native runtime memory lookup is unavailable".into()
-                    }),
+                    availability
+                        .reason
+                        .unwrap_or_else(|| "native runtime memory lookup is unavailable".into()),
                     false,
                 ));
             }
@@ -654,7 +649,6 @@ impl NativeRuntimeRegistry {
             thread: Some(thread),
         }
     }
-
 
     fn runtime(
         &self,
@@ -938,13 +932,14 @@ impl NativeTurnHost for RegistryTurnHost<'_> {
             Err(error) => return Err(self.fail_started_tool(&request, error)),
         };
         if let Err(error) = self.cancellation().checkpoint() {
-            let error = match self
-                .tool_executor
-                .reject_for_turn(self.tool_context, &request, &error)
-            {
-                Ok(()) => error,
-                Err(rejection_error) => rejection_error,
-            };
+            let error =
+                match self
+                    .tool_executor
+                    .reject_for_turn(self.tool_context, &request, &error)
+                {
+                    Ok(()) => error,
+                    Err(rejection_error) => rejection_error,
+                };
             return Err(self.fail_started_tool(&request, error));
         }
         let result = match normalize_tool_result(result, &request) {
@@ -952,18 +947,19 @@ impl NativeTurnHost for RegistryTurnHost<'_> {
             Err(error) => return Err(self.fail_started_tool(&request, error)),
         };
         if let Err(error) = self.cancellation().checkpoint() {
-            let error = match self
-                .tool_executor
-                .reject_for_turn(self.tool_context, &request, &error)
-            {
-                Ok(()) => error,
-                Err(rejection_error) => rejection_error,
-            };
+            let error =
+                match self
+                    .tool_executor
+                    .reject_for_turn(self.tool_context, &request, &error)
+                {
+                    Ok(()) => error,
+                    Err(rejection_error) => rejection_error,
+                };
             return Err(self.fail_started_tool(&request, error));
         }
-        if let Err(error) = self
-            .tool_executor
-            .finalize_for_turn(self.tool_context, &request, &result)
+        if let Err(error) =
+            self.tool_executor
+                .finalize_for_turn(self.tool_context, &request, &result)
         {
             return Err(self.fail_started_tool(&request, error));
         }
@@ -988,8 +984,7 @@ pub struct NativeExecutionRouter {
     approval_handler: Arc<dyn AlfredApprovalHandler>,
     tool_capabilities: NativeToolCapabilitySet,
     permission_profile: NativePermissionProfile,
-    memory_lookup_permission_resolver:
-        Option<Arc<dyn Fn(&str, &str) -> bool + Send + Sync>>,
+    memory_lookup_permission_resolver: Option<Arc<dyn Fn(&str, &str) -> bool + Send + Sync>>,
     release_binding_validator: Option<Arc<dyn Fn(&NativeRuntimeDescriptor) -> bool + Send + Sync>>,
     event_limits: NativeEventLimits,
     context_policy: NativeContextPolicy,
@@ -1153,13 +1148,13 @@ impl AgentNativeRuntime for NativeExecutionRouter {
                 .memory_lookup_permission_resolver
                 .as_ref()
                 .is_some_and(|resolver| resolver(run_id, node_id));
-        let lookup_enabled =
-            descriptor.tool_execution_owner == NativeToolExecutionOwner::AlfredExecuted
-                && workflow_permission
-                && self
-                    .memory_lookup_availability_for_runtime(runtime.as_ref(), &descriptor)
-                    .map_err(native_agent_error)?
-                    .available;
+        let lookup_enabled = descriptor.tool_execution_owner
+            == NativeToolExecutionOwner::AlfredExecuted
+            && workflow_permission
+            && self
+                .memory_lookup_availability_for_runtime(runtime.as_ref(), &descriptor)
+                .map_err(native_agent_error)?
+                .available;
         permission_profile.memory_lookup = if lookup_enabled {
             NativeApprovalPolicy::Allow
         } else {
@@ -1193,9 +1188,7 @@ impl AgentNativeRuntime for NativeExecutionRouter {
             (Some(control), Some(cancellation)) => {
                 if control.is_cancelled() {
                     cancellation.cancel();
-                    runtime
-                        .cancel(cancellation)
-                        .map_err(native_agent_error)?;
+                    runtime.cancel(cancellation).map_err(native_agent_error)?;
                 }
                 Some(self.registry.watch_control_with_runtime(
                     Arc::clone(&runtime),
@@ -1368,7 +1361,9 @@ fn validate_descriptor(descriptor: &NativeRuntimeDescriptor) -> Result<(), Nativ
             false,
         ));
     }
-    if descriptor.capabilities.supports_memory_lookup && !descriptor.capabilities.supports_tool_calls {
+    if descriptor.capabilities.supports_memory_lookup
+        && !descriptor.capabilities.supports_tool_calls
+    {
         return Err(NativeRuntimeError::new(
             NativeErrorCode::InvalidRequest,
             "native memory lookup support requires tool calls",

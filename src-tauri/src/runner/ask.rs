@@ -36,7 +36,9 @@ fn ask_field(node: &Value) -> Option<&'static str> {
 /// Resolve placeholders in every Input `prompt` and Template `template`.
 pub fn resolve_nodes(nodes: &mut [Value], answers: &HashMap<String, String>) {
     for node in nodes {
-        let Some(field) = ask_field(node) else { continue };
+        let Some(field) = ask_field(node) else {
+            continue;
+        };
         if let Some(Value::String(text)) = node.pointer_mut(&format!("/data/{field}")) {
             *text = resolve_text(text, answers);
         }
@@ -72,12 +74,18 @@ mod tests {
     fn answers_then_defaults_then_empty() {
         let answers = HashMap::from([("Topic".to_string(), "Rust".to_string())]);
         assert_eq!(
-            resolve_text("{{ask:Topic}} / {{ ask: Tone | calm }} / {{ask:Missing}}", &answers),
+            resolve_text(
+                "{{ask:Topic}} / {{ ask: Tone | calm }} / {{ask:Missing}}",
+                &answers
+            ),
             "Rust / calm / "
         );
         let blank = HashMap::from([("Tone".to_string(), "  ".to_string())]);
         assert_eq!(resolve_text("{{ask:Tone|calm}}", &blank), "calm");
-        assert_eq!(resolve_text("{{output}} {{context}}", &answers), "{{output}} {{context}}");
+        assert_eq!(
+            resolve_text("{{output}} {{context}}", &answers),
+            "{{output}} {{context}}"
+        );
     }
 
     #[test]

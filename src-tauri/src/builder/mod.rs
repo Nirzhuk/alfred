@@ -9,13 +9,15 @@ mod agent;
 pub mod bridge;
 pub mod chats;
 pub mod mcp;
+pub mod skill_sync;
 
 use crate::agents::active::RunControl;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 pub const STREAM_EVENT: &str = "builder://stream";
@@ -111,15 +113,89 @@ fn endpoint_path() -> Result<PathBuf, String> {
 /// Lets `Alfred mcp` (the stdio bridge outside agents launch) find this
 /// process's loopback port and token.
 pub fn write_endpoint(port: u16, token: &str) -> Result<(), String> {
-    write_private(&endpoint_path()?, json!({ "port": port, "token": token }).to_string())
+    write_private(
+        &endpoint_path()?,
+        json!({ "port": port, "token": token }).to_string(),
+    )
 }
 
 /// Name, program and args an outside agent uses to launch the bridge.
 fn external_server() -> Result<(&'static str, PathBuf, Vec<String>), String> {
-    let name = if crate::app_identity::is_development() { "alfred-dev" } else { "alfred" };
+    let name = if crate::app_identity::is_development() {
+        "alfred-dev"
+    } else {
+        "alfred"
+    };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let endpoint = endpoint_path()?.to_string_lossy().into_owned();
     Ok((name, exe, vec!["mcp".into(), endpoint]))
+}
+
+/// Configured servers get a build prefix so dev and stable can register the
+/// same GitHub/Linear server in one external client without overwriting it.
+fn external_mcp_name(name: &str) -> String {
+    if crate::app_identity::is_development() {
+        format!("alfred-dev-{name}")
+    } else {
+        format!("alfred-{name}")
+    }
+}
+
+/// The JSON an external MCP client can paste: Alfred's bridge plus every
+/// enabled server Speak with Alfred uses.
+fn external_config(config: &BuilderConfig) -> Result<Value, String> {
+    let (bridge_name, exe, args) = external_server()?;
+    let mut servers = serde_json::Map::new();
+    servers.insert(
+        bridge_name.into(),
+        json!({
+            "command": exe.to_string_lossy(),
+            "args": args,
+        }),
+    );
+    for server in config.mcp_servers.iter().filter(|server| server.enabled) {
+        let name = external_mcp_name(&server.name);
+        let entry = if server.transport == "http" {
+            json!({
+                "type": "http",
+                "url": server.url,
+                "headers": server.headers,
+            })
+        } else {
+            json!({
+                "command": server.command,
+                "args": server.args,
+                "env": server.env,
+            })
+        };
+        servers.insert(name, entry);
+    }
+    Ok(json!({ "mcpServers": servers }))
+}
+
+fn claude_sync_path() -> Result<PathBuf, String> {
+    Ok(data_dir()?.join("claude-mcp-sync.json"))
+}
+
+fn load_claude_sync() -> Vec<String> {
+    claude_sync_path()
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| {
+            value.get("names").and_then(Value::as_array).map(|names| {
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
+fn save_claude_sync(names: &[String]) -> Result<(), String> {
+    write_private(&claude_sync_path()?, json!({ "names": names }).to_string())
 }
 
 fn config_path() -> Result<PathBuf, String> {
@@ -198,7 +274,9 @@ pub fn validate_config(mut config: BuilderConfig) -> Result<BuilderConfig, Strin
             "stdio" if server.command.trim().is_empty() => {
                 return Err(format!("MCP server \"{}\" needs a command.", server.name));
             }
-            "http" if !(server.url.starts_with("http://") || server.url.starts_with("https://")) => {
+            "http"
+                if !(server.url.starts_with("http://") || server.url.starts_with("https://")) =>
+            {
                 return Err(format!(
                     "MCP server \"{}\" needs an http(s) URL.",
                     server.name
@@ -318,6 +396,106 @@ Parallel branches: fan out from one node to several, then join them into one nod
 Schedules use 5-field cron (`0 9 * * 1-5` = weekdays 9:00) via set_schedule.
 "#;
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpCheck {
+    pub ok: bool,
+    pub detail: String,
+}
+
+/// Check a draft server without saving it or running the command. A stdio
+/// server only proves its executable exists; an HTTP server proves the URL
+/// answers, not that it speaks MCP or that the token is valid.
+#[tauri::command]
+pub async fn builder_check_mcp_server(server: BuilderMcpServer) -> McpCheck {
+    match server.transport.as_str() {
+        "http" => check_http_server(&server).await,
+        "stdio" => check_stdio_command(&server.command),
+        other => McpCheck {
+            ok: false,
+            detail: format!("Unknown MCP transport \"{other}\"."),
+        },
+    }
+}
+
+fn check_stdio_command(command: &str) -> McpCheck {
+    let command = command.trim();
+    if command.is_empty() {
+        return McpCheck {
+            ok: false,
+            detail: "Add a command first.".into(),
+        };
+    }
+    match resolve_command(command) {
+        Some(path) => McpCheck {
+            ok: true,
+            detail: format!("Command found: {}", path.display()),
+        },
+        None => McpCheck {
+            ok: false,
+            detail: format!("Command \"{command}\" was not found on PATH."),
+        },
+    }
+}
+
+fn resolve_command(command: &str) -> Option<PathBuf> {
+    let path = Path::new(command);
+    if command.contains('/') || command.contains('\\') || path.is_absolute() {
+        return path.is_file().then(|| path.to_path_buf());
+    }
+    let extensions: &[&str] = if cfg!(windows) {
+        &["", ".exe", ".cmd", ".bat", ".com"]
+    } else {
+        &[""]
+    };
+    let paths = std::env::var_os("PATH")?;
+    for directory in std::env::split_paths(&paths) {
+        for extension in extensions {
+            let candidate = directory.join(format!("{command}{extension}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+async fn check_http_server(server: &BuilderMcpServer) -> McpCheck {
+    let url = server.url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return McpCheck {
+            ok: false,
+            detail: "Add an http(s) URL first.".into(),
+        };
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(6))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return McpCheck {
+                ok: false,
+                detail: format!("HTTP client could not start ({error})."),
+            }
+        }
+    };
+    let mut request = client.get(url);
+    for (key, value) in &server.headers {
+        request = request.header(key, value);
+    }
+    match request.send().await {
+        Ok(response) => McpCheck {
+            ok: true,
+            detail: format!("Reachable · HTTP {}", response.status()),
+        },
+        Err(error) => McpCheck {
+            ok: false,
+            detail: format!("Could not reach the URL ({error})."),
+        },
+    }
+}
+
 #[tauri::command]
 pub fn builder_get_config() -> BuilderConfig {
     load_config()
@@ -331,6 +509,10 @@ pub fn builder_save_config(app: AppHandle, config: BuilderConfig) -> Result<Buil
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuilderInfo {
+    /// `development` or `production`; selects an isolated data dir and MCP name.
+    pub build: &'static str,
+    /// Per-build data folder, so the UI can name the config file it edits.
+    pub data_dir: Option<String>,
     pub agents: Vec<Value>,
     pub mcp_ready: bool,
     pub tools: Vec<Value>,
@@ -341,6 +523,14 @@ pub struct BuilderInfo {
 #[tauri::command]
 pub fn builder_info(state: State<'_, BuilderState>) -> BuilderInfo {
     BuilderInfo {
+        build: if crate::app_identity::is_development() {
+            "development"
+        } else {
+            "production"
+        },
+        data_dir: data_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned()),
         agents: agent::BuilderAgent::ALL
             .iter()
             .map(|agent| {
@@ -359,41 +549,138 @@ pub fn builder_info(state: State<'_, BuilderState>) -> BuilderInfo {
         external_mcp: external_server().ok().map(|(name, exe, args)| {
             let command = std::iter::once(exe.to_string_lossy().into_owned())
                 .chain(args)
-                .map(|part| if part.contains(' ') { format!("\"{part}\"") } else { part })
+                .map(|part| {
+                    if part.contains(' ') {
+                        format!("\"{part}\"")
+                    } else {
+                        part
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(" ");
-            json!({ "name": name, "command": command })
+            json!({ "name": name, "command": command, "config": external_config(&load_config()).ok() })
         }),
     }
 }
 
-/// Registers the stdio bridge in Claude Code's user scope (all projects).
-/// Returns the server name. Re-running replaces an older registration.
+/// Registers the stdio bridge and every enabled MCP server in Claude Code's
+/// user scope. Re-running replaces this build's entries and removes ones that
+/// were disabled since the last sync.
 #[tauri::command]
 pub async fn builder_connect_claude() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let bin = agent::BuilderAgent::ClaudeCode
             .binary()
             .ok_or("Claude Code isn't installed: no `claude` on PATH.")?;
-        let (name, exe, args) = external_server()?;
-        let claude = || std::process::Command::new(&bin);
-        // `add` refuses to overwrite an existing name.
-        let _ = claude().args(["mcp", "remove", "--scope", "user", name]).output();
-        let out = claude()
-            .args(["mcp", "add", "--scope", "user", name, "--"])
-            .arg(&exe)
-            .args(&args)
-            .output()
-            .map_err(|e| e.to_string())?;
-        if out.status.success() {
-            Ok(name.to_string())
-        } else {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            Err(if stderr.is_empty() { "claude mcp add failed".into() } else { stderr })
+        let config = load_config();
+        let (bridge_name, exe, args) = external_server()?;
+
+        let mut desired: Vec<(String, Option<BuilderMcpServer>)> =
+            vec![(bridge_name.to_string(), None)];
+        for server in config.mcp_servers.iter().filter(|server| server.enabled) {
+            desired.push((external_mcp_name(&server.name), Some(server.clone())));
         }
+        let desired_names: Vec<String> = desired.iter().map(|(name, _)| name.clone()).collect();
+
+        for name in load_claude_sync() {
+            if !desired_names.contains(&name) {
+                remove_claude_server(&bin, &name);
+            }
+        }
+
+        let mut errors = Vec::new();
+        for (name, server) in &desired {
+            remove_claude_server(&bin, name);
+            let result = match server {
+                None => add_claude_stdio(&bin, name, &exe, &args, &BTreeMap::new()),
+                Some(server) if server.transport == "http" => {
+                    add_claude_http(&bin, name, &server.url, &server.headers)
+                }
+                Some(server) => add_claude_stdio(
+                    &bin,
+                    name,
+                    Path::new(&server.command),
+                    &server.args,
+                    &server.env,
+                ),
+            };
+            if let Err(error) = result {
+                errors.push(format!("\"{name}\": {error}"));
+            }
+        }
+        let _ = save_claude_sync(&desired_names);
+
+        if !errors.is_empty() {
+            return Err(format!(
+                "Some MCP servers could not be registered: {}",
+                errors.join("; ")
+            ));
+        }
+        let server_count = desired.len() - 1;
+        Ok(if server_count == 0 {
+            bridge_name.to_string()
+        } else {
+            format!(
+                "{bridge_name} + {server_count} MCP server{}",
+                if server_count == 1 { "" } else { "s" }
+            )
+        })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn remove_claude_server(bin: &Path, name: &str) {
+    let _ = std::process::Command::new(bin)
+        .args(["mcp", "remove", "--scope", "user", name])
+        .output();
+}
+
+fn claude_add_output(mut command: std::process::Command) -> Result<(), String> {
+    let output = command.output().map_err(|error| error.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Err(if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        "claude mcp add failed".into()
+    })
+}
+
+fn add_claude_stdio(
+    bin: &Path,
+    name: &str,
+    command: &Path,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut process = std::process::Command::new(bin);
+    process.args(["mcp", "add", "--scope", "user"]);
+    for (key, value) in env {
+        process.arg("-e").arg(format!("{key}={value}"));
+    }
+    process.arg(name).arg("--").arg(command).args(args);
+    claude_add_output(process)
+}
+
+fn add_claude_http(
+    bin: &Path,
+    name: &str,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut process = std::process::Command::new(bin);
+    process.args(["mcp", "add", "--scope", "user", "--transport", "http"]);
+    for (key, value) in headers {
+        process.arg("-H").arg(format!("{key}: {value}"));
+    }
+    process.arg(name).arg(url);
+    claude_add_output(process)
 }
 
 /// One image for the agent, already sized by the page.
@@ -560,14 +847,17 @@ pub async fn builder_read_image(path: String) -> Result<DroppedImage, String> {
         "tif" | "tiff" => "image/tiff",
         _ => return Err("Only images can be attached.".into()),
     };
-    let size = std::fs::metadata(&path).map_err(|_| "That file could not be read.".to_string())?.len();
+    let size = std::fs::metadata(&path)
+        .map_err(|_| "That file could not be read.".to_string())?
+        .len();
     if size > MAX_DROPPED_IMAGE_BYTES {
         return Err("That image is larger than 40 MB.".into());
     }
-    let bytes = tauri::async_runtime::spawn_blocking(move || std::fs::read(&path).map(|b| (b, path)))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|_| "That file could not be read.".to_string())?;
+    let bytes =
+        tauri::async_runtime::spawn_blocking(move || std::fs::read(&path).map(|b| (b, path)))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|_| "That file could not be read.".to_string())?;
     let (bytes, path) = bytes;
     Ok(DroppedImage {
         name: path
@@ -666,7 +956,10 @@ mod tests {
         assert!(validate_images(&[image("image/png", MAX_IMAGE_BYTES + 1)]).is_err());
         let many: Vec<_> = (0..=MAX_IMAGES).map(|_| image("image/png", 1)).collect();
         assert!(validate_images(&many).is_err());
-        let bad = BuilderImage { media_type: "image/png".into(), data: "%%%".into() };
+        let bad = BuilderImage {
+            media_type: "image/png".into(),
+            data: "%%%".into(),
+        };
         assert!(validate_images(&[bad]).is_err());
     }
 

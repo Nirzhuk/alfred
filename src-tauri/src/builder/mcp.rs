@@ -100,7 +100,10 @@ fn handle_http(app: &AppHandle, request: &mut Request) -> (u16, String) {
     };
     let reply = match message {
         Value::Array(batch) => {
-            let replies: Vec<Value> = batch.into_iter().filter_map(|m| handle_rpc(app, m)).collect();
+            let replies: Vec<Value> = batch
+                .into_iter()
+                .filter_map(|m| handle_rpc(app, m))
+                .collect();
             (!replies.is_empty()).then(|| Value::Array(replies))
         }
         single => handle_rpc(app, single),
@@ -116,8 +119,10 @@ pub(super) fn rpc_error(id: Value, code: i64, message: &str) -> Value {
 }
 
 /// Notifications (no id) get no reply.
-/// Speak with Alfred's own setup; outside agents (via the stdio bridge) don't see these.
-pub const BUILDER_ONLY_TOOLS: [&str; 4] = ["list_rules", "add_rule", "list_mcp_servers", "add_mcp_server"];
+/// Speak with Alfred's own write tools; outside agents should not reconfigure
+/// the user's builder. Read-only setup tools (rules, MCP servers, skills) are
+/// shared so other agents can use the same context.
+pub const BUILDER_ONLY_TOOLS: [&str; 2] = ["add_rule", "add_mcp_server"];
 pub const GUIDE_TOOL: &str = "get_workflow_guide";
 
 const EXTERNAL_INSTRUCTIONS: &str = "Alfred is the user's desktop app for local multi-agent workflows. \
@@ -128,6 +133,8 @@ Call get_workflow_guide once before you create or update a workflow.";
 /// reference plus how to turn a conversation into a workflow.
 pub const EXTERNAL_GUIDE: &str = r#"# Building Alfred workflows
 - Check what exists before you use it: list_agents for installed CLIs, list_skills for skills, list_connected_apps for app actions and connection ids. Never invent ids, skill names, or connections.
+- Read the user's standing rules with list_rules and the MCP servers they configured with list_mcp_servers (secrets are redacted).
+- For a skill the user names, call list_skills, then get_skill with its name to read the full SKILL.md instructions. Follow them for this conversation.
 - To change an existing workflow: list_workflows → get_workflow → update_workflow with the COMPLETE new graph (it replaces the old one).
 - To turn work from this conversation into a workflow, make each repeatable thing you did a step: shell commands → `script`, AI reasoning or code changes → `agent` (usually provider claude_code), fixed instructions → `input`, anything that varies per run → `{{ask:Name|default}}`. Set workingDirectory to the project folder. End with `chooseOutput`.
 - Run a workflow only when the user asks; then get_run with waitSeconds to report the outcome. If run_workflow says answers are missing, ask the user for exactly those fields.
@@ -280,6 +287,15 @@ pub fn tool_definitions() -> Vec<Value> {
             json!({ "projectRoot": { "type": "string", "description": "Also scan this project folder." } }),
             &[],
         ),
+        tool(
+            "get_skill",
+            "Read a SKILL.md package by name, including its full instructions. Call list_skills first.",
+            json!({
+                "name": { "type": "string", "description": "Skill name from list_skills." },
+                "projectRoot": { "type": "string", "description": "Also scan this project folder." }
+            }),
+            &["name"],
+        ),
         tool("list_connected_apps", "Connected app accounts and the actions appAction steps can call.", json!({}), &[]),
         tool("list_rules", "Standing rules the user set for you.", json!({}), &[]),
         tool(
@@ -358,7 +374,9 @@ pub fn call_tool(app: &AppHandle, name: &str, args: &Value) -> Result<Value, Str
     match name {
         "list_workflows" => {
             let workflows = db.list_workflows().map_err(|e| e.to_string())?;
-            Ok(Value::Array(workflows.iter().map(workflow_summary).collect()))
+            Ok(Value::Array(
+                workflows.iter().map(workflow_summary).collect(),
+            ))
         }
         "get_workflow" => {
             let id = required(args, "id")?;
@@ -433,7 +451,9 @@ pub fn call_tool(app: &AppHandle, name: &str, args: &Value) -> Result<Value, Str
                 .get_workflow(id)
                 .map_err(|e| e.to_string())?
                 .ok_or("No workflow with that id. Call list_workflows.")?;
-            let nodes = workflow.graph["nodes"].as_array().map_or(&[][..], Vec::as_slice);
+            let nodes = workflow.graph["nodes"]
+                .as_array()
+                .map_or(&[][..], Vec::as_slice);
             let missing = runner::ask::missing_answers(nodes, &answers);
             if !missing.is_empty() {
                 return Err(format!(
@@ -535,6 +555,28 @@ pub fn call_tool(app: &AppHandle, name: &str, args: &Value) -> Result<Value, Str
                     .collect(),
             ))
         }
+        "get_skill" => {
+            let name = required(args, "name")?;
+            let project_root = str_arg(args, "projectRoot");
+            let skill = crate::skills::list_skills(project_root)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|skill| skill.name == name)
+                .ok_or_else(|| format!("Unknown skill: {name}"))?;
+            let bytes = std::fs::read(&skill.path).map_err(|error| error.to_string())?;
+            if bytes.len() > 256 * 1024 {
+                return Err("SKILL.md is larger than 256 KB.".into());
+            }
+            let content =
+                String::from_utf8(bytes).map_err(|_| "SKILL.md must be UTF-8 text.".to_string())?;
+            Ok(json!({
+                "name": skill.name,
+                "description": skill.description,
+                "path": skill.path,
+                "source": skill.source,
+                "content": content,
+            }))
+        }
         "list_connected_apps" => {
             let connections = db.list_app_connections().map_err(|e| e.to_string())?;
             let connections: Vec<Value> = connections
@@ -601,7 +643,11 @@ pub fn call_tool(app: &AppHandle, name: &str, args: &Value) -> Result<Value, Str
                 args: args
                     .get("args")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 env: string_map(args.get("env")),
                 url: str_arg(args, "url").unwrap_or_default().to_string(),
@@ -657,22 +703,48 @@ fn run_report(detail: &crate::db::RunHistoryDetail) -> Value {
 /// Canvas defaults for each node type, mirroring `src/features/workflow/types.ts`.
 fn node_defaults(kind: &str) -> Option<Value> {
     Some(match kind {
-        "input" | "prompt" => json!({ "label": "Input", "prompt": "", "blocked": false, "attachments": [] }),
-        "agent" => json!({ "label": "Agent", "provider": "claude_code", "harness": "cli", "model": null, "skillNames": [] }),
-        "identity" => json!({ "kind": "identity", "label": "Identity", "role": "", "personality": "", "instructions": "" }),
-        "chooseOutput" => json!({ "label": "Output", "saveToMemory": true, "pinMemory": false, "memoryTitle": "", "asFinalResult": true, "htmlReport": false, "includeFilesChanged": true }),
+        "input" | "prompt" => {
+            json!({ "label": "Input", "prompt": "", "blocked": false, "attachments": [] })
+        }
+        "agent" => {
+            json!({ "label": "Agent", "provider": "claude_code", "harness": "cli", "model": null, "skillNames": [] })
+        }
+        "identity" => {
+            json!({ "kind": "identity", "label": "Identity", "role": "", "personality": "", "instructions": "" })
+        }
+        "chooseOutput" => {
+            json!({ "label": "Output", "saveToMemory": true, "pinMemory": false, "memoryTitle": "", "asFinalResult": true, "htmlReport": false, "includeFilesChanged": true })
+        }
         "memory" => json!({ "label": "Memories", "memoryIds": [] }),
-        "template" => json!({ "kind": "template", "label": "Template", "template": "{{output}}", "mode": "append" }),
+        "template" => {
+            json!({ "kind": "template", "label": "Template", "template": "{{output}}", "mode": "append" })
+        }
         "fileInject" => json!({ "kind": "fileInject", "label": "File inject", "paths": [] }),
         "gitStatus" => json!({ "kind": "gitStatus", "label": "Git status", "includeDiff": true }),
-        "shell" => json!({ "kind": "shell", "label": "Shell", "command": "", "appendOutput": true }),
-        "script" => json!({ "kind": "script", "label": "Script", "source": "inline", "path": "", "body": "", "interpreter": "bash", "appendOutput": true }),
-        "http" => json!({ "kind": "http", "label": "HTTP", "method": "GET", "url": "", "body": "", "headers": "" }),
-        "notify" => json!({ "kind": "notify", "label": "Notify", "title": "Alfred", "body": "{{output}}", "desktop": true, "webhookUrl": "" }),
-        "writeFile" => json!({ "kind": "writeFile", "label": "Write file", "path": "", "content": "{{output}}" }),
-        "gitHost" => json!({ "kind": "gitHost", "label": "Create PR", "action": "pr", "repo": "", "title": "", "body": "{{output}}", "base": "", "head": "", "draft": false }),
-        "appAction" => json!({ "type": "appAction", "label": "App action", "providerId": "", "actionId": "", "connectionId": "", "input": {} }),
-        "customAgent" => json!({ "kind": "customAgent", "label": "Custom agent", "command": "", "promptMode": "template" }),
+        "shell" => {
+            json!({ "kind": "shell", "label": "Shell", "command": "", "appendOutput": true })
+        }
+        "script" => {
+            json!({ "kind": "script", "label": "Script", "source": "inline", "path": "", "body": "", "interpreter": "bash", "appendOutput": true })
+        }
+        "http" => {
+            json!({ "kind": "http", "label": "HTTP", "method": "GET", "url": "", "body": "", "headers": "" })
+        }
+        "notify" => {
+            json!({ "kind": "notify", "label": "Notify", "title": "Alfred", "body": "{{output}}", "desktop": true, "webhookUrl": "" })
+        }
+        "writeFile" => {
+            json!({ "kind": "writeFile", "label": "Write file", "path": "", "content": "{{output}}" })
+        }
+        "gitHost" => {
+            json!({ "kind": "gitHost", "label": "Create PR", "action": "pr", "repo": "", "title": "", "body": "{{output}}", "base": "", "head": "", "draft": false })
+        }
+        "appAction" => {
+            json!({ "type": "appAction", "label": "App action", "providerId": "", "actionId": "", "connectionId": "", "input": {} })
+        }
+        "customAgent" => {
+            json!({ "kind": "customAgent", "label": "Custom agent", "command": "", "promptMode": "template" })
+        }
         _ => return None,
     })
 }
@@ -682,10 +754,18 @@ fn node_defaults(kind: &str) -> Option<Value> {
 /// left-to-right layout when positions are missing.
 pub fn normalize_graph(graph: Value) -> Result<Value, String> {
     let empty = Vec::new();
-    let raw_nodes = graph.get("nodes").and_then(Value::as_array).unwrap_or(&empty);
-    let raw_edges = graph.get("edges").and_then(Value::as_array).unwrap_or(&empty);
+    let raw_nodes = graph
+        .get("nodes")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
+    let raw_edges = graph
+        .get("edges")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
     if raw_nodes.len() > MAX_NODES || raw_edges.len() > MAX_EDGES {
-        return Err(format!("A graph may have at most {MAX_NODES} steps and {MAX_EDGES} connections."));
+        return Err(format!(
+            "A graph may have at most {MAX_NODES} steps and {MAX_EDGES} connections."
+        ));
     }
 
     let mut ids = HashSet::new();
@@ -714,7 +794,9 @@ pub fn normalize_graph(graph: Value) -> Result<Value, String> {
         if kind == "agent" {
             let provider = data["provider"].as_str().unwrap_or("");
             if agents::AgentProvider::from_str(provider).is_none() {
-                return Err(format!("Agent step {index} has unknown provider `{provider}`. Call list_agents."));
+                return Err(format!(
+                    "Agent step {index} has unknown provider `{provider}`. Call list_agents."
+                ));
             }
         }
         let id = raw
@@ -728,7 +810,8 @@ pub fn normalize_graph(graph: Value) -> Result<Value, String> {
             return Err(format!("Two steps share the id `{id}`."));
         }
         let position = raw.get("position").filter(|p| {
-            p.get("x").and_then(Value::as_f64).is_some() && p.get("y").and_then(Value::as_f64).is_some()
+            p.get("x").and_then(Value::as_f64).is_some()
+                && p.get("y").and_then(Value::as_f64).is_some()
         });
         needs_layout |= position.is_none();
         nodes.push(json!({
@@ -745,7 +828,9 @@ pub fn normalize_graph(graph: Value) -> Result<Value, String> {
         let source = raw.get("source").and_then(Value::as_str).unwrap_or("");
         let target = raw.get("target").and_then(Value::as_str).unwrap_or("");
         if !ids.contains(source) || !ids.contains(target) {
-            return Err(format!("Connection {source} → {target} points to a step that does not exist."));
+            return Err(format!(
+                "Connection {source} → {target} points to a step that does not exist."
+            ));
         }
         if source == target || !pairs.insert((source.to_string(), target.to_string())) {
             continue;
@@ -860,13 +945,19 @@ mod tests {
     #[test]
     fn rejects_unknown_types_providers_dangling_edges_and_duplicate_ids() {
         let bad = |graph| normalize_graph(graph).unwrap_err();
-        assert!(bad(json!({ "nodes": [{ "id": "x", "type": "teleport" }] })).contains("unknown type"));
-        assert!(bad(json!({ "nodes": [{ "id": "x", "type": "agent", "data": { "provider": "hal" } }] }))
-            .contains("unknown provider"));
+        assert!(
+            bad(json!({ "nodes": [{ "id": "x", "type": "teleport" }] })).contains("unknown type")
+        );
+        assert!(bad(
+            json!({ "nodes": [{ "id": "x", "type": "agent", "data": { "provider": "hal" } }] })
+        )
+        .contains("unknown provider"));
         assert!(bad(json!({ "nodes": [{ "id": "x", "type": "input" }], "edges": [{ "source": "x", "target": "y" }] }))
             .contains("does not exist"));
-        assert!(bad(json!({ "nodes": [{ "id": "x", "type": "input" }, { "id": "x", "type": "input" }] }))
-            .contains("share the id"));
+        assert!(bad(
+            json!({ "nodes": [{ "id": "x", "type": "input" }, { "id": "x", "type": "input" }] })
+        )
+        .contains("share the id"));
     }
 
     #[test]
@@ -887,6 +978,9 @@ mod tests {
         assert_eq!(names.len(), tools.len());
         assert!(tools.iter().all(|t| t["inputSchema"]["type"] == "object"));
         let run = tools.iter().find(|t| t["name"] == "run_workflow").unwrap();
-        assert_eq!(run["inputSchema"]["properties"]["answers"]["type"], "object");
+        assert_eq!(
+            run["inputSchema"]["properties"]["answers"]["type"],
+            "object"
+        );
     }
 }

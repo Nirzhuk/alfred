@@ -486,10 +486,7 @@ mod tests {
         }
 
         // Still due on its original missed time, waiting on the answer.
-        assert_eq!(
-            next_run(&db, &asked).unwrap(),
-            at("2026-09-08T09:00:00Z")
-        );
+        assert_eq!(next_run(&db, &asked).unwrap(), at("2026-09-08T09:00:00Z"));
         let missed = missed_schedules(&db, opened_at).unwrap();
         assert_eq!(missed.len(), 1);
         assert_eq!(missed[0].schedule_id, asked.id);
@@ -552,7 +549,12 @@ mod tests {
             Some("2026-09-08T09:00:00Z"),
             OnMissed::Ask,
         );
-        let automatic = schedule(&db, "Automatic", "0 0 9 * * *", Some("2026-09-08T09:00:00Z"));
+        let automatic = schedule(
+            &db,
+            "Automatic",
+            "0 0 9 * * *",
+            Some("2026-09-08T09:00:00Z"),
+        );
 
         assert_eq!(missed_schedules(&db, opened_at).unwrap().len(), 2);
 
@@ -562,7 +564,8 @@ mod tests {
             Ok(())
         };
 
-        let ran = resolve_missed_with(&db, &run_now.id, MissedDecision::Run, now, &mut start).unwrap();
+        let ran =
+            resolve_missed_with(&db, &run_now.id, MissedDecision::Run, now, &mut start).unwrap();
         let skipped =
             resolve_missed_with(&db, &drop.id, MissedDecision::Skip, now, &mut start).unwrap();
         let automatic =
@@ -634,7 +637,12 @@ mod tests {
     #[test]
     fn setting_the_value_a_schedule_already_has_changes_nothing() {
         let db = Db::open_in_memory().unwrap();
-        let due = schedule(&db, "Already on", "0 0 9 * * *", Some("2026-09-08T09:00:00Z"));
+        let due = schedule(
+            &db,
+            "Already on",
+            "0 0 9 * * *",
+            Some("2026-09-08T09:00:00Z"),
+        );
 
         let again = set_schedule_enabled(&db, &due.id, true, &guard(&due)).unwrap();
         assert_eq!(again.enabled, due.enabled);

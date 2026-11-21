@@ -341,11 +341,7 @@ impl LookupGetResponse {
         }
         validate_cursor(self.next_cursor.as_deref())?;
 
-        if self.state.may_return_body()
-            != self
-                .body
-                .as_deref()
-                .is_some_and(|body| !body.is_empty())
+        if self.state.may_return_body() != self.body.as_deref().is_some_and(|body| !body.is_empty())
         {
             return Err(LookupContractError::InvalidResponse);
         }
@@ -653,7 +649,6 @@ trait LookupFileReader: Send + Sync {
 struct RegularLookupFileReader;
 
 impl LookupFileReader for RegularLookupFileReader {
-
     fn read_page(
         &self,
         path: &Path,
@@ -670,14 +665,12 @@ impl LookupFileReader for RegularLookupFileReader {
         maximum: usize,
     ) -> Result<RawLookupRead, LookupServiceError> {
         let metadata = regular_file_metadata(path)?;
-        let total_bytes = usize::try_from(metadata.len())
-            .map_err(|_| LookupServiceError::StorageUnavailable)?;
+        let total_bytes =
+            usize::try_from(metadata.len()).map_err(|_| LookupServiceError::StorageUnavailable)?;
         if offset > total_bytes {
             return Err(LookupContractError::InvalidCursor.into());
         }
-        let read_length = total_bytes
-            .saturating_sub(offset)
-            .min(maximum);
+        let read_length = total_bytes.saturating_sub(offset).min(maximum);
         let mut file = File::open(path).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 LookupServiceError::ArtifactUnavailable
@@ -931,9 +924,7 @@ impl AgentMemoryLookupSession {
                 let sources = response
                     .results
                     .iter()
-                    .map(|hit| {
-                        self.trace_source(&hit.reference, hit.source, hit.state, None)
-                    })
+                    .map(|hit| self.trace_source(&hit.reference, hit.source, hit.state, None))
                     .collect::<Result<Vec<_>, _>>()?;
                 (bytes, sources)
             }
@@ -2036,7 +2027,6 @@ impl AgentMemoryLookupSession {
         self.run_file_operation(call, move |reader| reader.read_page(&path, offset, maximum))
     }
 
-
     fn read_raw_file(
         &self,
         path: PathBuf,
@@ -2097,14 +2087,8 @@ impl AgentMemoryLookupSession {
         let manifest = if first_chunk == 0 && last_chunk == 0 {
             metadata
         } else {
-            self.artifact_manifest(
-                memory_id,
-                content_digest,
-                first_chunk,
-                last_chunk,
-                call,
-            )?
-            .ok_or(LookupServiceError::ArtifactUnavailable)?
+            self.artifact_manifest(memory_id, content_digest, first_chunk, last_chunk, call)?
+                .ok_or(LookupServiceError::ArtifactUnavailable)?
         };
         if manifest.state != ArtifactVerificationState::Verified
             || manifest.memory_id != memory_id
@@ -2873,7 +2857,6 @@ fn digest_text(value: &str) -> String {
     digest_bytes(value.as_bytes())
 }
 
-
 fn regular_file_metadata(path: &Path) -> Result<std::fs::Metadata, LookupServiceError> {
     let link_metadata = path.symlink_metadata().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -3012,7 +2995,6 @@ mod tests {
     }
 
     impl LookupFileReader for SlowLookupFileReader {
-
         fn read_page(
             &self,
             _path: &Path,
@@ -3024,14 +3006,12 @@ mod tests {
         }
     }
 
-
     struct HandoffLookupFileReader {
         hold_first_published_worker: AtomicBool,
         published_barrier: Arc<Barrier>,
     }
 
     impl LookupFileReader for HandoffLookupFileReader {
-
         fn read_page(
             &self,
             _path: &Path,
@@ -3756,15 +3736,12 @@ mod tests {
         );
         let found = execute_search(&session, LookupToolName::MemorySearch, "whitespaceNeedle");
         let reference = found.results[0].reference.clone();
-        let first = execute_get(
-            &session,
-            LookupToolName::MemoryGet,
-            &reference,
-            None,
-        )
-        .unwrap();
+        let first = execute_get(&session, LookupToolName::MemoryGet, &reference, None).unwrap();
         assert_eq!(first.state, LookupSourceState::Current);
-        assert_eq!(first.body.as_ref().unwrap().len(), LOOKUP_LIMITS_V1.body_page_bytes);
+        assert_eq!(
+            first.body.as_ref().unwrap().len(),
+            LOOKUP_LIMITS_V1.body_page_bytes
+        );
         let cursor = first.next_cursor.as_deref().expect("next whitespace page");
 
         let second = execute_get(
@@ -4177,9 +4154,13 @@ mod tests {
         assert!(first.body.as_ref().unwrap().ends_with('é'));
         assert!(first.truncated);
         let cursor = first.next_cursor.clone().expect("next artifact cursor");
-        let second =
-            execute_get(&session, LookupToolName::HistoryGet, &step.reference, Some(&cursor))
-                .unwrap();
+        let second = execute_get(
+            &session,
+            LookupToolName::HistoryGet,
+            &step.reference,
+            Some(&cursor),
+        )
+        .unwrap();
         let first_body = first.body.as_deref().unwrap();
         let second_body = second.body.as_deref().unwrap();
         assert!(second_body.starts_with('é'));
@@ -4198,13 +4179,8 @@ mod tests {
             let outside_outputs = directory.path.join("outputs-target");
             fs::rename(&outputs_path, &outside_outputs).unwrap();
             symlink(&outside_outputs, &outputs_path).unwrap();
-            let escaped = execute_get(
-                &session,
-                LookupToolName::HistoryGet,
-                &step.reference,
-                None,
-            )
-            .unwrap();
+            let escaped =
+                execute_get(&session, LookupToolName::HistoryGet, &step.reference, None).unwrap();
             assert_eq!(escaped.state, LookupSourceState::Unavailable);
             assert!(escaped.body.is_none());
             fs::remove_file(&outputs_path).unwrap();
@@ -4264,17 +4240,11 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let deleted = execute_get(
-            &session,
-            LookupToolName::HistoryGet,
-            &step.reference,
-            None,
-        )
-        .unwrap();
+        let deleted =
+            execute_get(&session, LookupToolName::HistoryGet, &step.reference, None).unwrap();
         assert_eq!(deleted.state, LookupSourceState::Deleted);
         assert!(deleted.body.is_none());
     }
-
 
     #[test]
     fn promoted_generic_artifact_remains_readable_after_origin_workflow_deletion() {
@@ -4340,8 +4310,7 @@ mod tests {
             .iter()
             .find(|hit| hit.title == "Promoted generic artifact")
             .expect("find promoted generic artifact");
-        let page =
-            execute_get(&session, LookupToolName::MemoryGet, &hit.reference, None).unwrap();
+        let page = execute_get(&session, LookupToolName::MemoryGet, &hit.reference, None).unwrap();
         assert_eq!(page.state, LookupSourceState::Current);
         assert_eq!(page.body.as_deref(), Some(body.as_str()));
     }
@@ -4431,8 +4400,7 @@ mod tests {
             .iter()
             .find(|hit| hit.title == "Promoted output artifact")
             .expect("find promoted output artifact");
-        let page =
-            execute_get(&session, LookupToolName::MemoryGet, &hit.reference, None).unwrap();
+        let page = execute_get(&session, LookupToolName::MemoryGet, &hit.reference, None).unwrap();
         assert_eq!(page.state, LookupSourceState::Current);
         assert_eq!(page.body.as_deref(), Some(&body[..4_000]));
         assert!(page.truncated);

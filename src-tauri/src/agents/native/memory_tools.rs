@@ -1,8 +1,7 @@
 use super::{
     normalize_tool_result, AlfredToolExecutionContext, AlfredToolExecutor, AlfredToolKind,
-    AlfredToolRequest, AlfredToolResult, AlfredToolStatus, NativeAgentRuntime,
-    NativeCancellation, NativeErrorCode, NativeLookupAvailability, NativeRuntimeError,
-    TOOL_CONTRACT_VERSION,
+    AlfredToolRequest, AlfredToolResult, AlfredToolStatus, NativeAgentRuntime, NativeCancellation,
+    NativeErrorCode, NativeLookupAvailability, NativeRuntimeError, TOOL_CONTRACT_VERSION,
 };
 use crate::db::agent_memory_lookup::{
     AgentMemoryLookupService, AgentMemoryLookupSession, LookupAbort, LookupCallControl,
@@ -51,10 +50,7 @@ pub trait MemoryLookupContextAllowance: Send + Sync {
     /// The default is suitable for an allowance that is already scoped to the
     /// executor. Registry-backed adapters override it to retain the exact
     /// runtime ledger across every reservation and release.
-    fn bind_turn(
-        &self,
-        _context: &AlfredToolExecutionContext,
-    ) -> Result<(), NativeRuntimeError> {
+    fn bind_turn(&self, _context: &AlfredToolExecutionContext) -> Result<(), NativeRuntimeError> {
         Ok(())
     }
     fn bind_runtime(
@@ -86,7 +82,6 @@ pub trait MemoryLookupContextAllowance: Send + Sync {
 
     fn finish_turn(&self, _context: &AlfredToolExecutionContext) {}
 }
-
 
 struct BoundLookupTurn {
     provider: crate::agents::AgentProvider,
@@ -325,16 +320,17 @@ impl MemoryLookupToolExecutor {
                 false,
             ));
         }
-        let (output, trace) = match bound
-            .session
-            .execute_json_with_trace(tool, &encoded_request, &control)
-        {
-            Ok(result) => result,
-            Err(error) => {
-                self.context_allowance.release_bytes(context, reserved);
-                return Err(map_lookup_error(error));
-            }
-        };
+        let (output, trace) =
+            match bound
+                .session
+                .execute_json_with_trace(tool, &encoded_request, &control)
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    self.context_allowance.release_bytes(context, reserved);
+                    return Err(map_lookup_error(error));
+                }
+            };
         let result = AlfredToolResult {
             contract_version: TOOL_CONTRACT_VERSION,
             request_id: request.request_id.clone(),
@@ -443,8 +439,7 @@ impl AlfredToolExecutor for MemoryLookupToolExecutor {
         context: &AlfredToolExecutionContext,
         runtime: Arc<dyn NativeAgentRuntime>,
     ) -> Result<(), NativeRuntimeError> {
-        self.fallback
-            .bind_runtime(context, Arc::clone(&runtime))?;
+        self.fallback.bind_runtime(context, Arc::clone(&runtime))?;
         if !context.memory_lookup_enabled {
             return Ok(());
         }

@@ -136,6 +136,20 @@ function LicenseIcon() {
   );
 }
 
+function McpSkillsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M5 6V3.5M11 6V3.5M3.75 6h8.5v2.25a4.25 4.25 0 0 1-8.5 0V6ZM8 12.5v2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function ConnectedAppsIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -253,6 +267,12 @@ const NAV_GROUPS: SettingsNavGroup[] = [
         label: SETTINGS_SECTION_LABELS["native-agents"],
         description: "Accounts for Alfred's native agent harness",
         icon: <NativeAgentsIcon />,
+      },
+      {
+        id: "mcp-skills",
+        label: SETTINGS_SECTION_LABELS["mcp-skills"],
+        description: "MCP servers, the agent bridge, and discovered skills",
+        icon: <McpSkillsIcon />,
       },
       {
         id: "connected-apps",

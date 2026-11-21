@@ -52,7 +52,8 @@ pub fn builder_list_chats() -> Vec<ChatSummary> {
 
 #[tauri::command]
 pub fn builder_load_chat(id: String) -> Result<Value, String> {
-    let text = std::fs::read_to_string(chat_path(&id)?).map_err(|_| "Chat not found.".to_string())?;
+    let text =
+        std::fs::read_to_string(chat_path(&id)?).map_err(|_| "Chat not found.".to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 

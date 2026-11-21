@@ -30,3 +30,17 @@ test("keeps Native Agents separate from Connected apps", () => {
   expect(markup.match(/settings-sidebar-item/g)?.length).toBeGreaterThan(2);
   expect(markup).toContain('aria-current="page"');
 });
+
+test("exposes MCP and skills under integrations", () => {
+  const markup = renderToStaticMarkup(
+    <SettingsSidebar
+      activeSection="mcp-skills"
+      onChange={() => {}}
+      onBack={() => {}}
+    />,
+  );
+
+  expect(markup).toContain("MCP &amp; Skills");
+  expect(markup).toContain("Integrations");
+  expect(markup).toContain('aria-current="page"');
+});

@@ -4,12 +4,16 @@ import { check } from "@tauri-apps/plugin-updater";
 
 /**
  * Official Alfred builds are published as public GitHub Release assets with a
- * signed `latest.json`. `checkForUpdates` installs from that manifest; the
- * releases page stays the fallback when the check or install cannot run
- * (offline, dev build, or an install that predates the updater).
+ * signed `latest.json`. Update checks never install on their own: `findUpdate`
+ * quietly reports an available version, and `installUpdate` asks before
+ * downloading. The releases page stays the fallback when the check or install
+ * cannot run (offline, dev build, or an install that predates the updater).
  */
 export const LATEST_RELEASES_URL =
   "https://github.com/Nirzhuk/alfred/releases/latest";
+
+/** Re-probe cadence for a long-running window. */
+export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 export const DOWNLOAD_LATEST_RELEASES_MESSAGE = [
   "Download the latest Alfred",
@@ -70,47 +74,86 @@ export async function openLatestDownload({
   }
 }
 
-type AvailableUpdate = {
+export type AvailableUpdate = {
   version: string;
   currentVersion: string;
   downloadAndInstall: () => Promise<void>;
 };
 
-export type CheckForUpdatesDeps = DownloadLatestDeps & {
-  /** Startup check: stay quiet unless an update is actually available. */
-  silent?: boolean;
+export type UpdateCheck = () => Promise<AvailableUpdate | null>;
+
+/**
+ * Quiet availability probe used at launch and on a timer. It never prompts,
+ * installs, or opens the releases page, so a failed check looks like "no
+ * update"; `checkForUpdates` is the explicit path that reports failures.
+ */
+export async function findUpdate(
+  checkUpdate: UpdateCheck = check,
+): Promise<AvailableUpdate | null> {
+  try {
+    return await checkUpdate();
+  } catch {
+    return null;
+  }
+}
+
+export type InstallUpdateDeps = DownloadLatestDeps & {
   confirm?: (message: string) => boolean;
-  checkUpdate?: () => Promise<AvailableUpdate | null>;
   restart?: () => Promise<void>;
 };
 
-export async function checkForUpdates({
-  silent = false,
-  confirm = (message) => window.confirm(message),
-  checkUpdate = check,
-  restart = relaunch,
-  ...download
-}: CheckForUpdatesDeps = {}): Promise<void> {
-  const notify = download.notify ?? ((message) => window.alert(message));
-  let update: AvailableUpdate | null;
-  try {
-    update = await checkUpdate();
-  } catch {
-    if (!silent) await openLatestDownload(download);
-    return;
-  }
-  if (!update) {
-    if (!silent) notify(UP_TO_DATE_MESSAGE);
-    return;
-  }
+/**
+ * Ask, then download the update and restart. Returns true when Alfred
+ * restarted into the new version; a failed download falls back to the
+ * releases page and returns false.
+ */
+export async function installUpdate(
+  update: AvailableUpdate,
+  {
+    confirm = (message) => window.confirm(message),
+    restart = relaunch,
+    ...download
+  }: InstallUpdateDeps = {},
+): Promise<boolean> {
   if (!confirm(updateAvailableMessage(update.version, update.currentVersion))) {
-    return;
+    return false;
   }
   try {
     // Windows quits into the installer here; macOS and Linux need the restart.
     await update.downloadAndInstall();
     await restart();
+    return true;
   } catch {
     await openLatestDownload(download);
+    return false;
   }
+}
+
+export type CheckForUpdatesDeps = InstallUpdateDeps & {
+  checkUpdate?: UpdateCheck;
+};
+
+/**
+ * Explicit check from the menu, tray, or titlebar. Reports "up to date" or
+ * falls back to the releases page, then offers to install a found update.
+ * Returns the update either way so the titlebar can keep offering it after a
+ * declined install.
+ */
+export async function checkForUpdates(
+  deps: CheckForUpdatesDeps = {},
+): Promise<AvailableUpdate | null> {
+  const { checkUpdate = check } = deps;
+  let update: AvailableUpdate | null;
+  try {
+    update = await checkUpdate();
+  } catch {
+    await openLatestDownload(deps);
+    return null;
+  }
+  if (!update) {
+    (deps.notify ?? ((message) => window.alert(message)))(UP_TO_DATE_MESSAGE);
+    return null;
+  }
+  await installUpdate(update, deps);
+  return update;
 }

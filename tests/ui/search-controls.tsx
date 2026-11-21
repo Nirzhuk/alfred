@@ -7,8 +7,10 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { ReactFlow, ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "../../src/App.css";
+import "../../src/features/builder/components/builder-page/builder.css";
 import { SearchInput } from "../../src/components/search-input";
 import { SettingsSidebar } from "../../src/features/settings/components/settings-sidebar/settings-sidebar";
+import { McpSkillsSettings } from "../../src/features/settings/components/mcp-skills-settings/mcp-skills-settings";
 import { applyResolvedTheme } from "../../src/features/settings/theme";
 import { useIntegrationsStore } from "../../src/features/integrations/store";
 import type { ActionDescriptor, ActionFieldDescriptor, AppConnection, AppEventDescriptor, AppProvider } from "../../src/features/integrations/types";
@@ -49,6 +51,28 @@ mockIPC((command, payload) => {
         case "list_linkable_memories": return structuredClone(linkable);
         case "list_agent_providers": return [{ id: "claude_code", label: "Claude Code", defaultModel: null }];
         case "get_memory_review_settings": return { enabled: true, provider: "claude_code", model: null, maxCandidates: 5, updatedAt: timestamp };
+        case "builder_get_config": return { rules: [], mcpServers: [] };
+        case "builder_info": return {
+            build: "development",
+            dataDir: "/tmp/alfred-search-audit",
+            agents: [],
+            mcpReady: true,
+            tools: [
+                { name: "create_workflow", description: "Create a workflow." },
+                { name: "run_workflow", description: "Run a workflow." },
+            ],
+            externalMcp: {
+                name: "alfred-dev",
+                command: "/tmp/alfred mcp /tmp/mcp-endpoint.json",
+                config: { mcpServers: { "alfred-dev": { command: "/tmp/alfred", args: ["mcp", "/tmp/mcp-endpoint.json"] } } },
+            },
+        };
+        case "builder_list_chats": return [];
+        case "list_skills": return structuredClone(skills);
+        case "builder_alfred_skills": return [
+            { name: "review", path: "/tmp/alfred-search-audit/.agents/skills/review/SKILL.md", linked: true },
+            { name: "research", path: "/tmp/alfred-search-audit/.agents/skills/research/SKILL.md", linked: false },
+        ];
         case "get_workflow_memory_review": return { workflowId: workflow.id, enabled: false, updatedAt: timestamp };
         case "get_memory_lookup_availability": return { available: false, reason: "native_runtime_unavailable" };
         case "list_memory_candidates":
@@ -66,7 +90,7 @@ mockIPC((command, payload) => {
         case "list_app_action_resources":
         case "list_app_event_resources": return { items: [{ id: "audit-channel", label: "Editorial" }], nextPageToken: null };
         default:
-            if (command.startsWith("plugin:window|") || command.startsWith("plugin:webview|"))
+            if (command.startsWith("plugin:window|") || command.startsWith("plugin:webview|") || command.startsWith("plugin:event|"))
                 return null;
             unhandled.push(command);
             throw new Error(`Unmocked search audit IPC: ${command}`);
@@ -86,6 +110,7 @@ export const scenarios = ([
     { id: "memory-node", label: "Memories node settings", selector: '[aria-label="Search available memories"]' },
     { id: "add-step", label: "Canvas Add step picker", selector: '[aria-label="Search steps"]' },
     { id: "settings", label: "Settings sidebar", selector: '[aria-label="Search settings"]' },
+    { id: "mcp-skills", label: "MCP & Skills settings", selector: '[aria-label="Filter skills"]' },
     { id: "history", label: "History page", selector: '[aria-label="Search history"]' },
     { id: "skills", label: "Agent settings skill picker", selector: '[aria-label="Search skills"]' },
     { id: "activity", label: "Run activity memories", selector: '[aria-label="Search library"]' },
@@ -162,13 +187,15 @@ function Consumer({ id }: {
         return <TriggersModal workflowId={workflow.id} workflowName={workflow.name} onClose={noOp}/>;
     if (id === "settings")
         return <div className="app-shell run-collapsed"><div className="sidebar-rail"><aside className="sidebar"><SettingsSidebar activeSection="general" onChange={noOp} onBack={noOp}/></aside></div><main /></div>;
+    if (id === "mcp-skills")
+        return <div className="settings-page-body settings-page-panel"><McpSkillsSettings/></div>;
     if (id === "history")
         return <div className="app-shell sidebar-collapsed run-collapsed"><div className="sidebar-rail" /><HistoryPage activeWorkflowId={workflow.id} onClose={noOp}/></div>;
     if (id === "activity")
         return <div className="app-shell sidebar-collapsed"><main /><RunActivityPanel /></div>;
     if (id === "resources")
         return <div className="workflow-workspace" style={{ height: "100%" }}><WorkflowResourcesPanel workflowId={workflow.id} workflowName={workflow.name} onClose={noOp} onOpenMemories={noOp} onOpenRunHistory={noOp}/><main /></div>;
-    return <ReactFlowProvider><ReactFlow nodes={[]} edges={[]}><AddStepPanel onAddPrompt={(...args) => interactions.push(args)} onAddAgent={(...args) => interactions.push(args)} onAddChoose={(...args) => interactions.push(args)} onAddMemory={(...args) => interactions.push(args)} onAddStep={(...args) => interactions.push(args)}/></ReactFlow></ReactFlowProvider>;
+    return <ReactFlowProvider><ReactFlow nodes={[]} edges={[]}><AddStepPanel onTidy={() => undefined} onAddPrompt={(...args) => interactions.push(args)} onAddAgent={(...args) => interactions.push(args)} onAddChoose={(...args) => interactions.push(args)} onAddMemory={(...args) => interactions.push(args)} onAddStep={(...args) => interactions.push(args)}/></ReactFlow></ReactFlowProvider>;
 }
 function Fixture() {
     const [view, updateView] = useState<ViewState>({ id: "library", generation: 0 });
